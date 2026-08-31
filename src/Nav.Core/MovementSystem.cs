@@ -4,8 +4,21 @@ namespace Nav.Core;
 /// <param name="Cell">Where the agent is now.</param>
 /// <param name="Goal">Where it is trying to get to, or its own cell if it has no order.</param>
 /// <param name="Arrived">Standing on its goal.</param>
-/// <param name="Stuck">It has an order it cannot make any progress on.</param>
-public readonly record struct AgentState(int Id, int Cell, int Goal, bool Arrived, bool Stuck);
+/// <param name="StalledTicks">
+/// Consecutive replans that got it no closer to its goal.
+/// </param>
+/// <remarks>
+/// <see cref="Stuck"/> means NO PROGRESS, not "no plan". The distinction was
+/// worth a bug: an agent that can stand still always has a plan — the one-cell
+/// plan of staying put — so a check for "did the planner return anything" reports
+/// two agents deadlocked nose to nose in a corridor as perfectly healthy. They
+/// have plans. The plans go nowhere.
+/// </remarks>
+public readonly record struct AgentState(int Id, int Cell, int Goal, bool Arrived, int StalledTicks)
+{
+    /// <summary>Has an order it is making no progress on.</summary>
+    public bool Stuck => !Arrived && StalledTicks > 0;
+}
 
 /// <summary>
 /// Agents, their orders, and the tick that moves them.
@@ -33,7 +46,7 @@ public sealed class MovementSystem
 
         public PlanResult? Plan { get; set; }
 
-        public bool Stuck { get; set; }
+        public int StalledTicks { get; set; }
     }
 
     private readonly Grid _grid;
@@ -56,7 +69,7 @@ public sealed class MovementSystem
     public long TotalExpanded { get; private set; }
 
     public IReadOnlyList<AgentState> Agents =>
-        [.. _agents.Select(a => new AgentState(a.Id, a.Cell, a.Goal, a.Cell == a.Goal, a.Stuck))];
+        [.. _agents.Select(a => new AgentState(a.Id, a.Cell, a.Goal, a.Cell == a.Goal, a.StalledTicks))];
 
     public int AddAgent(int cell)
     {
@@ -86,7 +99,7 @@ public sealed class MovementSystem
         {
             _agents[id].Goal = goal;
             _agents[id].Plan = null;
-            _agents[id].Stuck = false;
+            _agents[id].StalledTicks = 0;
         }
     }
 
@@ -141,20 +154,26 @@ public sealed class MovementSystem
 
         TotalExpanded += plan.Expanded;
 
-        if (plan.IsStuck)
-        {
-            // It is standing still, which is a fact others need. An agent with no
-            // plan is invisible to everyone planning after it and to the collision
-            // checker, which is how a stationary unit gets walked through.
-            agent.Stuck = true;
-            agent.Plan = new PlanResult([agent.Cell], CurrentTick, 0.0, plan.Expanded, Found: false);
-        }
-        else
-        {
-            agent.Stuck = false;
-            agent.Plan = plan;
-        }
+        // A plan that cannot even stand still is standing still anyway, and that
+        // is a fact others need: an agent with no plan is invisible to everyone
+        // planning after it and to the collision checker, which is how a
+        // stationary unit gets walked through.
+        agent.Plan = plan.IsStuck
+            ? new PlanResult([agent.Cell], CurrentTick, 0.0, plan.Expanded, Found: false)
+            : plan;
+
+        // Progress is measured against the GOAL, not against whether a plan came
+        // back. Two agents deadlocked nose to nose both have plans -- the one-cell
+        // plan of staying put -- and would otherwise report as healthy forever.
+        var before = DistanceToGoal(agent, agent.Cell);
+        var after = DistanceToGoal(agent, agent.Plan.Cells[^1]);
+        agent.StalledTicks = after < before - 1e-9 ? 0 : agent.StalledTicks + 1;
 
         _table.Reserve(agent.Plan.Cells, agent.Plan.StartTick, agent.Id);
     }
+
+    private double DistanceToGoal(Agent agent, int from) =>
+        Movement.OctileDistance(
+            _grid.ColumnOf(from), _grid.RowOf(from),
+            _grid.ColumnOf(agent.Goal), _grid.RowOf(agent.Goal));
 }

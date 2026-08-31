@@ -6,7 +6,16 @@ namespace Nav.Core;
 /// <param name="Conflicts">Collisions found in what actually happened, not in what was planned.</param>
 /// <param name="TotalExpanded">Search nodes spent across the whole run.</param>
 /// <param name="Arrived">How many agents finished on their goal.</param>
-/// <param name="Stuck">How many ended with an order they could make no progress on.</param>
+/// <param name="Stuck">How many ended with an order they were making no progress on.</param>
+/// <param name="MaxStalledTicks">
+/// The longest any agent went without getting closer to its goal.
+/// </param>
+/// <remarks>
+/// <paramref name="MaxStalledTicks"/> is reported because a deadlock is otherwise
+/// indistinguishable from a run that simply had not finished. A scenario can end
+/// with nobody colliding, nobody erroring, and nothing having happened for four
+/// hundred ticks.
+/// </remarks>
 public sealed record ScenarioOutcome(
     int Ticks,
     IReadOnlyList<int> FinalCells,
@@ -14,7 +23,8 @@ public sealed record ScenarioOutcome(
     ConflictReport Conflicts,
     long TotalExpanded,
     int Arrived,
-    int Stuck)
+    int Stuck,
+    int MaxStalledTicks)
 {
     public bool AllArrived => Arrived == FinalCells.Count;
 }
@@ -97,6 +107,7 @@ public static class ScenarioPlayback
             Conflicts: CollisionCheck.Inspect(trajectories),
             TotalExpanded: system.TotalExpanded,
             Arrived: final.Count(a => a.Arrived),
-            Stuck: final.Count(a => a.Stuck));
+            Stuck: final.Count(a => a.Stuck),
+            MaxStalledTicks: final.Count == 0 ? 0 : final.Max(a => a.StalledTicks));
     }
 }

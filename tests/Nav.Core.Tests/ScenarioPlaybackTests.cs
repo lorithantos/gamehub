@@ -91,7 +91,7 @@ public sealed class ScenarioPlaybackTests(ITestOutputHelper output)
 
         output.WriteLine(
             $"{name}: {outcome.Ticks} ticks, {outcome.FinalCells.Count} agents, " +
-            $"{outcome.Arrived} arrived, {outcome.Stuck} stuck, " +
+            $"{outcome.Arrived} arrived, {outcome.Stuck} stuck (max stall {outcome.MaxStalledTicks}), " +
             $"{outcome.Conflicts.AgentTicksChecked:N0} agent-ticks checked, " +
             $"{outcome.TotalExpanded:N0} nodes expanded");
 
@@ -184,6 +184,38 @@ public sealed class ScenarioPlaybackTests(ITestOutputHelper output)
 
         // The corridor admits one crossing, so they cannot both arrive.
         Assert.True(outcome.Arrived < 2, "both agents arrived through a one-wide corridor");
+    }
+
+    [Fact]
+    public void APermanentDeadlockIsReportedAsStuck()
+    {
+        // A unit at each end of a one-wide corridor, each ordered to the other's
+        // cell. Neither can move and neither ever will.
+        //
+        // Both nonetheless have PLANS -- the one-cell plan of staying put -- so
+        // asking "did the planner return something" calls this healthy. Nothing
+        // collides, nothing errors, and nothing happens for sixty ticks. Progress
+        // toward the goal is the thing worth measuring.
+        var (scenario, grid) = Fixtures.Load("headon");
+
+        var outcome = ScenarioPlayback.Play(scenario, grid);
+
+        Assert.Equal(0, outcome.Arrived);
+        Assert.Equal(2, outcome.Stuck);
+        Assert.True(
+            outcome.MaxStalledTicks > 10,
+            $"a permanent deadlock should show a long stall, saw {outcome.MaxStalledTicks}");
+    }
+
+    [Fact]
+    public void AScenarioThatCompletesReportsNobodyStalledAtTheEnd()
+    {
+        var (scenario, grid) = Fixtures.Load("group");
+
+        var outcome = ScenarioPlayback.Play(scenario, grid);
+
+        Assert.Equal(0, outcome.Stuck);
+        Assert.True(outcome.AllArrived);
     }
 
     [Fact]

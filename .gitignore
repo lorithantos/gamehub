@@ -427,3 +427,10 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# --- GameHub ---------------------------------------------------------------
+# Benchmark map data is downloaded, not committed (brief section 4). The small
+# fixtures under maps/fixtures are the deliberate exception: the test suite must
+# run offline.
+/maps/*
+!/maps/fixtures/

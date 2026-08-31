@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Nav.Core/Nav.Core.csproj" />
+    <Project Path="src/Nav.Viewer/Nav.Viewer.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Nav.Core.Tests/Nav.Core.Tests.csproj" />
+  </Folder>
+</Solution>

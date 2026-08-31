@@ -95,11 +95,13 @@ public static class CooperativePlanner
         state[startState] = Open;
         frontier.Push(startState, startH, startH);
 
-        // The closest the search got, kept so a goal beyond the window still
-        // produces forward progress rather than nothing.
-        var bestState = startState;
-        var bestH = startH;
-        var bestCost = 0.0;
+        // The closest the search got TO A CELL IT MAY REMAIN IN, kept so a goal
+        // beyond the window still produces forward progress rather than nothing.
+        // Starts unset: an agent standing where somebody else has already
+        // reserved has nowhere valid to stop, including where it is.
+        var bestState = -1;
+        var bestH = double.PositiveInfinity;
+        var bestCost = double.PositiveInfinity;
 
         var expanded = 0;
 
@@ -118,15 +120,20 @@ public static class CooperativePlanner
             var tick = baseTick + (current / cellCount);
             var costSoFar = g[current];
 
-            if (cell == goal)
+            var x = grid.ColumnOf(cell);
+            var y = grid.RowOf(cell);
+            var h = Movement.OctileDistance(x, y, goalX, goalY);
+
+            // Arriving is only arriving if the agent may stay. Reaching the goal
+            // on a tick when somebody else needs it later is passing through, not
+            // finishing, so the search carries on looking for a later arrival.
+            if (cell == goal && reservations.IsHoldable(cell, tick, agent))
             {
                 return Reconstruct(grid, parent, cellCount, current, startState, baseTick, expanded, found: true);
             }
 
-            var x = grid.ColumnOf(cell);
-            var y = grid.RowOf(cell);
-            var h = Movement.OctileDistance(x, y, goalX, goalY);
-            if (h < bestH || (h == bestH && costSoFar < bestCost))
+            if ((h < bestH || (h == bestH && costSoFar < bestCost)) &&
+                reservations.IsHoldable(cell, tick, agent))
             {
                 bestState = current;
                 bestH = h;
@@ -168,9 +175,14 @@ public static class CooperativePlanner
             }
         }
 
-        // Never reached the goal. Walk to wherever got closest; that is progress,
-        // and the agent replans when the window moves.
-        return Reconstruct(grid, parent, cellCount, bestState, startState, baseTick, expanded, found: false);
+        // Never reached the goal. Walk to whichever reachable cell got closest AND
+        // may be stayed in; that is progress, and the agent replans when the
+        // window moves. If there was no such cell, the agent is genuinely stuck
+        // and saying so is better than producing a plan that parks in somebody
+        // else's path.
+        return bestState < 0
+            ? PlanResult.Stuck(startTick, expanded)
+            : Reconstruct(grid, parent, cellCount, bestState, startState, baseTick, expanded, found: false);
 
         void Relax(int from, int cell, int tick, double cost, int cellX, int cellY)
         {

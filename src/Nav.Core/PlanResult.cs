@@ -39,6 +39,27 @@ public sealed record PlanResult(
     /// <summary>The last tick the plan covers.</summary>
     public int LastTick => Cells.Count > 0 ? StartTick + Cells.Count - 1 : StartTick;
 
+    /// <summary>
+    /// Where the agent is at <paramref name="tick"/>, or -1 before the plan
+    /// begins.
+    /// </summary>
+    /// <remarks>
+    /// After the plan ends the agent is standing on its last cell, so that is what
+    /// this reports. Treating a finished plan as an absence is the same mistake as
+    /// an arrived agent releasing its reservation: it makes a stationary unit
+    /// invisible, and the collision checker stops seeing collisions with it.
+    /// </remarks>
+    public int CellAt(int tick)
+    {
+        if (Cells.Count == 0 || tick < StartTick)
+        {
+            return -1;
+        }
+
+        var index = tick - StartTick;
+        return Cells[Math.Min(index, Cells.Count - 1)];
+    }
+
     public static PlanResult Stuck(int startTick, int expanded) =>
         new([], startTick, 0.0, expanded, Found: false);
 }

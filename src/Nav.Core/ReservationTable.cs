@@ -100,6 +100,31 @@ public sealed class ReservationTable
     public int HolderOf(int cell, int tick) => Occupant(cell, tick);
 
     /// <summary>
+    /// True if <paramref name="agent"/> could occupy <paramref name="cell"/> from
+    /// <paramref name="fromTick"/> to the end of the window and not move again.
+    /// </summary>
+    /// <remarks>
+    /// A plan does not only pass through cells, it ends on one — and stopping is a
+    /// commitment to stay. An agent that walks somewhere it may not remain parks in
+    /// another agent's path, and because <see cref="Reserve"/> holds the final cell
+    /// for the rest of the window it does so by overwriting a reservation that was
+    /// already there. Every step legal, the destination not.
+    /// </remarks>
+    public bool IsHoldable(int cell, int fromTick, int agent)
+    {
+        var last = CurrentTick + Horizon - 1;
+        for (var tick = Math.Max(fromTick, CurrentTick); tick <= last; tick++)
+        {
+            if (!IsFree(cell, tick, agent))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// Records <paramref name="agent"/>'s plan, replacing whatever it held before.
     /// </summary>
     /// <remarks>

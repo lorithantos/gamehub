@@ -3,6 +3,7 @@
     <Project Path="src/Nav.Core/Nav.Core.csproj" />
     <Project Path="src/Nav.Viewer.Raylib/Nav.Viewer.Raylib.csproj" />
     <Project Path="src/Nav.Viewer.Shared/Nav.Viewer.Shared.csproj" />
+    <Project Path="src/Nav.Viewer.Wpf/Nav.Viewer.Wpf.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Nav.Core.Tests/Nav.Core.Tests.csproj" />

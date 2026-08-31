@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>Nav.Viewer.Wpf</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseWPF>true</UseWPF>
+    <!-- The renderer writes vertices straight into mapped GPU memory. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- No App.xaml: Main is written by hand, because it needs [STAThread] and
+         it needs to parse arguments before deciding whether to open a window. -->
+    <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Nav.Viewer.Shared\Nav.Viewer.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
+    <PackageReference Include="Vortice.Direct3D9" Version="3.8.3" />
+    <PackageReference Include="Vortice.D3DCompiler" Version="3.8.3" />
+  </ItemGroup>
+
+  <!-- Embedded rather than copied to the output: a resource compiled into the
+       assembly cannot go missing at run time, cannot be edited into a startup
+       failure, and needs no output-directory hygiene. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Shaders\Viewer.hlsl" />
+  </ItemGroup>
+
+</Project>

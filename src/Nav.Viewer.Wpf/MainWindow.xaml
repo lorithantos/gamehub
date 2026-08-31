@@ -1,0 +1,40 @@
+<Window x:Class="Nav.Viewer.Wpf.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Nav.Viewer"
+        Background="Black"
+        SizeToContent="WidthAndHeight"
+        ResizeMode="CanMinimize"
+        WindowStartupLocation="CenterScreen"
+        Focusable="True">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!--
+            The Direct3D surface. NearestNeighbor on the WPF side as well as in
+            the sampler: WPF composites this image itself, and its own scaling
+            would undo the point sampling if it were left to interpolate.
+        -->
+        <Image x:Name="Surface"
+               Grid.Row="0"
+               Stretch="Fill"
+               RenderOptions.BitmapScalingMode="NearestNeighbor"
+               SnapsToDevicePixels="True" />
+
+        <!--
+            The status line is WPF chrome, not something the renderer draws.
+            That decision is why IRenderer has no DrawText, and why raw Direct3D
+            11, which cannot draw a glyph at all, needed no font machinery here.
+        -->
+        <Border Grid.Row="1" Background="Black" Padding="6,5">
+            <TextBlock x:Name="Status"
+                       Foreground="#F5F5F5"
+                       FontFamily="Consolas"
+                       FontSize="12"
+                       Text="starting..." />
+        </Border>
+    </Grid>
+</Window>

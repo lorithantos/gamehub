@@ -22,4 +22,15 @@
     <ProjectReference Include="..\..\src\Nav.Core\Nav.Core.csproj" />
   </ItemGroup>
 
+  <!--
+    The two committed benchmark fixtures, copied next to the test binary. They are
+    the only map data in the repository (everything else under maps/ is
+    downloaded and gitignored), which is what lets the oracle in
+    BenchmarkOracleTests run on a machine that has never seen movingai.com.
+  -->
+  <ItemGroup>
+    <Content Include="..\..\maps\fixtures\arena.map" Link="Fixtures\arena.map" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\maps\fixtures\arena.map.scen" Link="Fixtures\arena.map.scen" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

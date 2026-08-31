@@ -1,0 +1,12 @@
+# Two agents, one-wide corridor, ordered to swap ends.
+# Catches the EDGE collision: they share no cell at either tick and would walk
+# straight through each other. Nowhere to pass, so the only collision-free
+# outcome is that one of them does not get through.
+version 1
+map corridor.map
+tick 0.016666667
+agent 0 1 1
+agent 1 9 1
+order 0 0 9 1
+order 0 1 1 1
+end 60

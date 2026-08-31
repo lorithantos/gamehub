@@ -55,17 +55,43 @@ public sealed class ReservationTableTests
     }
 
     [Fact]
-    public void APlanReachingTheWindowEdgeDoesNotOverHold()
+    public void WhereAPlanStopsTheAgentIsParkedINDEFINITELY()
     {
+        // Not "until the edge of the window". Recording it that way records the
+        // edge as it was WHEN THE RESERVATION WAS MADE, so one tick later the
+        // window has moved and its last tick reads free -- and somebody plans to
+        // arrive exactly there, into a unit that was never going to leave.
         var table = New();
         var path = Enumerable.Range(0, Horizon).ToArray();
 
         table.Reserve(path, startTick: 0, agent: 1);
 
         Assert.Equal(1, table.HolderOf(path[^1], Horizon - 1));
+        Assert.Equal(1, table.HolderOf(path[^1], Horizon));
+        Assert.Equal(1, table.HolderOf(path[^1], Horizon * 10));
+    }
 
-        // Beyond the horizon nothing is reserved by anybody, held or not.
-        Assert.Equal(-1, table.HolderOf(path[^1], Horizon));
+    [Fact]
+    public void ParkingSurvivesTheWindowMovingPastIt()
+    {
+        var table = New();
+        table.Reserve([5], startTick: 0, agent: 3);
+
+        table.Advance(Horizon * 3);
+
+        Assert.Equal(3, table.HolderOf(5, table.CurrentTick));
+        Assert.False(table.IsFree(5, table.CurrentTick, agent: 4));
+    }
+
+    [Fact]
+    public void ReleaseEndsTheParking()
+    {
+        var table = New();
+        table.Reserve([5], startTick: 0, agent: 3);
+
+        table.Release(3);
+
+        Assert.True(table.IsFree(5, Horizon * 5, agent: 4));
     }
 
     [Fact]
@@ -92,13 +118,16 @@ public sealed class ReservationTableTests
     }
 
     [Fact]
-    public void BeyondTheHorizonEverythingReadsFree()
+    public void BeyondTheHorizonACellNOBODYIsParkedOnReadsFree()
     {
+        // Nothing is planned that far out, so nothing is in the way -- unless
+        // somebody has stopped there, which never expires.
         var table = New();
-        table.Reserve([1, 1, 1], startTick: 0, agent: 0);
+        table.Reserve([1, 2, 3], startTick: 0, agent: 0);
 
         Assert.True(table.IsFree(1, Horizon, agent: 1));
-        Assert.True(table.IsFree(1, Horizon + 100, agent: 1));
+        Assert.True(table.IsFree(2, Horizon + 100, agent: 1));
+        Assert.False(table.IsFree(3, Horizon + 100, agent: 1));
     }
 
     [Fact]

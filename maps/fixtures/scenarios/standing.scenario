@@ -1,0 +1,16 @@
+# Agents 0, 1 and 2 are never given an order. They stand in a line across the
+# middle; agents 3 to 6 are sent past them.
+# Catches an arrived agent that stops reserving its cell, which makes a
+# stationary unit invisible and gets it walked through.
+version 1
+map hall.map
+tick 0.016666667
+agent 0 5 4
+agent 1 5 5
+agent 2 5 6
+agent 3 1 5
+agent 4 1 6
+agent 5 2 5
+agent 6 2 6
+order 0 3,4,5,6 9 5
+end 250

@@ -1,0 +1,22 @@
+# Two groups of six on perpendicular paths through open ground.
+# Catches vertex collisions where there is room to be wrong quietly: with space
+# on all sides a bad plan still looks plausible, which is exactly when nobody
+# notices.
+version 1
+map hall.map
+tick 0.016666667
+agent 0 1 3
+agent 1 1 4
+agent 2 1 5
+agent 3 2 3
+agent 4 2 4
+agent 5 2 5
+agent 6 3 1
+agent 7 4 1
+agent 8 5 1
+agent 9 3 2
+agent 10 4 2
+agent 11 5 2
+order 0 0,1,2,3,4,5 10 4
+order 0 6,7,8,9,10,11 4 10
+end 250

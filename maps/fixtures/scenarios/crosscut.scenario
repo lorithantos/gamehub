@@ -1,0 +1,14 @@
+# Six agents crossing the whole map through a single bottleneck at (9,3).
+# The expensive case: long paths, forced queueing, and enough replanning across
+# window boundaries to exercise the frame budget rather than a single search.
+version 1
+map crosscut.map
+tick 0.016666667
+agent 0 1 1
+agent 1 1 2
+agent 2 2 1
+agent 3 2 2
+agent 4 1 4
+agent 5 2 4
+order 0 0,1,2,3,4,5 18 3
+end 400

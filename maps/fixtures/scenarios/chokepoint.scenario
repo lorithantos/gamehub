@@ -1,0 +1,16 @@
+# Eight agents in the left room, ordered through a one-cell gap at (6,4).
+# Catches deadlock and starvation under fixed priority: the low-priority agents
+# must queue rather than jam, and none may be starved indefinitely.
+version 1
+map gap.map
+tick 0.016666667
+agent 0 1 1
+agent 1 2 1
+agent 2 3 1
+agent 3 4 1
+agent 4 1 2
+agent 5 2 2
+agent 6 3 2
+agent 7 4 2
+order 0 0,1,2,3,4,5,6,7 10 4
+end 400

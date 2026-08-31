@@ -33,6 +33,24 @@ public sealed class ReservationTable
     private readonly int _cellCount;
     private readonly Dictionary<int, List<Reservation>> _byAgent = [];
 
+    /// <summary>
+    /// Where each agent's plan ENDS, and from when. Parking is indefinite.
+    /// </summary>
+    /// <remarks>
+    /// Kept as a fact rather than written into the ring, and the difference is not
+    /// cosmetic. Materialising "I am staying here" as ticks up to the window edge
+    /// records it as ending at whatever the edge happened to be WHEN THE
+    /// RESERVATION WAS MADE. One tick later the window has moved and its last tick
+    /// reads free, so another agent plans to arrive exactly there — and walks into
+    /// a unit that was never going to leave.
+    /// <para>
+    /// Measured, not theorised: two agents in a one-wide corridor stood off for
+    /// thirty-one ticks and then passed through each other on tick 32, with a
+    /// horizon of 32.
+    /// </para>
+    /// </remarks>
+    private readonly Dictionary<int, (int Agent, int FromTick)> _parked = [];
+
     /// <param name="cellCount">Cells in the grid these reservations refer to.</param>
     /// <param name="horizon">
     /// How many ticks ahead are tracked. At least 2, because a swap is a question
@@ -167,10 +185,9 @@ public sealed class ReservationTable
             Mark(path[i], tick, agent, held);
         }
 
-        for (var tick = startTick + path.Count; tick <= last; tick++)
-        {
-            Mark(path[^1], tick, agent, held);
-        }
+        // Where the plan stops, the agent stays — for good, not until the edge of
+        // whatever window happens to be current. See the note on _parked.
+        _parked[path[^1]] = (agent, startTick + path.Count - 1);
     }
 
     /// <summary>Drops everything <paramref name="agent"/> holds.</summary>
@@ -179,6 +196,11 @@ public sealed class ReservationTable
         if (!_byAgent.TryGetValue(agent, out var held))
         {
             return;
+        }
+
+        foreach (var (cell, park) in _parked.Where(p => p.Value.Agent == agent).ToArray())
+        {
+            _parked.Remove(cell);
         }
 
         foreach (var reservation in held)
@@ -211,7 +233,8 @@ public sealed class ReservationTable
 
         if (ticks >= Horizon)
         {
-            // Everything tracked is now in the past.
+            // Everything in the ring is now in the past. Parked agents are not:
+            // they are still standing there.
             foreach (var slot in _ring)
             {
                 Array.Fill(slot, Free);
@@ -239,8 +262,19 @@ public sealed class ReservationTable
                 nameof(tick), tick, $"Tick {tick} is behind the window, which begins at {CurrentTick}.");
         }
 
-        // Beyond the horizon nothing has been planned, so nothing is in the way.
-        return tick >= CurrentTick + Horizon ? Free : _ring[tick % Horizon][cell];
+        if (tick < CurrentTick + Horizon)
+        {
+            var planned = _ring[tick % Horizon][cell];
+            if (planned != Free)
+            {
+                return planned;
+            }
+        }
+
+        // Nothing planned for that moment. Somebody may still be parked here, and
+        // parking does not expire with the window — that is the whole point of
+        // tracking it separately.
+        return _parked.TryGetValue(cell, out var park) && tick >= park.FromTick ? park.Agent : Free;
     }
 
     private void Mark(int cell, int tick, int agent, List<Reservation> held)

@@ -36,9 +36,27 @@ public static class PathFinder
     /// the inner loop allocates nothing at all.
     /// </para>
     /// </remarks>
-    public static PathResult FindPath(Grid grid, int start, int goal)
+    public static PathResult FindPath(Grid grid, int start, int goal) =>
+        FindPath(grid, start, goal, new SearchWorkspace());
+
+    /// <summary>
+    /// Finds a cheapest path using scratch space the caller owns.
+    /// </summary>
+    /// <remarks>
+    /// This is the form to use when there is more than one search to do. A
+    /// workspace reused across searches removes the per-call allocation of three
+    /// grid-sized arrays -- on a 1104x1260 map that is 17 MB a search, on the
+    /// Large Object Heap -- without changing a single answer.
+    /// <para>
+    /// One workspace belongs to one search at a time. Many searches run in
+    /// parallel by giving each worker its own: <see cref="Grid"/> is immutable
+    /// and shared, nothing here is static, and so nothing needs synchronising.
+    /// </para>
+    /// </remarks>
+    public static PathResult FindPath(Grid grid, int start, int goal, SearchWorkspace workspace)
     {
         ArgumentNullException.ThrowIfNull(grid);
+        ArgumentNullException.ThrowIfNull(workspace);
 
         if (!grid.IsPassable(start) || !grid.IsPassable(goal))
         {
@@ -53,18 +71,29 @@ public static class PathFinder
         var width = grid.Width;
         var cellCount = grid.CellCount;
 
-        var g = new double[cellCount];
-        Array.Fill(g, double.PositiveInfinity);
-        var parent = new int[cellCount];
-        Array.Fill(parent, -1);
-        var state = new byte[cellCount];
+        workspace.EnsureCapacity(cellCount);
+        workspace.NextGeneration();
+
+        var g = workspace.Cost;
+        var parent = workspace.Parent;
+        var state = workspace.State;
+        var stamp = workspace.Stamp;
+        var generation = workspace.Generation;
 
         var goalX = grid.ColumnOf(goal);
         var goalY = grid.RowOf(goal);
 
-        var frontier = new BinaryHeap();
+        var frontier = workspace.Frontier;
         var startH = Movement.OctileDistance(grid.ColumnOf(start), grid.RowOf(start), goalX, goalY);
+
+        // A cell's contents mean nothing unless its stamp matches this search, so
+        // touching it is what makes the three arrays readable for that cell. The
+        // parent is set explicitly rather than left stale: Reconstruct walks the
+        // chain until it reaches the start, and a stale parent there would send
+        // it somewhere else entirely.
+        stamp[start] = generation;
         g[start] = 0.0;
+        parent[start] = -1;
         state[start] = Open;
         frontier.Push(start, startH, startH);
 
@@ -103,19 +132,25 @@ public static class PathFinder
 
                 var next = ((y + step.DeltaY) * width) + x + step.DeltaX;
 
+                // An unstamped cell has never been seen by THIS search, whatever
+                // its arrays still hold from the last one: it is unvisited, and
+                // its cost is infinite.
+                var live = stamp[next] == generation;
+
                 // The octile heuristic is consistent for this cost model, so a
                 // closed cell already holds its optimal g and cannot be improved.
-                if (state[next] == Closed)
+                if (live && state[next] == Closed)
                 {
                     continue;
                 }
 
                 var tentative = costSoFar + step.Cost;
-                if (tentative + Improvement >= g[next])
+                if (live && tentative + Improvement >= g[next])
                 {
                     continue;
                 }
 
+                stamp[next] = generation;
                 g[next] = tentative;
                 parent[next] = current;
                 state[next] = Open;

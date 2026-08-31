@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Nav.Viewer.Raylib</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    Deliberately still plain net10.0 rather than net10.0-windows: raylib is
+    portable and there is no reason this host should stop being so just because
+    a sibling host is Windows-only.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Nav.Viewer.Shared\Nav.Viewer.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Raylib-cs" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Nav.Viewer</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    Nav.Core and nothing else. This absence is the seam: a graphics type cannot
+    leak into the app's vocabulary, because no graphics assembly is referenced
+    here for it to leak from. The constraint is enforced by the compiler rather
+    than by review.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Nav.Core\Nav.Core.csproj" />
+  </ItemGroup>
+
+</Project>

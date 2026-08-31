@@ -10,30 +10,39 @@ namespace Nav.Viewer;
 /// <remarks>
 /// Drawing goes one way and mouse picking goes the other, and writing the
 /// transform twice is how they end up half a cell apart.
+/// <para>
+/// It was already renderer-free before the seam existed, which is why it moved
+/// here unchanged. Both hosts and both renderers go through it, so their
+/// geometry cannot disagree.
+/// </para>
 /// </remarks>
-internal readonly record struct GridLayout(int CellSize, int PixelWidth, int PixelHeight)
+public readonly record struct GridLayout(int CellSize, int PixelWidth, int PixelHeight)
 {
     /// <summary>
     /// The largest whole number of pixels per cell that fits the budget.
     /// </summary>
     /// <remarks>
-    /// Whole pixels, so a cell never lands on a half-pixel boundary and shimmers.
-    /// Floored at 1: a 512x512 map renders at one pixel per cell rather than
-    /// vanishing.
+    /// Whole pixels, so a cell never lands on a half-pixel boundary and
+    /// shimmers. Floored at 1: a 512x512 map renders at one pixel per cell
+    /// rather than vanishing.
     /// </remarks>
     public static GridLayout Fit(Grid grid, int maxWidth, int maxHeight)
     {
+        ArgumentNullException.ThrowIfNull(grid);
+
         var cell = Math.Max(1, Math.Min(maxWidth / grid.Width, maxHeight / grid.Height));
         return new GridLayout(cell, grid.Width * cell, grid.Height * cell);
     }
 
-    /// <summary>Screen position of the centre of a cell, or of a continuous position between cells.</summary>
+    /// <summary>Screen position of a cell's centre, or of a continuous position between cells.</summary>
     public Vector2 CenterOf(float gridX, float gridY) =>
         new((gridX + 0.5f) * CellSize, (gridY + 0.5f) * CellSize);
 
     /// <summary>The cell under a screen position, or false if that is not over the map.</summary>
     public bool TryPick(Vector2 screen, Grid grid, out int cell)
     {
+        ArgumentNullException.ThrowIfNull(grid);
+
         cell = -1;
 
         if (screen.X < 0 || screen.Y < 0 || screen.X >= PixelWidth || screen.Y >= PixelHeight)

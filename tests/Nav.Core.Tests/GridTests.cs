@@ -170,6 +170,44 @@ public sealed class GridTests
     }
 
     [Fact]
+    public void FromMapFile_ReadsTheSameGridAsFromMapText()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"nav-{Guid.NewGuid():N}.map");
+        File.WriteAllText(path, SampleMaps.CornerCutTrap);
+        try
+        {
+            var fromFile = Grid.FromMapFile(path);
+            var fromText = Grid.FromMapText(SampleMaps.CornerCutTrap);
+
+            Assert.Equal(fromText.Width, fromFile.Width);
+            Assert.Equal(fromText.Height, fromFile.Height);
+            Assert.Equal(fromText.ToMapBody(), fromFile.ToMapBody());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void FromMapFile_NamesTheFileInTheError()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"nav-{Guid.NewGuid():N}.map");
+        File.WriteAllText(path, "type octile\nheight 2\nwidth 3\nmap\n...\n");
+        try
+        {
+            var ex = Assert.Throws<MapFormatException>(() => Grid.FromMapFile(path));
+
+            Assert.Equal(path, ex.SourcePath);
+            Assert.Contains(path, ex.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void XIsTheColumnAndYIsTheRow()
     {
         var grid = Grid.FromMapText(Asymmetric);

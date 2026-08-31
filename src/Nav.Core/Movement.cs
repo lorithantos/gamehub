@@ -22,6 +22,21 @@ public static class Movement
     public const double CardinalCost = 1.0;
 
     /// <summary>
+    /// What a tick spent standing still costs.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately not free. A cooperative search needs a wait action so a unit
+    /// can yield right of way, and if waiting cost nothing the cheapest plan would
+    /// be to wait forever. Priced at a cardinal step so the search prefers making
+    /// progress, and so a plan's cost still means "ticks of effort".
+    /// <para>
+    /// It leaves the octile heuristic admissible: waiting never reduces the
+    /// distance remaining, so the heuristic still cannot overestimate.
+    /// </para>
+    /// </remarks>
+    public const double WaitCost = CardinalCost;
+
+    /// <summary>
     /// Computed rather than typed out. The literal is 1.4142135623730951, but a
     /// hand-copied constant is a thing that can be wrong, and the JIT folds this
     /// after first access anyway.

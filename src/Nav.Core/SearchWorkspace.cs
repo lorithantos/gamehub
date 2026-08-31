@@ -81,16 +81,25 @@ public sealed class SearchWorkspace
     /// Begins a search. Every cell becomes untouched again in constant time.
     /// </summary>
     /// <remarks>
-    /// The reset is the whole point. Clearing three grid-sized arrays costs the
-    /// same on a search that expands forty nodes as on one that expands forty
-    /// thousand, and across the benchmark corpus it works out at 23 cells
-    /// initialised for every node actually expanded. Bumping a counter instead
-    /// makes a cell's staleness a comparison rather than a write.
+    /// The reset is the whole point: clearing three grid-sized arrays costs the
+    /// same on a search that expands three nodes as on one that expands forty
+    /// thousand. Bumping a counter instead makes a cell's staleness a comparison
+    /// rather than a write.
     /// <para>
-    /// The cost is four bytes a cell held permanently, and one wrap-around case
-    /// -- after two billion searches on one workspace the counter is rolled and
-    /// the stamps are cleared once, which is the only O(cells) reset that
-    /// remains.
+    /// HOW MUCH THIS IS WORTH DEPENDS ENTIRELY ON PATH LENGTH, and the aggregate
+    /// hides it. Measured over the 155,620-record Moving AI corpus the whole
+    /// change is worth 3%, because 73% of that corpus is long cross-map problems
+    /// averaging 18,339 expansions -- only 20 cells cleared per node. Banding the
+    /// same measurement by the scenario files' own difficulty bucket tells a
+    /// different story: the shortest problems average three expanded nodes and
+    /// 44,306 cells cleared for each one. Restricted to short paths, which is
+    /// what most movement in a game actually is, this is ~4.9x faster --
+    /// 101,520 searches a second against 20,529.
+    /// </para>
+    /// <para>
+    /// The cost is four bytes a cell held permanently, and one wrap-around case:
+    /// after two billion searches on one workspace the counter is rolled and the
+    /// stamps cleared once, which is the only O(cells) reset that remains.
     /// </para>
     /// </remarks>
     internal void NextGeneration()

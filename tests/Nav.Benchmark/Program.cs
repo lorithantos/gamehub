@@ -54,6 +54,19 @@ internal static class Program
 
         /// <summary>Nodes expanded per difficulty bucket.</summary>
         public long[] BucketExpanded { get; init; } = new long[BucketCount];
+
+        /// <summary>
+        /// Expansions for every individual search, kept so the distribution can
+        /// be reported rather than summarised away.
+        /// </summary>
+        /// <remarks>
+        /// A mean answers how long the whole corpus takes, because the total is
+        /// the mean times the count. It answers nothing about what one search
+        /// costs when the distribution is this skewed, and a frame budget is
+        /// spent on individual searches. 155,620 ints is under a megabyte, so
+        /// there is no reason to approximate.
+        /// </remarks>
+        public int[] Expansions { get; init; } = [];
     }
 
     /// <summary>
@@ -161,6 +174,8 @@ internal static class Program
             var narrow = 0;
             var bucketRecords = new long[BucketCount];
             var bucketExpanded = new long[BucketCount];
+            var expansions = new int[records.Count];
+            var at = 0;
 
             foreach (var record in records)
             {
@@ -173,6 +188,8 @@ internal static class Program
                 // cleared before the search starts.
                 totalExpanded += result.Expanded;
                 maxExpanded = Math.Max(maxExpanded, result.Expanded);
+
+                expansions[at++] = result.Expanded;
 
                 var bucket = Math.Clamp(record.Bucket, 0, BucketCount - 1);
                 bucketRecords[bucket]++;
@@ -221,6 +238,7 @@ internal static class Program
                 NarrowSearches = narrow,
                 BucketRecords = bucketRecords,
                 BucketExpanded = bucketExpanded,
+                Expansions = expansions,
             };
         }
         catch (Exception ex) when (ex is MapFormatException or IOException)
@@ -312,7 +330,8 @@ internal static class Program
         Console.WriteLine($"  cells cleared, total       : {cellsCleared:N0}");
         Console.WriteLine($"  cells cleared per node     : {(double)cellsCleared / Math.Max(expanded, 1):N1}");
         Console.WriteLine($"  memory initialised         : {cellsCleared * BytesPerCell / (double)(1L << 30):N1} GiB");
-        Console.WriteLine($"  mean expanded per search   : {(double)expanded / Math.Max(records, 1):N0}");
+        ReportDistribution(solved);
+
         Console.WriteLine($"  searches touching <1% grid : {narrow:N0} of {records:N0} ({100.0 * narrow / Math.Max(records, 1):F1}%)");
 
         var worst = solved
@@ -349,6 +368,61 @@ internal static class Program
             var ratio = (double)bucketCells / Math.Max(bucketExpanded, 1);
 
             Console.WriteLine($"  {bucket,6}  {count,9:N0}   {mean,13:N0}   {ratio,20:N0}x");
+        }
+    }
+
+    /// <summary>
+    /// What one search costs, as a distribution rather than an average.
+    /// </summary>
+    /// <remarks>
+    /// The mean is reported last and deliberately not first. On this data it is
+    /// 13,576 expansions, which describes almost no actual search: the
+    /// distribution spans five orders of magnitude, so the average sits in a
+    /// sparsely populated middle. The percentiles say what a search typically
+    /// costs; the tail says what can blow a frame budget, which is the number
+    /// that decides whether pathing has to be spread across frames.
+    /// </remarks>
+    private static void ReportDistribution(MapOutcome[] outcomes)
+    {
+        var all = outcomes.SelectMany(o => o.Expansions).ToArray();
+        if (all.Length == 0)
+        {
+            return;
+        }
+
+        Array.Sort(all);
+
+        static int At(int[] sorted, double quantile) =>
+            sorted[Math.Clamp((int)(quantile * sorted.Length), 0, sorted.Length - 1)];
+
+        Console.WriteLine();
+        Console.WriteLine("EXPANSIONS PER SEARCH");
+        Console.WriteLine($"  min {all[0]:N0}   p50 {At(all, 0.50):N0}   p90 {At(all, 0.90):N0}   " +
+                          $"p99 {At(all, 0.99):N0}   p99.9 {At(all, 0.999):N0}   max {all[^1]:N0}");
+        Console.WriteLine($"  mean {all.Average():N0}  <- sits at the {100.0 * Array.BinarySearch(all, (int)all.Average()) / all.Length:F0}th percentile");
+
+        // Log2 bands, because the range spans five orders of magnitude and a
+        // linear histogram would be one tall bar and a lot of empty space.
+        Console.WriteLine();
+        Console.WriteLine("  expansions        searches");
+        var bands = new int[24];
+        foreach (var count in all)
+        {
+            bands[Math.Clamp(count == 0 ? 0 : (int)Math.Log2(count), 0, bands.Length - 1)]++;
+        }
+
+        for (var band = 0; band < bands.Length; band++)
+        {
+            if (bands[band] == 0)
+            {
+                continue;
+            }
+
+            var low = band == 0 ? 0 : 1 << band;
+            var high = (1 << (band + 1)) - 1;
+            var share = (double)bands[band] / all.Length;
+            var bar = new string('#', (int)Math.Round(share * 60));
+            Console.WriteLine($"  {low,7:N0}-{high,-9:N0} {bands[band],8:N0}  {share,6:P1} {bar}");
         }
     }
 

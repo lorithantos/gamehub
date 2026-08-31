@@ -434,3 +434,12 @@ FodyWeavers.xsd
 # run offline.
 /maps/*
 !/maps/fixtures/
+
+# Code graphs are local build artifacts, never source. RazorGraph's build,
+# build-solution and research commands default their output into a Plumbline
+# folder; anything a save_graph call drops belongs there too. Nothing under it
+# is committed -- a graph is derived from the code beside it and goes stale the
+# moment that code changes, so a committed one is worse than none.
+Plumbline/
+*.Plumbline/
+.graph/

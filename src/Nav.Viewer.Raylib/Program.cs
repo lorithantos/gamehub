@@ -61,6 +61,18 @@ internal static class Program
             return 1;
         }
 
+        // A map of nothing but walls parses perfectly well -- "@@@" is valid --
+        // and then ViewerApp has no cell to put the unit on. Found by
+        // exception_escapes once the extraction made this code visible to the
+        // graph: it reported an unconditional InvalidOperationException reaching
+        // Main from EndPassableCell. Refusing here with the map's name beats
+        // catching it later, and beats the stack trace it used to produce.
+        if (grid.PassableCount == 0)
+        {
+            Console.Error.WriteLine($"{mapName} has no passable cell; there is nothing to walk on.");
+            return 1;
+        }
+
         // Pure, and shared: the WPF host will size itself from this same call,
         // so the two cannot disagree about geometry by accident.
         var layout = GridLayout.Fit(grid, MaxMapPixels, MaxMapPixels - StatusHeight);

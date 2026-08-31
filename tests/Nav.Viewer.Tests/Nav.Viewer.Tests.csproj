@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Nav.Viewer.Tests</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <!--
+    Nav.Viewer.Shared and nothing else, and the target framework is plain
+    net10.0 rather than net10.0-windows. Both facts are part of the result being
+    measured: this project drives the entire viewer with no raylib native
+    binary, no Vortice, and no WPF anywhere in the process. If a graphics
+    reference ever has to be added here, the seam leaked.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Nav.Viewer.Shared\Nav.Viewer.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

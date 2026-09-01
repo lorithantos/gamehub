@@ -46,7 +46,16 @@ public sealed record ScenarioOutcome(
 /// </remarks>
 public static class ScenarioPlayback
 {
-    public static ScenarioOutcome Play(RecordedScenario scenario, Grid grid, int horizon = 32)
+    /// <summary>
+    /// The world as one tick saw it: state <em>after</em> the orders due at
+    /// <paramref name="Tick"/> were issued, <em>before</em> the tick advanced —
+    /// the same instant the trajectory check records. <paramref name="Report"/>
+    /// is the previous tick's spend, all zeros on tick 0.
+    /// </summary>
+    public sealed record TraceTick(int Tick, IReadOnlyList<AgentState> Agents, TickReport Report);
+
+    public static ScenarioOutcome Play(
+        RecordedScenario scenario, Grid grid, int horizon = 32, Action<TraceTick>? onTick = null)
     {
         ArgumentNullException.ThrowIfNull(scenario);
         ArgumentNullException.ThrowIfNull(grid);
@@ -88,6 +97,8 @@ public static class ScenarioPlayback
             {
                 trails[agent.Id].Add(agent.Cell);
             }
+
+            onTick?.Invoke(new TraceTick(tick, [.. system.Agents], system.LastTick));
 
             if (tick < scenario.EndTick)
             {

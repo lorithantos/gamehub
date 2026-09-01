@@ -77,6 +77,11 @@ internal static class Program
 
     private static int Main(string[] args)
     {
+        if (args.Length > 0 && args[0] is "trace" or "summarize")
+        {
+            return TraceCommands.Run(args);
+        }
+
         var root = args.FirstOrDefault(a => !a.StartsWith('-')) ?? Path.Combine("maps", "dao");
         var filter = ValueOf(args, "--map");
 

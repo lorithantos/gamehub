@@ -53,6 +53,38 @@ public sealed class TieBreakFuzzTests
         Assert.True(failures.Count == 0, $"{name}: {failures.Count} of {Seeds} seeds collided:\n  " + string.Join("\n  ", failures));
     }
 
+    public static IEnumerable<object[]> ScenariosUnderTightBudgets =>
+        Scenarios.SelectMany(s => new[] { 50, 200 }.Select(budget => new[] { s[0], budget }));
+
+    [Theory]
+    [MemberData(nameof(ScenariosUnderTightBudgets))]
+    public void NoTieBreakProducesACollisionWhenSearchesSuspend(string name, int nodeBudgetPerTick)
+    {
+        // The default-budget fuzz above says little about one class of defect,
+        // because at 4,000 nodes a tick almost no search is ever suspended. A
+        // search that IS suspended holds a frontier validated against the table
+        // as it stood, and commits later against a table that may have moved --
+        // and the reservation ring's Mark writes unconditionally. If that hole is
+        // reachable, this is the regime that reaches it: fifty nodes a tick is
+        // the setting the design notes cite as the one where nothing completes
+        // inside its slack.
+        var (scenario, grid) = Load(name);
+        var failures = new List<string>();
+
+        for (var seed = 0; seed < 8; seed++)
+        {
+            var outcome = ScenarioPlayback.Play(scenario, grid, tieBreakSeed: seed, nodeBudgetPerTick: nodeBudgetPerTick);
+            if (!outcome.Conflicts.Clean)
+            {
+                failures.Add($"seed {seed}: {outcome.Conflicts.Conflicts[0]}");
+            }
+        }
+
+        Assert.True(
+            failures.Count == 0,
+            $"{name} at budget {nodeBudgetPerTick}: {failures.Count} of 8 seeds collided:\n  " + string.Join("\n  ", failures));
+    }
+
     [Theory]
     [MemberData(nameof(Scenarios))]
     public void ASeedReplaysToTheSameTrajectories(string name)

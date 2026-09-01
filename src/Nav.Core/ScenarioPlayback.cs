@@ -111,6 +111,13 @@ public static class ScenarioPlayback
     /// ordering; any other value is one alternative valid A*, replayable forever,
     /// against which the collision verdict must still hold.
     /// </param>
+    /// <param name="nodeBudgetPerTick">
+    /// Passed through to <see cref="MovementSystem"/>. The default is the match
+    /// setting; a small value is the regime where searches genuinely suspend
+    /// across ticks, which is where a reservation made against a stale frontier
+    /// could bite -- and where the tie-break fuzz has to be run as well as at the
+    /// default, because at the default almost nothing ever suspends.
+    /// </param>
     /// <returns>
     /// What happened: trajectories, the conflict verdict over them, and the
     /// counters that separate a finished run from a deadlocked one.
@@ -125,7 +132,7 @@ public static class ScenarioPlayback
     /// </exception>
     public static ScenarioOutcome Play(
         RecordedScenario scenario, Grid grid, int horizon = 32, Action<TraceTick>? onTick = null,
-        int? tieBreakSeed = null)
+        int? tieBreakSeed = null, int nodeBudgetPerTick = 4000)
     {
         ArgumentNullException.ThrowIfNull(scenario);
         ArgumentNullException.ThrowIfNull(grid);
@@ -135,7 +142,7 @@ public static class ScenarioPlayback
         // cannot drift apart by one of them forgetting a check the other makes.
         scenario.EnsureMatches(grid);
 
-        var system = new MovementSystem(grid, horizon, tieBreakSeed: tieBreakSeed);
+        var system = new MovementSystem(grid, horizon, nodeBudgetPerTick, tieBreakSeed: tieBreakSeed);
         var trails = new List<int>[scenario.Agents.Count];
 
         foreach (var placement in scenario.Agents)

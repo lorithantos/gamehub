@@ -23,9 +23,15 @@ public enum MouseButtons
 /// </summary>
 /// <remarks>
 /// The pressed flags are <em>edges</em>: true only on the frame a transition
-/// happened, and true for exactly one frame.
+/// happened, and true for exactly one frame. <see cref="ButtonsDown"/> is
+/// <em>held</em> state, true for as long as the button is. The snapshot did not
+/// carry held state until drag-box selection needed it -- the accumulator
+/// always tracked it and threw it away, so growing the snapshot cost the hosts
+/// nothing. That is the recorded seam finding: the drawing verbs held for
+/// milestone 2, the input snapshot did not.
 /// </remarks>
-public readonly struct InputState(Vector2 mousePosition, ViewerKeys keysPressed, MouseButtons buttonsPressed)
+public readonly struct InputState(
+    Vector2 mousePosition, ViewerKeys keysPressed, MouseButtons buttonsPressed, MouseButtons buttonsDown)
 {
     public Vector2 MousePosition { get; } = mousePosition;
 
@@ -33,9 +39,13 @@ public readonly struct InputState(Vector2 mousePosition, ViewerKeys keysPressed,
 
     public MouseButtons ButtonsPressed { get; } = buttonsPressed;
 
+    public MouseButtons ButtonsDown { get; } = buttonsDown;
+
     public bool IsPressed(ViewerKeys key) => (KeysPressed & key) != 0;
 
     public bool IsPressed(MouseButtons button) => (ButtonsPressed & button) != 0;
+
+    public bool IsDown(MouseButtons button) => (ButtonsDown & button) != 0;
 }
 
 /// <summary>
@@ -114,7 +124,7 @@ public sealed class InputAccumulator
     /// </summary>
     public InputState Snapshot()
     {
-        var state = new InputState(_mousePosition, _keysPressed, _buttonsPressed);
+        var state = new InputState(_mousePosition, _keysPressed, _buttonsPressed, _buttonsDown);
         _keysPressed = ViewerKeys.None;
         _buttonsPressed = MouseButtons.None;
         return state;

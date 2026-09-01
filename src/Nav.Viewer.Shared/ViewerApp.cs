@@ -29,14 +29,22 @@ public sealed class ViewerApp : IViewerApp
     /// <summary>Seconds of simulation per tick, matching the recorded-scenario default.</summary>
     private const double TickSeconds = 1.0 / 60.0;
 
+    /// <summary>A drag smaller than this in both axes is a click.</summary>
+    private const float ClickSlopPixels = 4.0f;
+
     private readonly Grid _grid;
     private readonly TerrainImage _terrain;
     private readonly MovementSystem _system;
     private readonly FixedTimestep _clock = new(TickSeconds);
     private readonly int[] _previousCells;
+    private readonly List<int> _selection = [];
 
     /// <summary>How far through the current tick we are, for drawing between cells.</summary>
     private float _blend;
+
+    private bool _dragging;
+    private Vector2 _dragAnchor;
+    private Vector2 _dragCurrent;
 
     private bool _running = true;
 
@@ -63,7 +71,11 @@ public sealed class ViewerApp : IViewerApp
         }
 
         _previousCells = [.. _system.Agents.Select(a => a.Cell)];
-        Selected = _system.Agents.Count > 0 ? 0 : -1;
+        if (_system.Agents.Count > 0)
+        {
+            _selection.Add(0);
+        }
+
         StatusText = BuildStatus();
     }
 
@@ -71,8 +83,8 @@ public sealed class ViewerApp : IViewerApp
 
     public string StatusText { get; private set; }
 
-    /// <summary>The unit whose route is drawn, or -1.</summary>
-    public int Selected { get; private set; }
+    /// <summary>The units orders go to, in id order.</summary>
+    public IReadOnlyList<int> Selection => _selection;
 
     public bool Running => _running;
 
@@ -84,13 +96,36 @@ public sealed class ViewerApp : IViewerApp
     {
         if (input.IsPressed(MouseButtons.Left) && Layout.TryPick(input.MousePosition, _grid, out var picked))
         {
-            Selected = NearestAgentTo(picked);
+            // A press selects the nearest unit immediately, the way a click
+            // always did. If it turns out to be a drag, the box replaces this
+            // on release.
+            _selection.Clear();
+            var nearest = NearestAgentTo(picked);
+            if (nearest >= 0)
+            {
+                _selection.Add(nearest);
+            }
+
+            _dragging = true;
+            _dragAnchor = input.MousePosition;
+            _dragCurrent = input.MousePosition;
         }
-        else if (input.IsPressed(MouseButtons.Right) &&
-                 Layout.TryPick(input.MousePosition, _grid, out var target) &&
-                 Selected >= 0)
+        else if (_dragging && input.IsDown(MouseButtons.Left))
         {
-            _system.Order([Selected], target);
+            _dragCurrent = input.MousePosition;
+        }
+        else if (_dragging)
+        {
+            _dragCurrent = input.MousePosition;
+            _dragging = false;
+            CommitDrag();
+        }
+
+        if (input.IsPressed(MouseButtons.Right) &&
+            Layout.TryPick(input.MousePosition, _grid, out var target) &&
+            _selection.Count > 0)
+        {
+            _system.Order([.. _selection], target);
         }
 
         if (input.IsPressed(ViewerKeys.Space))
@@ -139,12 +174,14 @@ public sealed class ViewerApp : IViewerApp
         renderer.BeginFrame(RgbaColor.Black);
         renderer.DrawTerrain(_terrain, new RectF(0, 0, Layout.PixelWidth, Layout.PixelHeight));
 
-        // Only the selected unit's route. Drawing every route at two dozen units
-        // is a ball of yarn, and at two hundred it is a solid colour.
+        // A route is drawn only when exactly one unit is selected. Drawing every
+        // route at two dozen units is a ball of yarn, and at two hundred it is a
+        // solid colour -- a boxed group shows its motion, not its plans.
+        var soleSelection = _selection.Count == 1 ? _selection[0] : -1;
         var plans = _system.CurrentPlans();
         foreach (var (agent, plan) in plans)
         {
-            if (agent != Selected || plan.Cells.Count < 2)
+            if (agent != soleSelection || plan.Cells.Count < 2)
             {
                 continue;
             }
@@ -174,13 +211,29 @@ public sealed class ViewerApp : IViewerApp
 
             renderer.DrawCircle(at, radius, ColourFor(agent));
 
-            if (agent.Id == Selected)
+            if (_selection.Contains(agent.Id))
             {
                 // A ring, drawn as a slightly larger circle underneath would be —
                 // but the seam has no stroke, so the selection is a second smaller
                 // dot on top. Five verbs is five verbs.
                 renderer.DrawCircle(at, radius * 0.35f, RgbaColor.Black);
             }
+        }
+
+        // The drag band: four lines, because the seam has no stroked rectangle
+        // and does not need one.
+        if (_dragging && IsBox(DragRect()))
+        {
+            var band = DragRect();
+            var topLeft = new Vector2(band.X, band.Y);
+            var topRight = new Vector2(band.Right, band.Y);
+            var bottomLeft = new Vector2(band.X, band.Bottom);
+            var bottomRight = new Vector2(band.Right, band.Bottom);
+
+            renderer.DrawLine(topLeft, topRight, 1.0f, RgbaColor.SkyBlue);
+            renderer.DrawLine(topRight, bottomRight, 1.0f, RgbaColor.SkyBlue);
+            renderer.DrawLine(bottomRight, bottomLeft, 1.0f, RgbaColor.SkyBlue);
+            renderer.DrawLine(bottomLeft, topLeft, 1.0f, RgbaColor.SkyBlue);
         }
 
         renderer.EndFrame();
@@ -230,6 +283,37 @@ public sealed class ViewerApp : IViewerApp
             (byte)((0.35f + (0.65f * b)) * 255));
     }
 
+    private RectF DragRect()
+    {
+        var x = Math.Min(_dragAnchor.X, _dragCurrent.X);
+        var y = Math.Min(_dragAnchor.Y, _dragCurrent.Y);
+        return new RectF(x, y, Math.Abs(_dragCurrent.X - _dragAnchor.X), Math.Abs(_dragCurrent.Y - _dragAnchor.Y));
+    }
+
+    private static bool IsBox(RectF rect) => rect.Width >= ClickSlopPixels || rect.Height >= ClickSlopPixels;
+
+    private void CommitDrag()
+    {
+        // A tiny drag is a click, and the press already handled it.
+        var box = DragRect();
+        if (!IsBox(box))
+        {
+            return;
+        }
+
+        // The box replaces the press's nearest-unit guess. Boxing empty ground
+        // clears the selection, the way every RTS reads that gesture.
+        _selection.Clear();
+        foreach (var agent in _system.Agents)
+        {
+            var at = CenterOfCell(agent.Cell);
+            if (at.X >= box.X && at.X <= box.Right && at.Y >= box.Y && at.Y <= box.Bottom)
+            {
+                _selection.Add(agent.Id);
+            }
+        }
+    }
+
     private int NearestAgentTo(int cell)
     {
         var x = _grid.ColumnOf(cell);
@@ -272,6 +356,6 @@ public sealed class ViewerApp : IViewerApp
             $"{_grid.Width}x{_grid.Height}  {agents.Count} units  {Fixed(arrived)} arrived  {Fixed(stuck)} stuck  " +
             $"{Fixed(planning)} planning  {_system.LastTick.NodesSpent,6} nodes/tick  " +
             $"tick {_system.CurrentTick,6}  {(_running ? "[running]" : "[paused]"),-9} " +
-            $"sel {Fixed(Selected)}  LMB select  RMB order  SPACE pause  R regroup");
+            $"sel {Fixed(_selection.Count)}  LMB click/drag select  RMB order  SPACE pause  R regroup");
     }
 }

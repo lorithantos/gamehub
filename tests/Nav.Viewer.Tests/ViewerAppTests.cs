@@ -49,16 +49,24 @@ public sealed class ViewerAppTests
         Assert.Equal(new RectF(0, 0, app.Layout.PixelWidth, app.Layout.PixelHeight), terrain.Destination);
     }
 
+    /// <summary>Press, drag, release — the frames a real host would report.</summary>
+    private static ScriptedFrame[] Drag(Vector2 from, Vector2 to) =>
+    [
+        new(Mouse: from, ButtonsDown: MouseButtons.Left),
+        new(Mouse: to, ButtonsDown: MouseButtons.Left),
+        new(Mouse: to),
+    ];
+
     [Fact]
     public void AUnitIsSelectedToBeginWith()
     {
         var (app, _, _) = Run(new ScriptedFrame());
 
-        Assert.InRange(app.Selected, 0, Squad - 1);
+        Assert.Equal([0], app.Selection);
     }
 
     [Fact]
-    public void LeftClickSelectsTheNearestUnit()
+    public void LeftClickSelectsTheNearestUnitAlone()
     {
         var grid = Fixture();
         var layout = LayoutFor(grid);
@@ -72,7 +80,88 @@ public sealed class ViewerAppTests
             new RecordingRenderer());
         host.Run(app);
 
-        Assert.Equal(Squad - 1, app.Selected);
+        Assert.Equal([Squad - 1], app.Selection);
+    }
+
+    [Fact]
+    public void ADragSelectsExactlyTheUnitsInTheBox()
+    {
+        // The four units stand on (1,1)..(4,1). Box the middle two.
+        var grid = Fixture();
+        var layout = LayoutFor(grid);
+        var app = new ViewerApp(grid, layout, Squad);
+
+        var left = (layout.CenterOf(1, 1).X + layout.CenterOf(2, 1).X) / 2;
+        var right = (layout.CenterOf(3, 1).X + layout.CenterOf(4, 1).X) / 2;
+        var y = layout.CenterOf(2, 1).Y;
+
+        using var host = new ScriptedHost(
+            Drag(new Vector2(left, y - 10), new Vector2(right, y + 10)),
+            new RecordingRenderer());
+        host.Run(app);
+
+        Assert.Equal([1, 2], app.Selection);
+    }
+
+    [Fact]
+    public void OrderingABoxedGroupMovesTheWholeGroup()
+    {
+        var grid = Fixture();
+        var layout = LayoutFor(grid);
+        var app = new ViewerApp(grid, layout, Squad);
+
+        var frames = new List<ScriptedFrame>(
+            Drag(layout.CenterOf(1, 1) - new Vector2(10, 10), layout.CenterOf(4, 1) + new Vector2(10, 10)))
+        {
+            new(Mouse: layout.CenterOf(9, 5), ButtonsDown: MouseButtons.Right),
+        };
+
+        using var host = new ScriptedHost(frames, new RecordingRenderer());
+        host.Run(app);
+
+        Assert.Equal(Squad, app.Selection.Count);
+
+        // Everyone got a goal near the destination, and everyone got their own.
+        var goals = app.Agents.Select(a => a.Goal).ToArray();
+        Assert.Equal(Squad, goals.Distinct().Count());
+        Assert.All(app.Agents, a => Assert.NotEqual(a.Cell, a.Goal));
+    }
+
+    [Fact]
+    public void BoxingEmptyGroundClearsTheSelection()
+    {
+        // Rows 3-5 on the right are open floor with nobody standing on it.
+        var grid = Fixture();
+        var layout = LayoutFor(grid);
+        var app = new ViewerApp(grid, layout, Squad);
+
+        using var host = new ScriptedHost(
+            Drag(layout.CenterOf(8, 3), layout.CenterOf(10, 5)),
+            new RecordingRenderer());
+        host.Run(app);
+
+        Assert.Empty(app.Selection);
+    }
+
+    [Fact]
+    public void TheDragBandIsDrawnWhileTheButtonIsHeld()
+    {
+        var grid = Fixture();
+        var layout = LayoutFor(grid);
+        var app = new ViewerApp(grid, layout, Squad);
+
+        // End the script mid-drag: nobody has an order, so any line on screen is
+        // the band, and a band is four of them.
+        var renderer = new RecordingRenderer();
+        using var host = new ScriptedHost(
+            [
+                new ScriptedFrame(Mouse: layout.CenterOf(1, 1), ButtonsDown: MouseButtons.Left),
+                new ScriptedFrame(Mouse: layout.CenterOf(4, 3), ButtonsDown: MouseButtons.Left),
+            ],
+            renderer);
+        host.Run(app);
+
+        Assert.Equal(4, renderer.LastFrameOfKind<DrawCommand.Line>().Count());
     }
 
     [Fact]
@@ -92,13 +181,11 @@ public sealed class ViewerAppTests
 
         var after = app.Agents.Select(a => a.Goal).ToArray();
 
-        Assert.Equal(destination, after[app.Selected]);
-        for (var id = 0; id < Squad; id++)
+        // The initial selection is unit 0 alone.
+        Assert.Equal(destination, after[0]);
+        for (var id = 1; id < Squad; id++)
         {
-            if (id != app.Selected)
-            {
-                Assert.Equal(before[id], after[id]);
-            }
+            Assert.Equal(before[id], after[id]);
         }
     }
 
@@ -108,7 +195,7 @@ public sealed class ViewerAppTests
         var grid = Fixture();
         var layout = LayoutFor(grid);
         var app = new ViewerApp(grid, layout, Squad);
-        var before = app.Selected;
+        var before = app.Selection.ToArray();
 
         using var host = new ScriptedHost(
             [new ScriptedFrame(
@@ -117,7 +204,7 @@ public sealed class ViewerAppTests
             new RecordingRenderer());
         host.Run(app);
 
-        Assert.Equal(before, app.Selected);
+        Assert.Equal(before, app.Selection);
     }
 
     [Fact]
@@ -159,12 +246,18 @@ public sealed class ViewerAppTests
         var layout = LayoutFor(grid);
         var app = new ViewerApp(grid, layout, Squad);
 
-        // Order everyone somewhere, so several units have routes to draw.
+        // Order everyone somewhere, so several units have routes to draw. Each
+        // click is press then release at the same spot -- press and release at
+        // DIFFERENT spots is a drag now, and would box the whole squad.
         var frames = new List<ScriptedFrame>();
         for (var id = 0; id < Squad; id++)
         {
-            frames.Add(new ScriptedFrame(Mouse: layout.CenterOf(1, 1), ButtonsDown: MouseButtons.Left));
+            var unit = app.Agents[id].Cell;
+            var at = layout.CenterOf(grid.ColumnOf(unit), grid.RowOf(unit));
+            frames.Add(new ScriptedFrame(Mouse: at, ButtonsDown: MouseButtons.Left));
+            frames.Add(new ScriptedFrame(Mouse: at));
             frames.Add(new ScriptedFrame(Mouse: layout.CenterOf(10, 5), ButtonsDown: MouseButtons.Right));
+            frames.Add(new ScriptedFrame(Mouse: layout.CenterOf(10, 5)));
         }
 
         frames.AddRange(ScriptedHost.Idle(30));

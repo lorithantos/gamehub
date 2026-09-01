@@ -24,7 +24,8 @@ public sealed record ViewerOptions(string? MapPath, int? MaxFrames, bool ShowHel
           map-path        a Moving AI .map file. Defaults to the embedded fixture,
                           or with --scenario to the map the scenario names.
           --scenario FILE replay a recorded scenario: its placements, its orders,
-                          at their recorded ticks. Your own clicks still work.
+                          at their recorded ticks. Loads paused at tick zero;
+                          SPACE runs it, R reloads it. Your own clicks still work.
           --frames N      exit after N frames. For smoke runs that need no human.
           --help          this text.
         """;

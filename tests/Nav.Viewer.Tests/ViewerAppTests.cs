@@ -326,6 +326,49 @@ public sealed class ViewerAppTests
     }
 
     [Fact]
+    public void AReplayLoadsWithTheClockStoppedAtTickZero()
+    {
+        var scenario = RecordedScenario.FromText(
+            "version 1\nmap any.map\nagent 0 1 1\norder 0 0 10 5\nend 60\n");
+        var grid = Fixture();
+        var app = new ViewerApp(grid, LayoutFor(grid), scenario: scenario);
+
+        // Idle frames move nothing: the recording waits to be watched.
+        using var host = new ScriptedHost(ScriptedHost.Idle(60), new RecordingRenderer());
+        host.Run(app);
+
+        Assert.False(app.Running);
+        Assert.Equal(0, app.CurrentTick);
+        Assert.Contains("[paused]", app.StatusText, StringComparison.Ordinal);
+        Assert.Contains("R restart", app.StatusText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RReloadsAReplayToTickZeroStopped()
+    {
+        var scenario = RecordedScenario.FromText(
+            "version 1\nmap any.map\nagent 0 1 1\nagent 1 4 5\norder 0 0,1 10 5\nend 60\n");
+        var grid = Fixture();
+        var app = new ViewerApp(grid, LayoutFor(grid), scenario: scenario);
+
+        // Run it a while, then reload.
+        var frames = new List<ScriptedFrame> { new(KeysDown: ViewerKeys.Space) };
+        frames.AddRange(ScriptedHost.Idle(60));
+        frames.Add(new ScriptedFrame(KeysDown: ViewerKeys.R));
+
+        using var host = new ScriptedHost(frames, new RecordingRenderer());
+        host.Run(app);
+
+        Assert.False(app.Running);
+        Assert.Equal(0, app.CurrentTick);
+        Assert.Equal(grid.Index(1, 1), app.Agents[0].Cell);
+        Assert.Equal(grid.Index(4, 5), app.Agents[1].Cell);
+
+        // The order queue is restored too: nobody has their goal yet.
+        Assert.Equal(grid.Index(1, 1), app.Agents[0].Goal);
+    }
+
+    [Fact]
     public void ARecordedOrderFiresAtItsRecordedTickAndNotBefore()
     {
         var scenario = RecordedScenario.FromText(
@@ -333,7 +376,9 @@ public sealed class ViewerAppTests
         var grid = Fixture();
         var app = new ViewerApp(grid, LayoutFor(grid), scenario: scenario);
 
-        using (var early = new ScriptedHost(ScriptedHost.Idle(5), new RecordingRenderer()))
+        using (var early = new ScriptedHost(
+            [new ScriptedFrame(KeysDown: ViewerKeys.Space), .. ScriptedHost.Idle(4)],
+            new RecordingRenderer()))
         {
             early.Run(app);
         }

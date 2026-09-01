@@ -34,11 +34,14 @@ public sealed class ViewerApp : IViewerApp
 
     private readonly Grid _grid;
     private readonly TerrainImage _terrain;
-    private readonly MovementSystem _system;
     private readonly FixedTimestep _clock;
     private readonly int[] _previousCells;
     private readonly List<int> _selection = [];
-    private readonly Queue<ScenarioOrder> _orders;
+    private readonly RecordedScenario? _scenario;
+
+    // Not readonly: restarting a replay rebuilds both.
+    private MovementSystem _system;
+    private Queue<ScenarioOrder> _orders;
 
     /// <summary>How far through the current tick we are, for drawing between cells.</summary>
     private float _blend;
@@ -56,24 +59,24 @@ public sealed class ViewerApp : IViewerApp
         _grid = grid;
         Layout = layout;
         _terrain = TerrainImage.FromGrid(grid, RgbaColor.RayWhite, RgbaColor.DarkGray);
-        _system = new MovementSystem(grid);
+        _scenario = scenario;
         _clock = new FixedTimestep(scenario?.TickSeconds ?? TickSeconds);
-        _orders = new Queue<ScenarioOrder>(scenario?.Orders ?? []);
 
         if (scenario is not null)
         {
-            // A replay: the recorded placements, and the recorded orders fed in
-            // at their recorded ticks. The user's own clicks still work -- and
-            // diverge the run from the recording, which is a viewer's privilege
-            // and a test's failure.
-            foreach (var agent in scenario.Agents)
-            {
-                _system.AddAgent(grid.Index(agent.X, agent.Y));
-            }
+            // A replay: the recorded placements, the recorded orders queued for
+            // their recorded ticks -- and the clock STOPPED at tick zero, so
+            // the setup can be looked at before Space runs it. The user's own
+            // clicks still work, and diverge the run from the recording, which
+            // is a viewer's privilege and a test's failure.
+            (_system, _orders) = BuildReplay();
+            _running = false;
         }
         else
         {
             // A squad to look at before the first click, on any map.
+            _system = new MovementSystem(grid);
+            _orders = new Queue<ScenarioOrder>();
             var placed = 0;
             for (var cell = 0; cell < grid.CellCount && placed < squad; cell++)
             {
@@ -152,9 +155,18 @@ public sealed class ViewerApp : IViewerApp
 
         if (input.IsPressed(ViewerKeys.R))
         {
-            // Everybody home. The nearest thing to a reset that means anything
-            // once units have scattered.
-            _system.Order([.. Enumerable.Range(0, _system.Agents.Count)], _previousCells[0]);
+            if (_scenario is not null)
+            {
+                // Reload the recording: tick zero, clock stopped, ready to
+                // watch again.
+                RestartReplay();
+            }
+            else
+            {
+                // Everybody home. The nearest thing to a reset that means
+                // anything once units have scattered.
+                _system.Order([.. Enumerable.Range(0, _system.Agents.Count)], _previousCells[0]);
+            }
         }
 
         if (_running)
@@ -308,6 +320,36 @@ public sealed class ViewerApp : IViewerApp
             (byte)((0.35f + (0.65f * b)) * 255));
     }
 
+    private (MovementSystem System, Queue<ScenarioOrder> Orders) BuildReplay()
+    {
+        var system = new MovementSystem(_grid);
+        foreach (var agent in _scenario!.Agents)
+        {
+            system.AddAgent(_grid.Index(agent.X, agent.Y));
+        }
+
+        return (system, new Queue<ScenarioOrder>(_scenario.Orders));
+    }
+
+    private void RestartReplay()
+    {
+        (_system, _orders) = BuildReplay();
+
+        for (var id = 0; id < _previousCells.Length; id++)
+        {
+            _previousCells[id] = _system.Agents[id].Cell;
+        }
+
+        // The parser refuses a scenario with no agents, so there is a unit 0.
+        _selection.Clear();
+        _selection.Add(0);
+
+        _clock.Reset();
+        _blend = 0f;
+        _dragging = false;
+        _running = false;
+    }
+
     private RectF DragRect()
     {
         var x = Math.Min(_dragAnchor.X, _dragCurrent.X);
@@ -381,6 +423,7 @@ public sealed class ViewerApp : IViewerApp
             $"{_grid.Width}x{_grid.Height}  {agents.Count} units  {Fixed(arrived)} arrived  {Fixed(stuck)} stuck  " +
             $"{Fixed(planning)} planning  {_system.LastTick.NodesSpent,6} nodes/tick  " +
             $"tick {_system.CurrentTick,6}  {(_running ? "[running]" : "[paused]"),-9} " +
-            $"sel {Fixed(_selection.Count)}  LMB click/drag select  RMB order  SPACE pause  R regroup");
+            $"sel {Fixed(_selection.Count)}  LMB click/drag select  RMB order  SPACE pause  " +
+            $"{(_scenario is null ? "R regroup" : "R restart")}");
     }
 }

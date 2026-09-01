@@ -1,0 +1,18 @@
+# Eight agents, three orders arriving at ticks 0, 30 and 60.
+# Every other fixture issues everything at tick zero; this one exercises
+# planning load spread over time and a late order into an occupied region.
+version 1
+map hall.map
+tick 0.016666667
+agent 0 1 1
+agent 1 2 1
+agent 2 3 1
+agent 3 1 10
+agent 4 2 10
+agent 5 3 10
+agent 6 10 1
+agent 7 10 2
+order 0 0,1,2 10 10
+order 30 3,4,5 10 1
+order 60 6,7 1 10
+end 220

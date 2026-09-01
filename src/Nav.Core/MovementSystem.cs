@@ -85,7 +85,7 @@ public sealed class MovementSystem
     /// </summary>
     private const int StallBackstopTicks = 64;
 
-    private sealed class Agent(int id, int cell)
+    internal sealed class Agent(int id, int cell)
     {
         public int Id { get; } = id;
 
@@ -138,7 +138,7 @@ public sealed class MovementSystem
     /// One order's members, for reconciliation and the leader. Assignment is a
     /// snapshot but settling is a process; the group is what reconciles the two.
     /// </summary>
-    private sealed class Group
+    internal sealed class Group
     {
         public required int Destination { get; init; }
 
@@ -147,9 +147,8 @@ public sealed class MovementSystem
         /// <summary>The parking ring: nearest cells to the destination, innermost first.</summary>
         public required IReadOnlyList<int> Slots { get; init; }
 
-        // Far enough in the past to always fire, small enough that the
-        // subtraction in the hysteresis check cannot overflow.
-        public int LastReconcileTick { get; set; } = -1_000_000;
+        /// <summary>How this group moves. Holds its own state; deterministic.</summary>
+        public required GroupDoctrine Doctrine { get; init; }
 
         public int Leader { get; set; } = -1;
     }
@@ -162,6 +161,17 @@ public sealed class MovementSystem
     private readonly int _maxSearchesInFlight;
     private readonly FieldCache _fields;
     private readonly List<Group> _groups = [];
+
+    // Per-tick occupancy caches, rebuilt at the top of Tick and kept current by
+    // GroupOps mutations, so doctrines read O(1) answers instead of scanning.
+    private readonly HashSet<int> _claimedGoals = [];
+    private readonly HashSet<int> _settledCells = [];
+    private readonly HashSet<int> _occupiedCells = [];
+
+    private IReadOnlyList<Chokepoint>? _chokepoints;
+
+    /// <summary>The map's chokepoints, detected once and cached for the system's life.</summary>
+    internal IReadOnlyList<Chokepoint> MapChokepoints => _chokepoints ??= ChokepointMap.Find(_grid);
 
     /// <param name="nodeBudgetPerTick">
     /// Search nodes a tick may spend across every agent. The ceiling criterion 9
@@ -225,19 +235,64 @@ public sealed class MovementSystem
     /// hundred-unit order costing one frame and costing however long a hundred
     /// searches take.
     /// </remarks>
-    public void Order(IReadOnlyList<int> agents, int goalCell)
+    public void Order(IReadOnlyList<int> agents, int goalCell) => Order(agents, goalCell, doctrine: null);
+
+    /// <param name="doctrine">
+    /// How this group should move; defaults to <see cref="MeteredGatherDoctrine"/>,
+    /// which is plain gathering wherever the map has no chokepoint in the way.
+    /// </param>
+    public void Order(IReadOnlyList<int> agents, int goalCell, GroupDoctrine? doctrine)
     {
         ArgumentNullException.ThrowIfNull(agents);
 
         // The parking ring doubles as the passability check: an impassable
         // destination yields no ring and the order is refused as before.
-        var slots = GoalSpread.Nearest(_grid, goalCell, agents.Count);
+        //
+        // A GROUP's ring keeps doorways clear: no slot on or beside a
+        // chokepoint. The gap fixture taught this the hard way -- the ring
+        // included the gap's inner mouth, an early claimer parked in the
+        // doorway, and the chamber sealed with the rest of the group outside.
+        // A single unit is exempt: ordering one unit ONTO a doorway is intent.
+        Func<int, bool>? keepDoorwaysClear = null;
+        if (agents.Count > 1 && MapChokepoints.Count > 0)
+        {
+            var doorways = new HashSet<int>();
+            foreach (var choke in MapChokepoints)
+            {
+                doorways.Add(choke.Cell);
+                var x = _grid.ColumnOf(choke.Cell);
+                var y = _grid.RowOf(choke.Cell);
+                foreach (var step in Movement.Steps)
+                {
+                    if (_grid.IsPassable(x + step.DeltaX, y + step.DeltaY))
+                    {
+                        doorways.Add(((y + step.DeltaY) * _grid.Width) + x + step.DeltaX);
+                    }
+                }
+            }
+
+            keepDoorwaysClear = doorways.Contains;
+        }
+
+        var slots = GoalSpread.Nearest(_grid, goalCell, agents.Count, keepDoorwaysClear);
         if (slots.Count == 0)
         {
             return;
         }
 
-        var group = new Group { Destination = goalCell, Members = [], Slots = slots };
+        // The default is the SCRUM, by measurement, not the meter: on the gap
+        // fixture the pacing brake cost 4x the arrival time and more nodes
+        // than free contention -- reservation contention through a doorway,
+        // with event-driven stalls and fill-like-water claiming, already IS a
+        // well-behaved queue. MeteredGatherDoctrine remains available for
+        // callers that want a visibly ordered column and will pay for it.
+        var group = new Group
+        {
+            Destination = goalCell,
+            Members = [],
+            Slots = slots,
+            Doctrine = doctrine ?? new GatherDoctrine(),
+        };
         foreach (var id in agents.OrderBy(id => id))
         {
             var agent = _agents[id];
@@ -273,8 +328,35 @@ public sealed class MovementSystem
     /// </summary>
     public void Tick()
     {
-        ClaimSlots();
-        Reconcile();
+        // Per-tick occupancy caches the doctrines read through GroupOps.
+        _claimedGoals.Clear();
+        _settledCells.Clear();
+        _occupiedCells.Clear();
+        foreach (var agent in _agents)
+        {
+            if (agent.HasSlot)
+            {
+                _claimedGoals.Add(agent.Goal);
+            }
+
+            _occupiedCells.Add(agent.Cell);
+            if (agent.Cell == agent.Goal)
+            {
+                _settledCells.Add(agent.Cell);
+            }
+        }
+
+        foreach (var group in _groups)
+        {
+            // Groups of one are exempt on principle: an individually addressed
+            // order means THIS unit, THERE, and no doctrine may falsify that.
+            if (group.Members.Count >= 2)
+            {
+                group.Doctrine.Advance(new GroupOps(this, group));
+            }
+
+            ElectLeader(group);
+        }
 
         LastTick = SpendPlanningBudget();
 
@@ -309,264 +391,6 @@ public sealed class MovementSystem
             }
         }
     }
-
-    /// <summary>
-    /// The milestone-2 defect, fixed where it lives: goal assignment is a
-    /// snapshot but a group's settling is a process. When a member stalls, the
-    /// not-yet-arrived members are re-assigned from their CURRENT positions,
-    /// with every settled unit's cell off the table — so a stuck unit either
-    /// gets a goal it can actually reach, or gets its own cell and arrives in
-    /// place, and either way stops burning budget on a goal frozen inside the
-    /// pile.
-    /// </summary>
-    /// <remarks>
-    /// Hysteresis (once per <see cref="StallBackstopTicks"/>/8 per group) keeps
-    /// reassignment from becoming churn; fixed group order and id-ordered
-    /// members keep it deterministic. A goal change is a wake: exactly the
-    /// members whose goals moved are replanned, nobody else.
-    /// </remarks>
-    /// <summary>
-    /// Hands parking slots to group members as they get NEAR the destination —
-    /// innermost open slot to whoever is closest, in id order within a tick.
-    /// Filling happens in arrival order by construction, which is what stops
-    /// the settled crust sealing holes over slots whose pre-booked owners were
-    /// still fighting through traffic.
-    /// </summary>
-    private void ClaimSlots()
-    {
-        HashSet<int>? settledCells = null;
-
-        foreach (var group in _groups)
-        {
-            if (group.Members.Count < 2 || group.Members.All(m => m.HasSlot))
-            {
-                continue;
-            }
-
-            var field = _fields.For(group.Members[0].FieldKey);
-            var claimed = new HashSet<int>(
-                group.Members.Where(m => m.HasSlot).Select(m => m.Goal));
-
-            // FILL LIKE WATER. Claims open only just ahead of the current
-            // crust: the claiming radius is the outermost claimed slot plus a
-            // small margin, so a slot is booked moments before it is filled,
-            // by whoever is actually closest. A wide radius is pre-booking from
-            // across the field wearing a different hat -- measured at 91 sealed
-            // holes against the 28 it was meant to fix.
-            var frontier = 0.0;
-            foreach (var slot in claimed)
-            {
-                frontier = Math.Max(frontier, field.CostFrom(slot));
-            }
-
-            var radius = frontier + (2.0 * Movement.DiagonalCost);
-
-            var near = group.Members
-                .Where(m => !m.HasSlot)
-                .Select(m => (Member: m, Cost: field.CostFrom(m.Cell)))
-                .Where(pair => pair.Cost <= radius)
-                .OrderBy(pair => pair.Cost)
-                .ThenBy(pair => pair.Member.Id);
-
-            foreach (var (member, _) in near)
-            {
-                // The first unit to reach the destination itself claimed it by
-                // standing on it.
-                if (member.Cell == member.Goal)
-                {
-                    member.HasSlot = true;
-                    claimed.Add(member.Goal);
-                    continue;
-                }
-
-                settledCells ??= [.. _agents.Where(a => a.Cell == a.Goal).Select(a => a.Cell)];
-
-                foreach (var slot in group.Slots)
-                {
-                    if (claimed.Contains(slot) || settledCells.Contains(slot))
-                    {
-                        continue;
-                    }
-
-                    claimed.Add(slot);
-                    member.HasSlot = true;
-                    if (member.Goal != slot)
-                    {
-                        member.Goal = slot;
-                        member.StalledTicks = 0;
-                        member.RetryAfterTick = CurrentTick;
-                        member.WantsPlan = true;
-                        Abandon(member);
-                    }
-
-                    break;
-                }
-
-                // Every slot taken: stay aimed at the destination; the
-                // hard-stall reconciliation is the safety net for that.
-            }
-        }
-    }
-
-    private void Reconcile()
-    {
-        foreach (var group in _groups)
-        {
-            // Groups of one are exempt on principle: an individually addressed
-            // order means THIS unit, THERE, and reassigning it falsifies the
-            // player's intent. Reconciliation is a group-order semantic.
-            if (group.Members.Count < 2 ||
-                CurrentTick - group.LastReconcileTick < StallBackstopTicks / 8)
-            {
-                continue;
-            }
-
-            // Only HARD-stalled members are re-goaled: two failed replans, not
-            // one. A single no-progress replan is usually traffic, and a first
-            // version that reassigned on any stall re-goaled transiently blocked
-            // units constantly -- arrivals froze while goals played musical
-            // chairs on an 8-tick beat. Stalled members are also STANDING
-            // members, which is what makes giving one its own cell an arrival
-            // rather than a contradiction.
-            var stalled = group.Members
-                .Where(m => m.StalledTicks >= 2 && m.Cell != m.Goal)
-                .OrderBy(m => m.Id)
-                .ToArray();
-            if (stalled.Length == 0)
-            {
-                continue;
-            }
-
-            group.LastReconcileTick = CurrentTick;
-            ReconcileGroup(group, stalled);
-            ElectLeader(group);
-        }
-    }
-
-    /// <summary>
-    /// Re-goals a group's hard-stalled members onto spots they can ACTUALLY
-    /// WALK TO. One multi-source breadth-first sweep from all stalled members
-    /// at once (settled units' cells are walls), then closest member takes
-    /// closest spot by field distance. A member with no reachable empty spot
-    /// takes its own cell — a hopeless jam becomes an honest arrival in place,
-    /// which is what a real crowd does when the destination is full: it stops
-    /// where it meets the mass.
-    /// </summary>
-    /// <remarks>
-    /// One O(cells) sweep per firing, deliberately: the first version ran a
-    /// breadth-first search per member and put p99 tick cost at 51 ms — the
-    /// frame ceiling criterion exists precisely to catch that. Assigning by
-    /// raw distance without the reachability sweep is worse than slow: the
-    /// 200-agent run froze at 129 arrivals with 71 units expensively probing
-    /// goals the arrived crust had sealed shut.
-    /// </remarks>
-    private void ReconcileGroup(Group group, Agent[] stalled)
-    {
-        var key = group.Members[0].FieldKey >= 0 ? group.Members[0].FieldKey : group.Destination;
-        var field = _fields.For(key);
-
-        // Flat maps, not sets: the sweep touches every cell a few times.
-        var claimed = new bool[_grid.CellCount];
-        var settled = new bool[_grid.CellCount];
-        var occupied = new bool[_grid.CellCount];
-        foreach (var agent in _agents)
-        {
-            claimed[agent.Goal] = true;
-            occupied[agent.Cell] = true;
-            if (agent.Cell == agent.Goal)
-            {
-                settled[agent.Cell] = true;
-            }
-        }
-
-        // Multi-source BFS over what the stalled crowd can jointly reach.
-        var seen = new bool[_grid.CellCount];
-        var queue = new Queue<int>();
-        foreach (var member in stalled)
-        {
-            seen[member.Cell] = true;
-            queue.Enqueue(member.Cell);
-        }
-
-        var spots = new List<int>();
-        while (queue.Count > 0)
-        {
-            var cell = queue.Dequeue();
-
-            // A spot must be EMPTY and unclaimed: handing out a cell somebody
-            // stands on re-creates the frozen-goal wait.
-            if (!claimed[cell] && !occupied[cell] && field.Reaches(cell))
-            {
-                spots.Add(cell);
-            }
-
-            var x = _grid.ColumnOf(cell);
-            var y = _grid.RowOf(cell);
-            foreach (var step in Movement.Steps)
-            {
-                if (!Movement.IsLegalStep(_grid, x, y, step.DeltaX, step.DeltaY))
-                {
-                    continue;
-                }
-
-                var next = ((y + step.DeltaY) * _grid.Width) + x + step.DeltaX;
-                if (seen[next] || settled[next])
-                {
-                    continue;
-                }
-
-                seen[next] = true;
-                queue.Enqueue(next);
-            }
-        }
-
-        // Closest member takes closest spot, both by field distance, ties on
-        // cell/id — deterministic, and it fills the crust from the inside out.
-        spots.Sort((a, b) =>
-        {
-            var byCost = field.CostFrom(a).CompareTo(field.CostFrom(b));
-            return byCost != 0 ? byCost : a.CompareTo(b);
-        });
-
-        var members = stalled
-            .OrderBy(m => field.CostFrom(m.Cell))
-            .ThenBy(m => m.Id)
-            .ToArray();
-
-        for (var i = 0; i < members.Length; i++)
-        {
-            var member = members[i];
-            var pick = i < spots.Count ? spots[i] : (claimed[member.Cell] ? -1 : member.Cell);
-            if (pick < 0 || pick == member.Goal)
-            {
-                continue;
-            }
-
-            // Never move a member's goal FARTHER from the destination than its
-            // own position: beyond the crust there is nothing to gain, and a
-            // member whose best spot is worse than standing arrives in place.
-            if (pick != member.Cell &&
-                field.CostFrom(pick) > field.CostFrom(member.Cell) &&
-                !claimed[member.Cell])
-            {
-                pick = member.Cell;
-                if (pick == member.Goal)
-                {
-                    continue;
-                }
-            }
-
-            claimed[member.Goal] = false;
-            claimed[pick] = true;
-            member.Goal = pick;
-            member.HasSlot = true;
-            member.StalledTicks = 0;
-            member.RetryAfterTick = CurrentTick;
-            member.WantsPlan = true;
-            Abandon(member);
-        }
-    }
-
     /// <summary>
     /// The member best placed to head the group: minimal field distance to the
     /// destination, ties on id. Presentational and diagnostic this milestone —
@@ -623,8 +447,6 @@ public sealed class MovementSystem
         // started across 400 ticks, all of them belonging to agents 0 and 1, with
         // 18 agents never planned at all and therefore reporting no trouble.
         //
-        // Ties break on id, so this stays deterministic: the same tick with the
-        // same state always picks the same agent.
         // Ties break on id, so this stays deterministic: the same tick with the
         // same state always picks the same agent.
         //
@@ -876,4 +698,166 @@ public sealed class MovementSystem
         Movement.OctileDistance(
             _grid.ColumnOf(from), _grid.RowOf(from),
             _grid.ColumnOf(agent.Goal), _grid.RowOf(agent.Goal));
+
+    /// <summary>
+    /// What a <see cref="GroupDoctrine"/> may see and do — the whole seam.
+    /// </summary>
+    /// <remarks>
+    /// Queries are O(1) against the per-tick caches; the mutations are the safe
+    /// verbs and nothing else. A doctrine cannot touch plans, reservations, or
+    /// the search, so no doctrine can break collision-freedom — the same
+    /// argument the renderer seam makes about windowing, applied to movement
+    /// policy.
+    /// </remarks>
+    public sealed class GroupOps
+    {
+        private readonly MovementSystem _system;
+        private readonly Group _group;
+        private readonly DistanceField _field;
+
+        internal GroupOps(MovementSystem system, Group group)
+        {
+            _system = system;
+            _group = group;
+
+            var key = group.Members[0].FieldKey >= 0 ? group.Members[0].FieldKey : group.Destination;
+            _field = system._fields.For(key);
+            Members = [.. group.Members.Select(m => m.Id).OrderBy(id => id)];
+        }
+
+        public int CurrentTick => _system.CurrentTick;
+
+        public int Destination => _group.Destination;
+
+        /// <summary>The parking ring, innermost first.</summary>
+        public IReadOnlyList<int> Slots => _group.Slots;
+
+        /// <summary>Member ids, ascending.</summary>
+        public IReadOnlyList<int> Members { get; }
+
+        public IReadOnlyList<Chokepoint> Chokepoints => _system.MapChokepoints;
+
+        /// <summary>Exact distance from a cell to the destination, or infinity.</summary>
+        public double FieldCost(int cell) => _field.CostFrom(cell);
+
+        public int CellOf(int id) => _system._agents[id].Cell;
+
+        public int GoalOf(int id) => _system._agents[id].Goal;
+
+        public int StalledReplans(int id) => _system._agents[id].StalledTicks;
+
+        public bool HasSlot(int id) => _system._agents[id].HasSlot;
+
+        /// <summary>Is this cell some slot-holder's goal?</summary>
+        public bool IsClaimed(int cell) => _system._claimedGoals.Contains(cell);
+
+        /// <summary>Is a unit parked on this cell (standing on its goal)?</summary>
+        public bool IsSettled(int cell) => _system._settledCells.Contains(cell);
+
+        public bool IsOccupied(int cell) => _system._occupiedCells.Contains(cell);
+
+        /// <summary>
+        /// Gives the member this cell as its parking slot: goal, claim, wake.
+        /// Idempotent when the goal already matches.
+        /// </summary>
+        public void ClaimSlot(int id, int cell)
+        {
+            var agent = _system._agents[id];
+            agent.HasSlot = true;
+
+            if (agent.Goal == cell)
+            {
+                _system._claimedGoals.Add(cell);
+                return;
+            }
+
+            _system._claimedGoals.Remove(agent.Goal);
+            _system._claimedGoals.Add(cell);
+            agent.Goal = cell;
+            agent.StalledTicks = 0;
+            agent.RetryAfterTick = _system.CurrentTick;
+            agent.WantsPlan = true;
+            _system.Abandon(agent);
+        }
+
+        /// <summary>Lets a gated member plan again now.</summary>
+        public void Wake(int id)
+        {
+            var agent = _system._agents[id];
+            agent.RetryAfterTick = Math.Min(agent.RetryAfterTick, _system.CurrentTick);
+        }
+
+        /// <summary>
+        /// Keeps the member standing, quietly: no goal change, no search, no
+        /// stall — just no replanning for a few ticks. Refresh it each tick to
+        /// hold longer; a lapsed hold degrades to planning, never to frozen.
+        /// </summary>
+        public void Hold(int id, int ticks)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ticks);
+            var agent = _system._agents[id];
+            agent.RetryAfterTick = Math.Max(agent.RetryAfterTick, _system.CurrentTick + ticks);
+        }
+
+        /// <summary>
+        /// Empty, unclaimed cells the given members can jointly WALK TO —
+        /// settled units are walls — ordered by field distance then cell. One
+        /// O(cells) sweep; call once per pass, not per member.
+        /// </summary>
+        public IReadOnlyList<int> ReachableSpots(IReadOnlyList<int> fromMembers)
+        {
+            ArgumentNullException.ThrowIfNull(fromMembers);
+
+            var grid = _system._grid;
+            var seen = new bool[grid.CellCount];
+            var queue = new Queue<int>();
+            foreach (var id in fromMembers)
+            {
+                var cell = CellOf(id);
+                if (!seen[cell])
+                {
+                    seen[cell] = true;
+                    queue.Enqueue(cell);
+                }
+            }
+
+            var spots = new List<int>();
+            while (queue.Count > 0)
+            {
+                var cell = queue.Dequeue();
+
+                if (!IsClaimed(cell) && !IsOccupied(cell) && _field.Reaches(cell))
+                {
+                    spots.Add(cell);
+                }
+
+                var x = grid.ColumnOf(cell);
+                var y = grid.RowOf(cell);
+                foreach (var step in Movement.Steps)
+                {
+                    if (!Movement.IsLegalStep(grid, x, y, step.DeltaX, step.DeltaY))
+                    {
+                        continue;
+                    }
+
+                    var next = ((y + step.DeltaY) * grid.Width) + x + step.DeltaX;
+                    if (seen[next] || IsSettled(next))
+                    {
+                        continue;
+                    }
+
+                    seen[next] = true;
+                    queue.Enqueue(next);
+                }
+            }
+
+            spots.Sort((a, b) =>
+            {
+                var byCost = _field.CostFrom(a).CompareTo(_field.CostFrom(b));
+                return byCost != 0 ? byCost : a.CompareTo(b);
+            });
+
+            return spots;
+        }
+    }
 }

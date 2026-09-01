@@ -83,6 +83,10 @@ public sealed class ScenarioPlaybackTests(ITestOutputHelper output)
     [InlineData("crossing")]
     [InlineData("standing")]
     [InlineData("crosscut")]
+    [InlineData("throng")]
+    [InlineData("staggered")]
+    [InlineData("countermand")]
+    [InlineData("reconcile")]
     public void NoAgentsEverOccupyTheSameSpace(string name)
     {
         var (scenario, grid) = Fixtures.Load(name);
@@ -113,6 +117,10 @@ public sealed class ScenarioPlaybackTests(ITestOutputHelper output)
     [InlineData("crossing")]
     [InlineData("standing")]
     [InlineData("crosscut")]
+    [InlineData("throng")]
+    [InlineData("staggered")]
+    [InlineData("countermand")]
+    [InlineData("reconcile")]
     public void EveryMoveInEveryTrajectoryIsLegal(string name)
     {
         // Multi-agent planning must not quietly acquire the ability to cut
@@ -151,6 +159,10 @@ public sealed class ScenarioPlaybackTests(ITestOutputHelper output)
     [InlineData("crossing")]
     [InlineData("standing")]
     [InlineData("crosscut")]
+    [InlineData("throng")]
+    [InlineData("staggered")]
+    [InlineData("countermand")]
+    [InlineData("reconcile")]
     public void TheCostRatioAgainstTheSingleAgentOptimumIsAtLeastOne(string name)
     {
         // A multi-agent solution cheaper than the sum of individual optima is
@@ -220,6 +232,10 @@ public sealed class ScenarioPlaybackTests(ITestOutputHelper output)
     [InlineData("crossing")]
     [InlineData("standing")]
     [InlineData("crosscut")]
+    [InlineData("throng")]
+    [InlineData("staggered")]
+    [InlineData("countermand")]
+    [InlineData("reconcile")]
     public void ReplayingSaysExactlyTheSameThing(string name)
     {
         // The whole per-tick sequence, not the final state. A run that ends in the

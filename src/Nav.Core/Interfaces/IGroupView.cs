@@ -44,13 +44,19 @@ public interface IGroupView
     /// that iterates this list never claims a slot for, meters, or reconciles a
     /// unit that is somewhere else on purpose. The mutating facets accept both
     /// lists; confinement is about the group, not about who is on station.
+    /// <para>
+    /// Sending a member away is not a movement doctrine's decision, which is why
+    /// no facet here can do it. Membership above the movement layer decides,
+    /// through <see cref="MovementSystem.Dispatch"/> and
+    /// <see cref="MovementSystem.Recall"/>; the formation only reports it.
+    /// </para>
     /// </remarks>
     IReadOnlyList<int> Members { get; }
 
     /// <summary>
     /// Members away on an errand, ascending -- sent by
-    /// <see cref="IGroupDispatching.Dispatch"/> and not yet recalled. Empty for
-    /// a group nobody has dispatched from, which is every group today.
+    /// <see cref="MovementSystem.Dispatch"/> and not yet recalled. Empty for a
+    /// group nobody has dispatched from, which is every group today.
     /// </summary>
     IReadOnlyList<int> Dispatched { get; }
 

@@ -206,29 +206,21 @@ public sealed class FakeGroupOps : IGroupOps
 
     private readonly Dictionary<int, int> _errand = [];
 
-    /// <summary>Every <see cref="Dispatch"/> in order, as (member, destination).</summary>
-    public List<(int Id, int Destination)> Dispatches { get; } = [];
-
-    /// <summary>Every <see cref="Recall"/> in order.</summary>
-    public List<int> Recalls { get; } = [];
-
     /// <inheritdoc/>
     public IReadOnlyList<int> Dispatched { get; private set; } = [];
 
     /// <inheritdoc/>
     public int ErrandOf(int id) => _errand.TryGetValue(id, out var destination) ? destination : -1;
 
-    /// <inheritdoc/>
-    /// <remarks>
-    /// Mirrors the real seam: the member leaves <see cref="Members"/> for
-    /// <see cref="Dispatched"/>, drops any slot, and is aimed at the errand -- so
-    /// a pass that iterates Members stops seeing it, which is the property the
-    /// doctrine tests rely on.
-    /// </remarks>
-    public void Dispatch(int id, int destination)
+    /// <summary>
+    /// Marks a member as away on an errand: out of <see cref="Members"/>, into
+    /// <see cref="Dispatched"/>, holding no slot and aimed at the destination.
+    /// What the real seam projects after <see cref="MovementSystem.Dispatch"/>,
+    /// which no doctrine can call -- so it is state a test sets, not a verb.
+    /// </summary>
+    public FakeGroupOps Away(int id, int destination)
     {
         RequireMember(id);
-        Dispatches.Add((id, destination));
         if (_hasSlot[id]) { Claimed.Remove(_goal[id]); }
 
         _hasSlot[id] = false;
@@ -236,18 +228,22 @@ public sealed class FakeGroupOps : IGroupOps
         _errand[id] = destination;
         Members = [.. Members.Where(m => m != id)];
         Dispatched = [.. Dispatched.Append(id).Distinct().Order()];
+        return this;
     }
 
-    /// <inheritdoc/>
-    public void Recall(int id)
+    /// <summary>
+    /// The member is back on station: aimed at the ring's innermost slot and
+    /// holding nothing, as <see cref="MovementSystem.Recall"/> leaves it.
+    /// </summary>
+    public FakeGroupOps Back(int id)
     {
         RequireMember(id);
-        Recalls.Add(id);
-        if (!_errand.Remove(id)) { return; }
+        if (!_errand.Remove(id)) { return this; }
 
         _hasSlot[id] = false;
         _goal[id] = Slots.Count > 0 ? Slots[0] : Destination;
         Dispatched = [.. Dispatched.Where(m => m != id)];
         Members = [.. Members.Append(id).Distinct().Order()];
+        return this;
     }
 }

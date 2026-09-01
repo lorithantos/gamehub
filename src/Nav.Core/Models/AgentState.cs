@@ -12,6 +12,11 @@ namespace Nav.Core.Models;
 /// FAILING — a unit doing nothing visible reads as "I've refused the order"
 /// unless the display can say "I'm in the queue", which is what this flag is for.
 /// </param>
+/// <param name="Errand">
+/// Where the agent is going on its own, sent by
+/// <see cref="MovementSystem.Dispatch"/>, or -1 while it is with its formation.
+/// The formation still counts it as a member; see <see cref="Away"/>.
+/// </param>
 /// <remarks>
 /// <see cref="Stuck"/> means NO PROGRESS, not "no plan". The distinction was worth
 /// a bug: an agent that can stand still always has a plan — the one-cell plan of
@@ -26,8 +31,15 @@ public readonly record struct AgentState(
     bool Arrived,
     int StalledTicks,
     bool Thinking,
-    bool Waiting)
+    bool Waiting,
+    int Errand = -1)
 {
     /// <summary>Has an order it is making no progress on.</summary>
     public bool Stuck => !Arrived && StalledTicks > 0;
+
+    /// <summary>
+    /// Away from its formation on an errand of its own. Still a member of it: the
+    /// formation keeps its place, and the next group order takes it along.
+    /// </summary>
+    public bool Away => Errand >= 0;
 }

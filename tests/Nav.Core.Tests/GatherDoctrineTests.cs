@@ -255,7 +255,7 @@ public sealed class GatherDoctrineTests
             .Cost(8, 1.0)
             .Cost(20, 6.0);
 
-        ops.Dispatch(0, 40);
+        ops.Away(0, 40);
         new GatherDoctrine().Advance(ops);
 
         Assert.Empty(ops.Claims);
@@ -263,7 +263,7 @@ public sealed class GatherDoctrineTests
         Assert.Equal([0], ops.Dispatched);
         Assert.Equal(40, ops.ErrandOf(0));
 
-        ops.Recall(0);
+        ops.Back(0);
         new GatherDoctrine().Advance(ops);
 
         Assert.Equal([(0, 7)], ops.Claims);

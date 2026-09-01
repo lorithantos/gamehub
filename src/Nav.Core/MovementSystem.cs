@@ -266,7 +266,8 @@ public sealed class MovementSystem
     public IReadOnlyList<AgentState> Agents =>
         [.. _agents.Select(a => new AgentState(
             a.Id, a.Cell, a.Goal, a.Cell == a.Goal, a.StalledTicks, a.Search is not null,
-            Waiting: a.Cell != a.Goal && a.Search is null && a.RetryAfterTick > CurrentTick))];
+            Waiting: a.Cell != a.Goal && a.Search is null && a.RetryAfterTick > CurrentTick,
+            Errand: a.Errand))];
 
     /// <summary>Each live group's leader, for display and diagnostics.</summary>
     public IReadOnlyList<int> Leaders =>
@@ -464,6 +465,97 @@ public sealed class MovementSystem
         _groups.RemoveAll(g => g.Members.Count == 0);
         _groups.Add(group);
         ElectLeader(group);
+    }
+
+    /// <summary>
+    /// Sends one agent away on an errand of its own, to <paramref name="destination"/>
+    /// with its own field, while its place in the formation it was ordered with is
+    /// kept for it. The formation lists it as away rather than on station until
+    /// <see cref="Recall"/> or a new order.
+    /// </summary>
+    /// <remarks>
+    /// Not a movement doctrine's verb, on purpose. Whether a unit should leave its
+    /// formation -- to retreat for repair, to scout -- is a decision about
+    /// membership, made above this layer, and the formation only reports it. The
+    /// errand itself is exactly what a single-unit order is, a goal and a field
+    /// key; the difference is that nothing here forgets where the unit belongs.
+    /// </remarks>
+    /// <param name="agent">
+    /// Who. Must have been ordered at least once: an errand is a departure from
+    /// somewhere, and an agent that was never ordered has nowhere to be recalled to.
+    /// </param>
+    /// <param name="destination">Where to. Must be passable; it is not snapped.</param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// No such agent, or <paramref name="destination"/> is off the map or impassable.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// <paramref name="agent"/> has never been ordered and so has no formation.
+    /// </exception>
+    public void Dispatch(int agent, int destination)
+    {
+        var unit = Resolve(agent);
+        if (unit.Group is null)
+        {
+            throw new InvalidOperationException(
+                $"agent {agent} has never been ordered and has no formation to be recalled to.");
+        }
+
+        if (!_grid.IsPassable(destination))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(destination), destination, "An errand must end on a passable cell on the map.");
+        }
+
+        // The slot is dropped here; the claim cache is rebuilt at the head of the
+        // next tick and will simply not list it, so the ring sees the space at once.
+        unit.HasSlot = false;
+        unit.Errand = destination;
+        unit.Goal = destination;
+        unit.FieldKey = destination;
+        Redirect(unit);
+    }
+
+    /// <summary>
+    /// Ends an agent's errand: it is aimed back at its formation's ring, holds no
+    /// slot, and claims one on approach exactly as a freshly ordered member does.
+    /// A no-op on an agent that is not away.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">No such agent.</exception>
+    public void Recall(int agent)
+    {
+        var unit = Resolve(agent);
+        if (unit.Errand < 0 || unit.Group is null)
+        {
+            return;
+        }
+
+        // Back to exactly the state Order leaves a group member in.
+        var ring = unit.Group.Slots[0];
+        unit.Errand = -1;
+        unit.Goal = ring;
+        unit.FieldKey = ring;
+        unit.HasSlot = false;
+        Redirect(unit);
+    }
+
+    private Agent Resolve(int agent)
+    {
+        if (agent < 0 || agent >= _agents.Count)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(agent), agent, $"no such agent; this system has {_agents.Count}.");
+        }
+
+        return _agents[agent];
+    }
+
+    /// <summary>A goal changed under this agent: plan again, now, from scratch.</summary>
+    private void Redirect(Agent unit)
+    {
+        unit.StalledTicks = 0;
+        unit.RetryAfterTick = CurrentTick;
+        unit.WantsPlan = true;
+        Abandon(unit);
     }
 
     /// <summary>
@@ -1003,55 +1095,6 @@ public sealed class MovementSystem
 
         /// <inheritdoc/>
         public int ErrandOf(int id) => Member(id).Errand;
-
-        /// <inheritdoc/>
-        public void Dispatch(int id, int destination)
-        {
-            var agent = Member(id);
-            if (!_system._grid.IsPassable(destination))
-            {
-                throw new ArgumentOutOfRangeException(
-                    nameof(destination), destination, "An errand must end on a passable cell on the map.");
-            }
-
-            // The slot goes first, so the ring sees the space this tick. Then the
-            // errand is exactly what a single-unit order is: this unit, that cell,
-            // its own field -- the group is untouched.
-            if (agent.HasSlot)
-            {
-                agent.HasSlot = false;
-                Unclaim(agent.Goal, id);
-            }
-
-            agent.Errand = destination;
-            agent.Goal = destination;
-            agent.FieldKey = destination;
-            agent.StalledTicks = 0;
-            agent.RetryAfterTick = _system.CurrentTick;
-            agent.WantsPlan = true;
-            _system.Abandon(agent);
-        }
-
-        /// <inheritdoc/>
-        public void Recall(int id)
-        {
-            var agent = Member(id);
-            if (agent.Errand < 0)
-            {
-                return;
-            }
-
-            // Back to exactly the state Order leaves a group member in: aimed at
-            // the ring's innermost slot, holding nothing, claiming on approach.
-            agent.Errand = -1;
-            agent.Goal = _group.Slots[0];
-            agent.FieldKey = _group.Slots[0];
-            agent.HasSlot = false;
-            agent.StalledTicks = 0;
-            agent.RetryAfterTick = _system.CurrentTick;
-            agent.WantsPlan = true;
-            _system.Abandon(agent);
-        }
 
         /// <summary>
         /// The agent behind a member id, refusing an id outside this group.

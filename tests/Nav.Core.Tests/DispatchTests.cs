@@ -1,14 +1,15 @@
 namespace Nav.Core.Tests;
 
 /// <summary>
-/// Detachment on the real seam: a member leaves its group for an errand of its
-/// own and comes back, and the group model does not notice.
+/// Detachment on the real system: an agent leaves its formation for an errand of
+/// its own and comes back, and the formation keeps its place.
 /// </summary>
 /// <remarks>
-/// The spike question this answers is whether detachment needs membership to
-/// change. It does not: an errand is a goal and a field, the member stays in
-/// the group, and the seam merely stops listing it as on station. Confinement,
-/// the per-group claim assertion, and every existing pass are untouched.
+/// Two things are pinned here. That an errand is a goal and a field key rather
+/// than a change of membership, so confinement, the per-group claim assertion
+/// and every existing pass are untouched. And that the verbs are the SYSTEM's,
+/// not the movement doctrine's: sending a unit away is a decision membership
+/// makes above the movement layer, and the formation only reports who is out.
 /// </remarks>
 public sealed class DispatchTests
 {
@@ -41,45 +42,32 @@ public sealed class DispatchTests
         return (system, grid);
     }
 
-    /// <summary>
-    /// Gathers normally, except that on its first pass it sends the lowest member
-    /// to <paramref name="errand"/>, and five ticks after that member arrives it
-    /// recalls it. Records what the seam said about the runner while it was away.
-    /// </summary>
-    private sealed class SendOneAway(int errand) : GatherDoctrine
+    private static void TickUntil(MovementSystem system, Func<bool> done, int limit)
     {
-        public int Runner { get; private set; } = -1;
-        public int DispatchedAt { get; private set; } = -1;
-        public int ArrivedAt { get; private set; } = -1;
-        public int RecalledAt { get; private set; } = -1;
+        for (var tick = 0; tick < limit && !done(); tick++)
+        {
+            system.Tick();
+        }
+    }
+
+    /// <summary>
+    /// Gathers normally, and on every pass records how the seam listed
+    /// <paramref name="runner"/> while its errand was live.
+    /// </summary>
+    private sealed class WatchRunner(int runner) : GatherDoctrine
+    {
+        public int PassesWhileAway { get; private set; }
         public bool ListedOnStationWhileAway { get; private set; }
         public bool ListedDispatchedWhileAway { get; private set; }
 
         public override void Advance(IGroupOps ops)
         {
-            if (Runner < 0)
+            var errand = ops.ErrandOf(runner);
+            if (errand >= 0)
             {
-                Runner = ops.Members[0];
-                ops.Dispatch(Runner, errand);
-                DispatchedAt = ops.CurrentTick;
-            }
-            else if (RecalledAt < 0)
-            {
-                ListedOnStationWhileAway |= ops.Members.Contains(Runner);
-                ListedDispatchedWhileAway |= ops.Dispatched.Contains(Runner) && ops.ErrandOf(Runner) == errand;
-
-                if (ops.CellOf(Runner) == errand)
-                {
-                    if (ArrivedAt < 0)
-                    {
-                        ArrivedAt = ops.CurrentTick;
-                    }
-                    else if (ops.CurrentTick >= ArrivedAt + 5)
-                    {
-                        ops.Recall(Runner);
-                        RecalledAt = ops.CurrentTick;
-                    }
-                }
+                PassesWhileAway++;
+                ListedOnStationWhileAway |= ops.Members.Contains(runner);
+                ListedDispatchedWhileAway |= ops.Dispatched.Contains(runner);
             }
 
             base.Advance(ops);
@@ -87,33 +75,41 @@ public sealed class DispatchTests
     }
 
     [Fact]
-    public void AMemberCanLeaveOnAnErrandAndRejoinTheRing()
+    public void AnAgentCanLeaveOnAnErrandAndRejoinTheRing()
     {
         var (system, grid) = Scene(agents: 4);
         var errand = grid.Index(8, 8);
-        var doctrine = new SendOneAway(errand);
+        var watcher = new WatchRunner(runner: 0);
 
-        system.Order([0, 1, 2, 3], grid.Index(4, 4), doctrine);
-        for (var tick = 0; tick < 200; tick++)
+        system.Order([0, 1, 2, 3], grid.Index(4, 4), watcher);
+        system.Tick();
+
+        system.Dispatch(0, errand);
+        TickUntil(system, () => system.Agents[0].Cell == errand, limit: 100);
+        Assert.Equal(errand, system.Agents[0].Cell);
+
+        for (var tick = 0; tick < 5; tick++)
         {
             system.Tick();
         }
 
-        // The runner went, was listed as away and never as on station, and came back.
-        Assert.True(doctrine.ArrivedAt > doctrine.DispatchedAt, "the runner never reached its errand");
-        Assert.True(doctrine.RecalledAt > doctrine.ArrivedAt, "the runner was never recalled");
-        Assert.False(doctrine.ListedOnStationWhileAway, "a dispatched member appeared in Members");
-        Assert.True(doctrine.ListedDispatchedWhileAway, "a dispatched member was missing from Dispatched");
+        system.Recall(0);
+        TickUntil(system, () => system.Agents.All(a => a.Arrived), limit: 150);
 
-        // And the group is whole again: everyone parked, the runner on a ring cell
-        // rather than its errand, and no two members aimed at one cell.
+        // While away: listed as dispatched on every pass, on station on none.
+        Assert.True(watcher.PassesWhileAway > 0, "the formation never saw the runner as away");
+        Assert.True(watcher.ListedDispatchedWhileAway);
+        Assert.False(watcher.ListedOnStationWhileAway, "a dispatched agent appeared in Members");
+
+        // Back: everyone parked, the runner on a ring cell rather than its errand,
+        // and no two members aimed at one cell.
         var agents = system.Agents;
         Assert.All(agents, a => Assert.True(a.Arrived, $"agent {a.Id} did not arrive"));
-        Assert.NotEqual(errand, agents[doctrine.Runner].Goal);
+        Assert.NotEqual(errand, agents[0].Goal);
         Assert.Equal(agents.Count, agents.Select(a => a.Goal).Distinct().Count());
     }
 
-    /// <summary>Records who the seam lists as on station, once.</summary>
+    /// <summary>Records who the seam lists as on station and away, once.</summary>
     private sealed class ListMembers : GroupDoctrine
     {
         public IReadOnlyList<int>? Members { get; private set; }
@@ -131,13 +127,13 @@ public sealed class DispatchTests
     {
         // A dispatched unit re-ordered into another group must arrive there as an
         // ordinary member. If the errand survived the order, its new group would
-        // never list it on station and no pass would ever claim for it.
+        // never list it on station and no pass would ever claim for it. This is
+        // also the C&C rule: a group move takes the detached unit with it.
         var (system, grid) = Scene(agents: 4);
-        var doctrine = new SendOneAway(grid.Index(8, 8));
 
-        system.Order([0, 1, 2], grid.Index(4, 4), doctrine);
+        system.Order([0, 1, 2], grid.Index(4, 4));
+        system.Dispatch(0, grid.Index(8, 8));
         system.Tick();
-        Assert.Equal(0, doctrine.Runner);
 
         var probe = new ListMembers();
         system.Order([0, 3], grid.Index(0, 8), probe);
@@ -151,30 +147,38 @@ public sealed class DispatchTests
     public void AnErrandMustEndOnTheMap()
     {
         var (system, grid) = Scene(agents: 2);
-        ArgumentOutOfRangeException? refusal = null;
-        var doctrine = new Probe(ops =>
-        {
-            try { ops.Dispatch(ops.Members[0], grid.CellCount + 5); }
-            catch (ArgumentOutOfRangeException ex) { refusal = ex; }
-        });
+        system.Order([0, 1], grid.Index(4, 4));
 
-        system.Order([0, 1], grid.Index(4, 4), doctrine);
-        system.Tick();
-
-        Assert.NotNull(refusal);
+        Assert.Throws<ArgumentOutOfRangeException>(() => system.Dispatch(0, grid.CellCount + 5));
+        Assert.Throws<ArgumentOutOfRangeException>(() => system.Dispatch(0, -1));
     }
 
-    /// <summary>Runs one action on the first pass and nothing after.</summary>
-    private sealed class Probe(Action<IGroupOps> action) : GroupDoctrine
+    [Fact]
+    public void OnlyAnOrderedAgentCanBeDispatched()
     {
-        private bool _done;
+        // An errand is a departure FROM somewhere: an agent that was never
+        // ordered has no formation to return to, so there is nothing to recall it
+        // to and the call is refused rather than turned into a bare move.
+        var (system, grid) = Scene(agents: 2);
 
-        public override void Advance(IGroupOps ops)
+        Assert.Throws<InvalidOperationException>(() => system.Dispatch(0, grid.Index(8, 8)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => system.Dispatch(7, grid.Index(8, 8)));
+    }
+
+    [Fact]
+    public void RecallingAnAgentThatIsNotAwayChangesNothing()
+    {
+        var (system, grid) = Scene(agents: 2);
+        system.Order([0, 1], grid.Index(4, 4));
+        for (var tick = 0; tick < 40; tick++)
         {
-            if (_done) { return; }
-
-            _done = true;
-            action(ops);
+            system.Tick();
         }
+
+        var before = system.Agents.Select(a => (a.Cell, a.Goal)).ToArray();
+        system.Recall(0);
+        system.Tick();
+
+        Assert.Equal(before, system.Agents.Select(a => (a.Cell, a.Goal)));
     }
 }

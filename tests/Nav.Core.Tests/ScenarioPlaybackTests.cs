@@ -202,9 +202,20 @@ public sealed class ScenarioPlaybackTests(ITestOutputHelper output)
 
         Assert.Equal(0, outcome.Arrived);
         Assert.Equal(2, outcome.Stuck);
+
+        // StalledTicks counts failed REPLANS, not ticks, so the backoff makes it
+        // smaller rather than larger -- which is the point.
         Assert.True(
-            outcome.MaxStalledTicks > 10,
-            $"a permanent deadlock should show a long stall, saw {outcome.MaxStalledTicks}");
+            outcome.MaxStalledTicks >= 3,
+            $"a permanent deadlock should show repeated failed replans, saw {outcome.MaxStalledTicks}");
+
+        // And the backoff is what stops a hopeless retry eating the budget.
+        // Before it existed this scenario spent 14,266 nodes replanning two
+        // deadlocked agents every tick for sixty ticks, against 126 for a
+        // scenario that actually completed.
+        Assert.True(
+            outcome.TotalExpanded < 5000,
+            $"a deadlock cost {outcome.TotalExpanded:N0} nodes; the backoff is not holding");
     }
 
     [Fact]

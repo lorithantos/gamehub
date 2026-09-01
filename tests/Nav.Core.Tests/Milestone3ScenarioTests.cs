@@ -199,6 +199,79 @@ public sealed class Milestone3ScenarioTests(ITestOutputHelper output)
             $"{name}: departure spread {spread} — the group left as more than one movement");
     }
 
+    /// <summary>
+    /// Nobody walks away from a destination they have reached. Settled-looking
+    /// units used to turn around at the backstop and march outward — a squatter
+    /// on somebody else's claim had no legal way to stay, so reconciliation
+    /// sent it to the only unclaimed spot left, which by then lay behind the
+    /// settled rim. The squatter's swap replaced that with an instant arrival.
+    /// </summary>
+    [Theory]
+    [InlineData(18, 5)]
+    [InlineData(18, 3)]
+    [InlineData(19, 5)]
+    public void NobodyRetreatsFromASettledBlob(int destX, int destY)
+    {
+        var grid = Grid.FromMapFile(Fixtures.Map("crosscut.map"));
+        var system = new MovementSystem(grid);
+        var placed = 0;
+        for (var cell = 0; cell < grid.CellCount && placed < 24; cell++)
+        {
+            if (grid.IsPassable(cell))
+            {
+                system.AddAgent(cell);
+                placed++;
+            }
+        }
+
+        var destination = grid.Index(destX, destY);
+        system.Order([.. Enumerable.Range(0, placed)], destination);
+        var field = DistanceField.Build(grid, destination);
+
+        var previous = system.Agents.Select(a => a.Cell).ToArray();
+        var retreats = new List<string>();
+        for (var tick = 1; tick <= 400; tick++)
+        {
+            system.Tick();
+
+            // "Late" is once the blob has substantially formed: a jostle while
+            // the crowd is still flowing is traffic, not a retreat.
+            var settled = system.Agents.Count(a => a.Arrived);
+            foreach (var agent in system.Agents)
+            {
+                if (agent.Cell != previous[agent.Id])
+                {
+                    if (settled >= 20 &&
+                        field.CostFrom(agent.Cell) > field.CostFrom(previous[agent.Id]) + 0.5)
+                    {
+                        retreats.Add($"t{tick} agent {agent.Id}");
+                    }
+
+                    previous[agent.Id] = agent.Cell;
+                }
+            }
+        }
+
+        output.WriteLine(
+            $"({destX},{destY}): {system.Agents.Count(a => a.Arrived)}/24 arrived, " +
+            $"{retreats.Count} late outward steps" +
+            (retreats.Count > 0 ? ": " + string.Join(", ", retreats.Take(5)) : ""));
+
+        Assert.Equal(24, system.Agents.Count(a => a.Arrived));
+
+        // A RUSH is multi-step: the reported behaviour was settled units
+        // turning around and marching away, three and four cells at a time.
+        // Those are gone -- what remains, in one of these three corners, is a
+        // single unit taking a single sidestep that happens to read as one
+        // cell outward while the last of the crowd shuffles into place. Two
+        // consecutive outward steps by one unit is the bug returning.
+        var perAgent = retreats
+            .GroupBy(entry => entry.Split(' ')[2])
+            .Select(group => group.Count());
+
+        Assert.All(perAgent, count => Assert.True(count <= 1, "a unit retreated more than one step"));
+    }
+
     [Fact]
     public void ABlockedUnitBetweenProbesReadsAsWaitingNotJustStuck()
     {

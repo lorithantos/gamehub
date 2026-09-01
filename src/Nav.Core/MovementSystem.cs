@@ -265,6 +265,42 @@ public sealed class MovementSystem
     {
         ArgumentNullException.ThrowIfNull(agents);
 
+        // A click on a wall MEANS the ground beside it. Refuse-don't-repair is
+        // the right rule for file formats and the wrong one for player input:
+        // an order onto impassable terrain used to be silently swallowed, and
+        // fourteen selected units stood at spawn for nine hundred sixty ticks
+        // looking healthy while the player wondered what was wrong. Snap to
+        // the nearest passable cell, exactly as every RTS does.
+        if (!_grid.IsPassable(goalCell))
+        {
+            var clickX = _grid.ColumnOf(goalCell);
+            var clickY = _grid.RowOf(goalCell);
+            var best = -1;
+            var bestDistance = double.PositiveInfinity;
+            for (var cell = 0; cell < _grid.CellCount; cell++)
+            {
+                if (!_grid.IsPassable(cell))
+                {
+                    continue;
+                }
+
+                var distance = Movement.OctileDistance(
+                    clickX, clickY, _grid.ColumnOf(cell), _grid.RowOf(cell));
+                if (distance < bestDistance)
+                {
+                    best = cell;
+                    bestDistance = distance;
+                }
+            }
+
+            if (best < 0)
+            {
+                return;   // a map of nothing but walls; there is nowhere to go
+            }
+
+            goalCell = best;
+        }
+
         // The parking ring doubles as the passability check: an impassable
         // destination yields no ring and the order is refused as before.
         //
@@ -822,6 +858,7 @@ public sealed class MovementSystem
         /// <summary>Exact distance from a cell to the destination, or infinity.</summary>
         public double FieldCost(int cell) => _field.CostFrom(cell);
 
+
         public int CellOf(int id) => _system._agents[id].Cell;
 
         public int GoalOf(int id) => _system._agents[id].Goal;
@@ -832,6 +869,43 @@ public sealed class MovementSystem
 
         /// <summary>Is this cell some slot-holder's goal?</summary>
         public bool IsClaimed(int cell) => _system._claimedGoals.Contains(cell);
+
+        /// <summary>
+        /// The group member holding this cell as its slot, or -1. Ties cannot
+        /// happen: a claim is exclusive.
+        /// </summary>
+        public int ClaimantOf(int cell)
+        {
+            foreach (var member in _group.Members)
+            {
+                if (member.HasSlot && member.Goal == cell)
+                {
+                    return member.Id;
+                }
+            }
+
+            return -1;
+        }
+
+        /// <summary>
+        /// Releases a member's claim and sends it back to the queue — it will
+        /// claim again on approach, or reconcile in its turn.
+        /// </summary>
+        public void ReleaseSlot(int id)
+        {
+            var agent = _system._agents[id];
+            if (!agent.HasSlot)
+            {
+                return;
+            }
+
+            agent.HasSlot = false;
+            _system._claimedGoals.Remove(agent.Goal);
+            agent.StalledTicks = 0;
+            agent.RetryAfterTick = _system.CurrentTick;
+            agent.WantsPlan = true;
+            _system.Abandon(agent);
+        }
 
         /// <summary>Is a unit parked on this cell (standing on its goal)?</summary>
         public bool IsSettled(int cell) => _system._settledCells.Contains(cell);

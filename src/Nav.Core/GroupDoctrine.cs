@@ -128,9 +128,26 @@ public class GatherDoctrine : GroupDoctrine
                 continue;
             }
 
+            // Innermost open slot, globally. Member-nearest picking was tried
+            // against the endgame orbit and measured WORSE (11 late backward
+            // moves against 4): with a whole group approaching from one face,
+            // it burns the near-face slots first and forces every latecomer
+            // through the pack. Innermost-global fills the far side while the
+            // near ground is still empty road.
             foreach (var slot in ops.Slots)
             {
                 if (ops.IsClaimed(slot) || ops.IsSettled(slot))
+                {
+                    continue;
+                }
+
+                // Never claim outward. A unit already at the rim — a displaced
+                // claimant after a squatter's swap, most often — offered the
+                // innermost REMAINING slot can be offered one behind itself,
+                // and it walks away from the crowd to reach it. Standing put
+                // and waiting for an interior slot is always better; the
+                // reconcile pass is the safety net if none ever opens.
+                if (ops.FieldCost(slot) > ops.FieldCost(ops.CellOf(id)))
                 {
                     continue;
                 }
@@ -186,16 +203,57 @@ public class GatherDoctrine : GroupDoctrine
                 continue;
             }
 
+            // Only ever CLOSER, never farther. A member whose stall is mere
+            // crowding at the rim is best left where it is, and the alternative
+            // -- a goal beyond the crust -- is a unit walking away from the
+            // destination it already reached.
+            if (ops.FieldCost(pick) > ops.FieldCost(ops.GoalOf(id)) &&
+                ops.FieldCost(pick) > ops.FieldCost(cell))
+            {
+                pick = cell;
+            }
+
             // Never move a member's goal FARTHER from the destination than its
             // own position: beyond the crust there is nothing to gain, and a
             // member whose best spot is worse than standing arrives in place.
-            if (pick != cell &&
-                ops.FieldCost(pick) > ops.FieldCost(cell) &&
-                !ops.IsClaimed(cell))
+            if (pick != cell && ops.FieldCost(pick) > ops.FieldCost(cell))
             {
-                pick = cell;
-                if (pick == ops.GoalOf(id))
+                // Standing put beats walking outward -- even when the cell
+                // underfoot belongs to somebody else's claim. THE ENDGAME
+                // RUSH-BACKWARDS came from the else branch of that condition:
+                // a squatter on a claimed cell had no legal stay, so it was
+                // sent to the only unclaimed spot left, which by then lay
+                // BEHIND the settled rim -- units that had visibly arrived
+                // turning around and walking away at the backstop. Yielding a
+                // claimed cell is the claimant's business (it will stall and
+                // reconcile in its turn); marching a unit outward to solve it
+                // is a cure worse than the crowding.
+                if (!ops.IsClaimed(cell))
                 {
+                    pick = cell;
+                    if (pick == ops.GoalOf(id))
+                    {
+                        continue;
+                    }
+                }
+                else
+                {
+                    // SQUATTER'S SWAP. The unit is standing on a cell somebody
+                    // else claimed, and every remaining spot is farther out.
+                    // Marching it away is the endgame rush-backwards; leaving
+                    // it strands it. So it TAKES the claim it is standing on --
+                    // an instant arrival -- and the absent claimant is returned
+                    // to the queue to claim again. Sum of distances cannot
+                    // rise: the squatter is already here, and the claimant was
+                    // not. The classic MAPF goal swap, arrived at from the
+                    // other direction.
+                    var claimant = ops.ClaimantOf(cell);
+                    if (claimant >= 0 && claimant != id)
+                    {
+                        ops.ReleaseSlot(claimant);
+                        ops.ClaimSlot(id, cell);
+                    }
+
                     continue;
                 }
             }

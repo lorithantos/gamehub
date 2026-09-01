@@ -1,4 +1,4 @@
-namespace Nav.Core;
+namespace Nav.Core.Models;
 
 /// <summary>
 /// The outcome of one search.

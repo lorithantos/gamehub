@@ -16,6 +16,8 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <Using Include="Nav.Core.Interfaces" />
+    <Using Include="Nav.Core.Models" />
   </ItemGroup>
 
   <ItemGroup>

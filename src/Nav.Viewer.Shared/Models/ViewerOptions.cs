@@ -1,7 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 
-namespace Nav.Viewer;
+namespace Nav.Viewer.Models;
 
 /// <summary>
 /// The command line, parsed. Pure, and therefore testable without a window.

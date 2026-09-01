@@ -26,4 +26,15 @@
     <InternalsVisibleTo Include="Nav.Core.Tests" />
   </ItemGroup>
 
+  <!--
+    Implementations live at the project root; contracts under Interfaces/ and
+    data under Models/, each in the namespace its folder names. The library's
+    own sub-namespaces are global usings so a root file names a model or an
+    interface without a using line of its own.
+  -->
+  <ItemGroup>
+    <Using Include="Nav.Core.Interfaces" />
+    <Using Include="Nav.Core.Models" />
+  </ItemGroup>
+
 </Project>

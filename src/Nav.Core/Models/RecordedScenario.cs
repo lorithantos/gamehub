@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 
-namespace Nav.Core;
+namespace Nav.Core.Models;
 
 /// <param name="Id">Agent ids are consecutive from zero; the id is also the planning order.</param>
 /// <param name="X">

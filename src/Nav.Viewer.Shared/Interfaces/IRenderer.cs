@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace Nav.Viewer;
+namespace Nav.Viewer.Interfaces;
 
 /// <summary>
 /// Everything the viewer knows how to draw.

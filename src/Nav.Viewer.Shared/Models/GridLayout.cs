@@ -2,7 +2,7 @@ using System.Numerics;
 
 using Nav.Core;
 
-namespace Nav.Viewer;
+namespace Nav.Viewer.Models;
 
 /// <summary>
 /// The one place grid coordinates and screen pixels are converted.

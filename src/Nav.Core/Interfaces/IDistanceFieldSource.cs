@@ -1,4 +1,4 @@
-namespace Nav.Core;
+namespace Nav.Core.Interfaces;
 
 /// <summary>
 /// Where a <see cref="DistanceField"/> comes from when somebody asks for one.

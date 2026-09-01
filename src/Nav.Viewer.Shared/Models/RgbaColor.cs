@@ -1,4 +1,4 @@
-namespace Nav.Viewer;
+namespace Nav.Viewer.Models;
 
 /// <summary>
 /// A colour, in the viewer's own vocabulary.

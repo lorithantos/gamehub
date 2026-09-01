@@ -31,4 +31,9 @@
     <EmbeddedResource Include="Shaders\Viewer.hlsl" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Using Include="Nav.Viewer.Interfaces" />
+    <Using Include="Nav.Viewer.Models" />
+  </ItemGroup>
+
 </Project>

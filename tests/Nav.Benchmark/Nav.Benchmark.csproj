@@ -13,4 +13,9 @@
     <ProjectReference Include="..\..\src\Nav.Core\Nav.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Using Include="Nav.Core.Interfaces" />
+    <Using Include="Nav.Core.Models" />
+  </ItemGroup>
+
 </Project>

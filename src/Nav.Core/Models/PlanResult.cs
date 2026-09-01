@@ -1,4 +1,4 @@
-namespace Nav.Core;
+namespace Nav.Core.Models;
 
 /// <summary>
 /// One agent's intended occupancy over time: where it is on each tick.

@@ -1,4 +1,4 @@
-namespace Nav.Viewer;
+namespace Nav.Viewer.Models;
 
 /// <summary>
 /// An axis-aligned rectangle in pixels.

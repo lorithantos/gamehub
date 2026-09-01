@@ -1,4 +1,4 @@
-namespace Nav.Core;
+namespace Nav.Core.Models;
 
 /// <summary>
 /// One problem from a <c>.scen</c> file: a start, a goal, and the cost of the

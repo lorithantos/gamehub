@@ -1,4 +1,4 @@
-namespace Nav.Core;
+namespace Nav.Core.Interfaces;
 
 /// <summary>
 /// What a planner may ASK about the reservation window. Questions only -- nothing

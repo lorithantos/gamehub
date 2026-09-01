@@ -21,4 +21,9 @@
     <PackageReference Include="Raylib-cs" Version="8.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Using Include="Nav.Viewer.Interfaces" />
+    <Using Include="Nav.Viewer.Models" />
+  </ItemGroup>
+
 </Project>

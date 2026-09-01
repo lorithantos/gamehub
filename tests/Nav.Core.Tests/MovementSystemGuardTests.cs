@@ -161,4 +161,105 @@ public sealed class MovementSystemGuardTests
         var goals = system.Agents.Select(a => a.Goal).ToArray();
         Assert.Equal(goals.Length, goals.Distinct().Count());
     }
+
+    /// <summary>
+    /// A doctrine that reaches for an agent outside its own group, and records
+    /// what the seam did about it.
+    /// </summary>
+    private sealed class TouchOutsider(int outsider) : GroupDoctrine
+    {
+        public bool Ran { get; private set; }
+        public bool OutsiderWasAMember { get; private set; }
+        public ArgumentOutOfRangeException? Refusal { get; private set; }
+
+        public override void Advance(IGroupOps ops)
+        {
+            if (Ran) { return; }
+
+            Ran = true;
+            OutsiderWasAMember = ops.Members.Contains(outsider);
+            try
+            {
+                ops.Hold(outsider, ticks: 3);
+            }
+            catch (ArgumentOutOfRangeException ex)
+            {
+                Refusal = ex;
+            }
+        }
+    }
+
+    [Fact]
+    public void ADoctrineCannotTouchAnAgentOutsideItsGroup()
+    {
+        // The seam is handed out per group, and the mutators refuse any id that
+        // is not one of that group's members. Confinement is structural: a
+        // doctrine written outside this assembly cannot hold, wake, claim for or
+        // release another group's unit even if it names one.
+        var (system, grid) = Scene(agents: 4);
+        var doctrine = new TouchOutsider(outsider: 3);
+
+        system.Order([0, 1], grid.Index(2, 6), doctrine);
+        system.Order([2, 3], grid.Index(6, 6));
+        system.Tick();
+
+        Assert.True(doctrine.Ran);
+        Assert.False(doctrine.OutsiderWasAMember);
+        Assert.NotNull(doctrine.Refusal);
+    }
+
+    /// <summary>Claims the innermost slot for the group's first member and remembers the cell.</summary>
+    private sealed class ClaimOne : GroupDoctrine
+    {
+        public int Cell { get; private set; } = -1;
+
+        public override void Advance(IGroupOps ops)
+        {
+            if (Cell >= 0) { return; }
+
+            Cell = ops.Slots[0];
+            ops.ClaimSlot(ops.Members[0], Cell);
+        }
+    }
+
+    /// <summary>From a second group, asks who holds the cell the first group claimed.</summary>
+    private sealed class AskWhoHolds(ClaimOne other) : GroupDoctrine
+    {
+        public bool? Claimed { get; private set; }
+        public int Claimant { get; private set; } = -1;
+        public bool ClaimantIsAMember { get; private set; }
+
+        public override void Advance(IGroupOps ops)
+        {
+            if (other.Cell < 0 || Claimed is not null) { return; }
+
+            Claimed = ops.IsClaimed(other.Cell);
+            Claimant = ops.ClaimantOf(other.Cell);
+            ClaimantIsAMember = ops.Members.Contains(Claimant);
+        }
+    }
+
+    [Fact]
+    public void IsClaimedAndClaimantOfAgreeAcrossGroups()
+    {
+        // The pair was once split across scopes -- IsClaimed system-wide,
+        // ClaimantOf this group only -- so a second group answered "nobody" about
+        // a cell the first called taken. Both now range over every agent, and the
+        // holder a second group is told about is, correctly, not one of its own.
+        var (system, grid) = Scene(agents: 4);
+        var first = new ClaimOne();
+        var second = new AskWhoHolds(first);
+
+        system.Order([0, 1], grid.Index(2, 6), first);
+        system.Order([2, 3], grid.Index(6, 6), second);
+
+        // Two ticks, so the answer does not depend on which group's doctrine the
+        // tick happens to run first.
+        system.Tick();
+        system.Tick();
+
+        Assert.True(second.Claimed);
+        Assert.Equal(0, second.Claimant);
+        Assert.False(second.ClaimantIsAMember);
+    }
 }

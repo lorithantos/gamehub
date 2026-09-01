@@ -83,18 +83,20 @@ public interface IGroupView
     /// every agent, including members of other groups.
     /// </summary>
     /// <remarks>
-    /// The scope difference against <see cref="ClaimantOf"/> is deliberate now and
-    /// was an accident before: the two were written as a matched pair (ask whether
-    /// a cell is claimed, then ask who claimed it) while ranging over different
-    /// sets, so with two concurrent groups the second answered "nobody" about a
-    /// cell the first called taken. Read both scopes before pairing them.
+    /// <see cref="ClaimantOf"/> ranges over the same set, so the two can be used
+    /// as the pair they read as (is it claimed; then by whom) and agree. They did
+    /// not always: ClaimantOf once answered for this group alone, so with two
+    /// concurrent groups the second said "nobody" about a cell the first called
+    /// taken. A doctrine acting on the holder must still check it is one of its
+    /// own <see cref="Members"/>; <see cref="IGroupClaiming"/> refuses an
+    /// outsider regardless.
     /// </remarks>
     bool IsClaimed(int cell);
 
     /// <summary>
-    /// The member of <see cref="Members"/> holding this cell as its slot, or -1.
-    /// <b>Group-local</b> -- an agent outside this group holding the cell answers
-    /// -1 here while <see cref="IsClaimed"/> answers true.
+    /// The agent holding this cell as its slot, or -1. <b>System-wide</b>, like
+    /// <see cref="IsClaimed"/>: the holder may belong to another group, in which
+    /// case it is not in <see cref="Members"/>.
     /// </summary>
     int ClaimantOf(int cell);
 
@@ -126,6 +128,12 @@ public interface IGroupView
 /// gate and has no business deciding where anyone parks; a pass handed only
 /// <see cref="IGroupPacing"/> cannot claim, and the compiler enforces it rather
 /// than a reviewer.
+/// <para>
+/// Confined to the group. Every method refuses an id that is not one of this
+/// group's <see cref="IGroupView.Members"/>, before it changes anything, so a
+/// doctrine handed one group's seam cannot reach another group's unit even by
+/// naming it. The check is the seam's, not the doctrine's to remember.
+/// </para>
 /// </remarks>
 public interface IGroupClaiming
 {
@@ -133,6 +141,9 @@ public interface IGroupClaiming
     /// Gives the member this cell as its parking slot: goal, claim, wake.
     /// Idempotent when the goal already matches.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="id"/> is not one of this group's members.
+    /// </exception>
     void ClaimSlot(int id, int cell);
 
     /// <summary>
@@ -140,15 +151,23 @@ public interface IGroupClaiming
     /// again on approach, or reconcile in its turn. A no-op on a member that holds
     /// no slot.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="id"/> is not one of this group's members.
+    /// </exception>
     void ReleaseSlot(int id);
 }
 
 /// <summary>
 /// The power to change WHEN a member plans, without changing where it is going.
+/// Confined to the group the same way <see cref="IGroupClaiming"/> is: an id
+/// outside <see cref="IGroupView.Members"/> is refused before anything changes.
 /// </summary>
 public interface IGroupPacing
 {
     /// <summary>Lets a gated member plan again now.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="id"/> is not one of this group's members.
+    /// </exception>
     void Wake(int id);
 
     /// <summary>
@@ -158,7 +177,10 @@ public interface IGroupPacing
     /// </summary>
     /// <param name="id">The member to hold.</param>
     /// <param name="ticks">How long, in ticks. Must be positive.</param>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="ticks"/> is not positive.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="ticks"/> is not positive, or <paramref name="id"/> is not
+    /// one of this group's members.
+    /// </exception>
     void Hold(int id, int ticks);
 }
 

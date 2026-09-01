@@ -170,4 +170,51 @@ public sealed class GatherDoctrineTests
         Assert.Equal([4, 5, 6, 7], ops.Holds.Select(h => h.Id).Order());
         Assert.All(ops.Holds, h => Assert.Equal(2, h.Ticks));
     }
+
+    [Fact]
+    public void ASquatterTakesTheClaimOfAnAbsentMemberAndSendsItBackToTheQueue()
+    {
+        // The squatter's swap. Member 0 is hard-stalled on cell 10, which member 1
+        // claimed from out at cell 40. The only reachable spot, 30, lies farther
+        // out than 10 but nearer than member 0's own goal, so the pass would
+        // otherwise march it outward. Instead it takes the cell it is standing on
+        // and member 1 goes back to the queue to claim again.
+        //
+        // Member 0 HOLDS a slot so that ClaimPass, which only looks at the
+        // un-slotted, leaves it alone and the reconcile pass is the one under test.
+        var ops = new FakeGroupOps { Slots = [30] }
+            .With(id: 0, cell: 10, goal: 20, hasSlot: true, stalledReplans: 2)
+            .With(id: 1, cell: 40, goal: 10, hasSlot: true)
+            .Cost(10, 4.0)
+            .Cost(20, 9.0)
+            .Cost(30, 6.0)
+            .Cost(40, 12.0);
+
+        new GatherDoctrine().Advance(ops);
+
+        Assert.Equal([1], ops.Releases);
+        Assert.Equal([(0, 10)], ops.Claims);
+    }
+
+    [Fact]
+    public void ASquatterOnAnotherGroupsClaimStaysPutAndReleasesNobody()
+    {
+        // The same picture, but the claimant belongs to a different group.
+        // ClaimantOf names it, because it is system-wide like IsClaimed, and that
+        // is exactly why the doctrine checks membership before releasing: another
+        // group's member is not this doctrine's to send anywhere. The fake refuses
+        // the release the way the real seam does, so a doctrine that forgot the
+        // check fails here loudly rather than passing by accident.
+        var ops = new FakeGroupOps { Slots = [30] }
+            .With(id: 0, cell: 10, goal: 20, hasSlot: true, stalledReplans: 2)
+            .ClaimedBy(10, outsider: 9)
+            .Cost(10, 4.0)
+            .Cost(20, 9.0)
+            .Cost(30, 6.0);
+
+        new GatherDoctrine().Advance(ops);
+
+        Assert.Empty(ops.Releases);
+        Assert.Empty(ops.Claims);
+    }
 }

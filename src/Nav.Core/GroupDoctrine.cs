@@ -266,8 +266,14 @@ public class GatherDoctrine : GroupDoctrine
                     // rise: the squatter is already here, and the claimant was
                     // not. The classic MAPF goal swap, arrived at from the
                     // other direction.
+                    //
+                    // ClaimantOf is system-wide, so the holder may belong to
+                    // another group, and another group's member is not this
+                    // doctrine's to release. The seam would refuse the call;
+                    // checking here means the squatter simply stays put, which
+                    // is the right outcome, rather than the tick throwing.
                     var claimant = ops.ClaimantOf(cell);
-                    if (claimant >= 0 && claimant != id)
+                    if (claimant >= 0 && claimant != id && ops.Members.Contains(claimant))
                     {
                         claiming.ReleaseSlot(claimant);
                         claiming.ClaimSlot(id, cell);

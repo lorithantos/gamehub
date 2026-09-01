@@ -108,18 +108,47 @@ public sealed class FakeGroupOps : IGroupOps
     /// <inheritdoc/>
     public bool IsClaimed(int cell) => Claimed.Contains(cell);
 
+    /// <summary>
+    /// Records a claim by an agent OUTSIDE this group: the cell reads as claimed,
+    /// <see cref="ClaimantOf"/> names the outsider, and the outsider is not in
+    /// <see cref="Members"/>. What a second, concurrent group looks like from here.
+    /// </summary>
+    public FakeGroupOps ClaimedBy(int cell, int outsider)
+    {
+        _hasSlot[outsider] = true;
+        _goal[outsider] = cell;
+        Claimed.Add(cell);
+        return this;
+    }
+
     /// <inheritdoc/>
+    /// <remarks>
+    /// System-wide, as the real one is: every agent placed here, member or
+    /// outsider, not only <see cref="Members"/>.
+    /// </remarks>
     public int ClaimantOf(int cell)
     {
-        foreach (var id in Members)
+        foreach (var (id, hasSlot) in _hasSlot)
         {
-            if (_hasSlot[id] && _goal[id] == cell)
+            if (hasSlot && _goal[id] == cell)
             {
                 return id;
             }
         }
 
         return -1;
+    }
+
+    /// <summary>
+    /// Mirrors the real seam: a mutator aimed at an agent outside the group is
+    /// refused before anything is recorded.
+    /// </summary>
+    private void RequireMember(int id)
+    {
+        if (!Members.Contains(id))
+        {
+            throw new ArgumentOutOfRangeException(nameof(id), id, "Not a member of this group.");
+        }
     }
 
     /// <inheritdoc/>
@@ -140,6 +169,7 @@ public sealed class FakeGroupOps : IGroupOps
     /// </remarks>
     public void ClaimSlot(int id, int cell)
     {
+        RequireMember(id);
         Claims.Add((id, cell));
         if (_hasSlot[id]) { Claimed.Remove(_goal[id]); }
 
@@ -151,6 +181,7 @@ public sealed class FakeGroupOps : IGroupOps
     /// <inheritdoc/>
     public void ReleaseSlot(int id)
     {
+        RequireMember(id);
         Releases.Add(id);
         if (!_hasSlot[id]) { return; }
 
@@ -159,8 +190,16 @@ public sealed class FakeGroupOps : IGroupOps
     }
 
     /// <inheritdoc/>
-    public void Wake(int id) => Wakes.Add(id);
+    public void Wake(int id)
+    {
+        RequireMember(id);
+        Wakes.Add(id);
+    }
 
     /// <inheritdoc/>
-    public void Hold(int id, int ticks) => Holds.Add((id, ticks));
+    public void Hold(int id, int ticks)
+    {
+        RequireMember(id);
+        Holds.Add((id, ticks));
+    }
 }

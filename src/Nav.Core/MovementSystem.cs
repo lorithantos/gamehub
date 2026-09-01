@@ -177,7 +177,9 @@ public sealed class MovementSystem
 
     // Per-tick occupancy caches, rebuilt at the top of Tick and kept current by
     // GroupOps mutations, so doctrines read O(1) answers instead of scanning.
-    private readonly HashSet<int> _claimedGoals = [];
+    // Claimed goals map cell to holder, so "is it claimed" and "by whom" are one
+    // lookup over one set rather than two answers over different scopes.
+    private readonly Dictionary<int, int> _claimedGoals = [];
     private readonly HashSet<int> _settledCells = [];
     private readonly HashSet<int> _occupiedCells = [];
 
@@ -514,7 +516,7 @@ public sealed class MovementSystem
         {
             if (agent.HasSlot)
             {
-                _claimedGoals.Add(agent.Goal);
+                _claimedGoals[agent.Goal] = agent.Id;
             }
 
             _occupiedCells.Add(agent.Cell);
@@ -975,6 +977,7 @@ public sealed class MovementSystem
         private readonly MovementSystem _system;
         private readonly Group _group;
         private readonly DistanceField _field;
+        private readonly HashSet<int> _members;
 
         internal GroupOps(MovementSystem system, Group group)
         {
@@ -984,6 +987,40 @@ public sealed class MovementSystem
             var key = group.Members[0].FieldKey >= 0 ? group.Members[0].FieldKey : group.Destination;
             _field = system._fields.For(key);
             Members = [.. group.Members.Select(m => m.Id).OrderBy(id => id)];
+            _members = [.. Members];
+        }
+
+        /// <summary>
+        /// The agent behind a member id, refusing an id outside this group.
+        /// </summary>
+        /// <remarks>
+        /// Every mutator resolves its target here, so a doctrine handed one
+        /// group's seam cannot reach another group's agent: the confinement is
+        /// structural rather than a convention the doctrine is trusted to keep.
+        /// The check comes before any write, so a refused call changes nothing.
+        /// </remarks>
+        private Agent Member(int id)
+        {
+            if (!_members.Contains(id))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(id), id, $"Agent {id} is not a member of the group ordered to cell {_group.Destination}.");
+            }
+
+            return _system._agents[id];
+        }
+
+        /// <summary>
+        /// Drops a claim, but only the caller's own. The same shape as the
+        /// reservation ring's release guard: a record naming a cell somebody else
+        /// now holds must not take it from them.
+        /// </summary>
+        private void Unclaim(int cell, int id)
+        {
+            if (_system._claimedGoals.TryGetValue(cell, out var holder) && holder == id)
+            {
+                _system._claimedGoals.Remove(cell);
+            }
         }
 
         /// <inheritdoc/>
@@ -1017,33 +1054,22 @@ public sealed class MovementSystem
         public bool HasSlot(int id) => _system._agents[id].HasSlot;
 
         /// <inheritdoc/>
-        public bool IsClaimed(int cell) => _system._claimedGoals.Contains(cell);
+        public bool IsClaimed(int cell) => _system._claimedGoals.ContainsKey(cell);
 
         /// <inheritdoc/>
-        public int ClaimantOf(int cell)
-        {
-            foreach (var member in _group.Members)
-            {
-                if (member.HasSlot && member.Goal == cell)
-                {
-                    return member.Id;
-                }
-            }
-
-            return -1;
-        }
+        public int ClaimantOf(int cell) => _system._claimedGoals.TryGetValue(cell, out var holder) ? holder : -1;
 
         /// <inheritdoc/>
         public void ReleaseSlot(int id)
         {
-            var agent = _system._agents[id];
+            var agent = Member(id);
             if (!agent.HasSlot)
             {
                 return;
             }
 
             agent.HasSlot = false;
-            _system._claimedGoals.Remove(agent.Goal);
+            Unclaim(agent.Goal, id);
             agent.StalledTicks = 0;
             agent.RetryAfterTick = _system.CurrentTick;
             agent.WantsPlan = true;
@@ -1059,7 +1085,7 @@ public sealed class MovementSystem
         /// <inheritdoc/>
         public void ClaimSlot(int id, int cell)
         {
-            var agent = _system._agents[id];
+            var agent = Member(id);
 
             // WHETHER IT HELD ONE IS READ BEFORE IT IS SET, and that is the fix.
             // Setting HasSlot first and then removing agent.Goal from the claimed
@@ -1075,16 +1101,16 @@ public sealed class MovementSystem
 
             if (agent.Goal == cell)
             {
-                _system._claimedGoals.Add(cell);
+                _system._claimedGoals[cell] = id;
                 return;
             }
 
             if (held)
             {
-                _system._claimedGoals.Remove(agent.Goal);
+                Unclaim(agent.Goal, id);
             }
 
-            _system._claimedGoals.Add(cell);
+            _system._claimedGoals[cell] = id;
             agent.Goal = cell;
             agent.StalledTicks = 0;
             agent.RetryAfterTick = _system.CurrentTick;
@@ -1095,7 +1121,7 @@ public sealed class MovementSystem
         /// <inheritdoc/>
         public void Wake(int id)
         {
-            var agent = _system._agents[id];
+            var agent = Member(id);
             agent.RetryAfterTick = Math.Min(agent.RetryAfterTick, _system.CurrentTick);
         }
 
@@ -1103,7 +1129,7 @@ public sealed class MovementSystem
         public void Hold(int id, int ticks)
         {
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ticks);
-            var agent = _system._agents[id];
+            var agent = Member(id);
             agent.RetryAfterTick = Math.Max(agent.RetryAfterTick, _system.CurrentTick + ticks);
         }
 

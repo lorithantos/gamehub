@@ -8,10 +8,20 @@ namespace Nav.Core;
 /// walking across open desert is a different problem from rocket infantry
 /// escorting a tank. A doctrine is the per-group strategy that decides slot
 /// claiming, reconciliation, and pacing, invoked once per tick before planning.
-/// It acts only through <see cref="MovementSystem.GroupOps"/>, which offers
+/// It acts only through <see cref="IGroupOps"/>, which offers
 /// queries and a small set of safe mutations — a doctrine cannot touch plans,
 /// reservations, or the collision layer, so every guarantee underneath survives
-/// any doctrine above.
+/// any doctrine above. The implementing class is internal, so a doctrine written
+/// outside this assembly sees three contracts and no concrete type at all.
+/// <para>
+/// <b>Passes take the narrowest facet they need, and pass the same object twice
+/// to say so.</b> <see cref="IGroupOps"/> composes <see cref="IGroupView"/>,
+/// <see cref="IGroupClaiming"/> and <see cref="IGroupPacing"/>; a pass declaring
+/// <c>(IGroupView, IGroupPacing)</c> cannot claim a slot, and the compiler is
+/// what stops it rather than a reviewer. That is why metering — which paces a
+/// queue through a gate and has no business assigning parking — is structurally
+/// unable to, where under one wide interface it merely happened not to.
+/// </para>
 /// <para>
 /// The seam was extracted from two real implementations —
 /// <see cref="GatherDoctrine"/> and <see cref="MeteredGatherDoctrine"/> — the
@@ -27,7 +37,7 @@ namespace Nav.Core;
 public abstract class GroupDoctrine
 {
     /// <summary>Called once per tick for the group, before planning spends its budget.</summary>
-    public abstract void Advance(MovementSystem.GroupOps ops);
+    public abstract void Advance(IGroupOps ops);
 }
 
 /// <summary>
@@ -60,12 +70,12 @@ public class GatherDoctrine : GroupDoctrine
     /// running costs nothing.
     /// </summary>
     /// <param name="ops">The seam for this group and tick. Never null.</param>
-    public override void Advance(MovementSystem.GroupOps ops)
+    public override void Advance(IGroupOps ops)
     {
         ArgumentNullException.ThrowIfNull(ops);
-        SettleWhereYouStand(ops);
-        ClaimPass(ops);
-        ReconcilePass(ops);
+        SettleWhereYouStand(ops, ops);
+        ClaimPass(ops, ops);
+        ReconcilePass(ops, ops);
     }
 
     /// <summary>
@@ -77,7 +87,7 @@ public class GatherDoctrine : GroupDoctrine
     /// merely pausing in traffic never parks early; terminal by construction,
     /// so it cannot churn.
     /// </summary>
-    private static void SettleWhereYouStand(MovementSystem.GroupOps ops)
+    private static void SettleWhereYouStand(IGroupView ops, IGroupClaiming claiming)
     {
         foreach (var id in ops.Members)
         {
@@ -89,7 +99,7 @@ public class GatherDoctrine : GroupDoctrine
             var cell = ops.CellOf(id);
             if (!ops.IsClaimed(cell) && ops.FieldCost(cell) <= ops.FieldCost(ops.GoalOf(id)))
             {
-                ops.ClaimSlot(id, cell);
+                claiming.ClaimSlot(id, cell);
             }
         }
     }
@@ -102,7 +112,7 @@ public class GatherDoctrine : GroupDoctrine
     /// different hat — measured at 91 sealed holes against the 28 it was meant
     /// to fix; this rule measured 2, with the blob at the ideal pack exactly.
     /// </summary>
-    private static void ClaimPass(MovementSystem.GroupOps ops)
+    private static void ClaimPass(IGroupView ops, IGroupClaiming claiming)
     {
         if (ops.Members.All(ops.HasSlot))
         {
@@ -133,7 +143,7 @@ public class GatherDoctrine : GroupDoctrine
             // standing on it.
             if (ops.CellOf(id) == ops.GoalOf(id))
             {
-                ops.ClaimSlot(id, ops.GoalOf(id));
+                claiming.ClaimSlot(id, ops.GoalOf(id));
                 continue;
             }
 
@@ -161,7 +171,7 @@ public class GatherDoctrine : GroupDoctrine
                     continue;
                 }
 
-                ops.ClaimSlot(id, slot);
+                claiming.ClaimSlot(id, slot);
                 break;
             }
 
@@ -176,7 +186,7 @@ public class GatherDoctrine : GroupDoctrine
     /// replan is usually traffic, and reassigning on any stall re-goals
     /// transiently blocked units until the group churns to a standstill.
     /// </summary>
-    private void ReconcilePass(MovementSystem.GroupOps ops)
+    private void ReconcilePass(IGroupView ops, IGroupClaiming claiming)
     {
         if (ops.CurrentTick - _lastReconcileTick < ReconcileCooldown)
         {
@@ -259,15 +269,15 @@ public class GatherDoctrine : GroupDoctrine
                     var claimant = ops.ClaimantOf(cell);
                     if (claimant >= 0 && claimant != id)
                     {
-                        ops.ReleaseSlot(claimant);
-                        ops.ClaimSlot(id, cell);
+                        claiming.ReleaseSlot(claimant);
+                        claiming.ClaimSlot(id, cell);
                     }
 
                     continue;
                 }
             }
 
-            ops.ClaimSlot(id, pick);
+            claiming.ClaimSlot(id, pick);
         }
     }
 }
@@ -305,10 +315,10 @@ public sealed class MeteredGatherDoctrine : GroupDoctrine
     /// thing for the same cost.
     /// </summary>
     /// <param name="ops">The seam for this group and tick. Never null.</param>
-    public override void Advance(MovementSystem.GroupOps ops)
+    public override void Advance(IGroupOps ops)
     {
         ArgumentNullException.ThrowIfNull(ops);
-        Meter(ops);
+        Meter(ops, ops);
         _gather.Advance(ops);
     }
 
@@ -336,7 +346,7 @@ public sealed class MeteredGatherDoctrine : GroupDoctrine
     /// compresses to the doorway at scrum pace and the ordering applies to a
     /// queue that exists.
     /// </remarks>
-    private static void Meter(MovementSystem.GroupOps ops)
+    private static void Meter(IGroupView ops, IGroupPacing pacing)
     {
         // The chokepoint that stands between outsiders and the destination is
         // the one with the smallest field cost that still has members beyond
@@ -380,7 +390,7 @@ public sealed class MeteredGatherDoctrine : GroupDoctrine
         {
             // Holding is standing, cheaply: no goal change, no search, no
             // stall — just no replanning for a moment.
-            ops.Hold(queue[i], ticks: 2);
+            pacing.Hold(queue[i], ticks: 2);
         }
     }
 }

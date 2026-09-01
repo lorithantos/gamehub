@@ -864,16 +864,22 @@ public sealed class MovementSystem
             _grid.ColumnOf(agent.Goal), _grid.RowOf(agent.Goal));
 
     /// <summary>
-    /// What a <see cref="GroupDoctrine"/> may see and do — the whole seam.
+    /// The one implementation of <see cref="IGroupOps"/>, and the reason the
+    /// contracts can be public while nothing concrete is.
     /// </summary>
     /// <remarks>
-    /// Queries are O(1) against the per-tick caches; the mutations are the safe
-    /// verbs and nothing else. A doctrine cannot touch plans, reservations, or
-    /// the search, so no doctrine can break collision-freedom — the same
-    /// argument the renderer seam makes about windowing, applied to movement
-    /// policy.
+    /// Nested, so it reaches <see cref="MovementSystem"/>'s private state without
+    /// widening anything; internal, so no consumer can name it. A doctrine sees
+    /// three interfaces and no class. Nobody outside constructs one either --
+    /// <see cref="Tick"/> builds it and hands it to
+    /// <see cref="GroupDoctrine.Advance"/>, which is what lets the type stay
+    /// hidden with no factory to compensate.
+    /// <para>
+    /// Documentation lives on the interfaces, where a caller reads it. What is
+    /// here is implementation.
+    /// </para>
     /// </remarks>
-    public sealed class GroupOps
+    internal sealed class GroupOps : IGroupOps
     {
         private readonly MovementSystem _system;
         private readonly Group _group;
@@ -889,74 +895,40 @@ public sealed class MovementSystem
             Members = [.. group.Members.Select(m => m.Id).OrderBy(id => id)];
         }
 
-        /// <summary>
-        /// The tick this pass is running for -- identical across every pass and every
-        /// group in the tick, which is what makes a doctrine's own cooldowns
-        /// comparable from one call to the next.
-        /// </summary>
+        /// <inheritdoc/>
         public int CurrentTick => _system.CurrentTick;
 
-        /// <summary>
-        /// The cell the order was aimed at, after any snap off impassable ground: the
-        /// centre the parking ring surrounds, and not necessarily any member's goal.
-        /// <see cref="FieldCost"/> is measured to the ring's innermost slot, which is
-        /// this cell except where the ring was pushed clear of a doorway.
-        /// </summary>
+        /// <inheritdoc/>
         public int Destination => _group.Destination;
 
-        /// <summary>The parking ring, innermost first.</summary>
+        /// <inheritdoc/>
         public IReadOnlyList<int> Slots => _group.Slots;
 
-        /// <summary>Member ids, ascending.</summary>
+        /// <inheritdoc/>
         public IReadOnlyList<int> Members { get; }
 
-        /// <summary>
-        /// Every chokepoint on the MAP, not merely those between this group and its
-        /// destination -- detected once for the system's life and shared by every
-        /// group. A doctrine that wants the gate in its way filters these by
-        /// <see cref="FieldCost"/>.
-        /// </summary>
+        /// <inheritdoc/>
         public IReadOnlyList<Chokepoint> Chokepoints => _system.MapChokepoints;
 
-        /// <summary>Exact distance from a cell to the destination, or infinity.</summary>
+        /// <inheritdoc/>
         public double FieldCost(int cell) => _field.CostFrom(cell);
 
-
-        /// <summary>
-        /// Where the member is standing. An O(1) indexed read, so a doctrine may call
-        /// it inside a loop without thinking, and FIXED for the whole pass -- agents
-        /// move after planning, never during a doctrine.
-        /// </summary>
+        /// <inheritdoc/>
         public int CellOf(int id) => _system._agents[id].Cell;
 
-        /// <summary>
-        /// The cell the member is currently aimed at: its parking slot if it holds
-        /// one, otherwise the ring's innermost slot it is walking toward. O(1), and
-        /// LIVE -- a <see cref="ClaimSlot"/> earlier in this same pass shows up here.
-        /// </summary>
+        /// <inheritdoc/>
         public int GoalOf(int id) => _system._agents[id].Goal;
 
-        /// <summary>
-        /// Consecutive replans that ended no nearer the goal -- failed attempts, not
-        /// ticks waited, so a member sitting out a long backstop still reads 1. Reset
-        /// to zero whenever a claim moves its goal.
-        /// </summary>
+        /// <inheritdoc/>
         public int StalledReplans(int id) => _system._agents[id].StalledTicks;
 
-        /// <summary>
-        /// False while the member is still QUEUED: walking toward the ring with no
-        /// cell of its own, because group members claim on approach rather than at
-        /// order time. It is the flag the fill-like-water claiming turns on.
-        /// </summary>
+        /// <inheritdoc/>
         public bool HasSlot(int id) => _system._agents[id].HasSlot;
 
-        /// <summary>Is this cell some slot-holder's goal?</summary>
+        /// <inheritdoc/>
         public bool IsClaimed(int cell) => _system._claimedGoals.Contains(cell);
 
-        /// <summary>
-        /// The group member holding this cell as its slot, or -1. Ties cannot
-        /// happen: a claim is exclusive.
-        /// </summary>
+        /// <inheritdoc/>
         public int ClaimantOf(int cell)
         {
             foreach (var member in _group.Members)
@@ -970,10 +942,7 @@ public sealed class MovementSystem
             return -1;
         }
 
-        /// <summary>
-        /// Releases a member's claim and sends it back to the queue — it will
-        /// claim again on approach, or reconcile in its turn.
-        /// </summary>
+        /// <inheritdoc/>
         public void ReleaseSlot(int id)
         {
             var agent = _system._agents[id];
@@ -990,20 +959,13 @@ public sealed class MovementSystem
             _system.Abandon(agent);
         }
 
-        /// <summary>Is a unit parked on this cell (standing on its goal)?</summary>
+        /// <inheritdoc/>
         public bool IsSettled(int cell) => _system._settledCells.Contains(cell);
 
-        /// <summary>
-        /// Is anybody standing here -- this group's members and every other agent
-        /// alike? An O(1) hit against the tick's occupancy snapshot, which no doctrine
-        /// pass can change, since nothing moves until planning is done.
-        /// </summary>
+        /// <inheritdoc/>
         public bool IsOccupied(int cell) => _system._occupiedCells.Contains(cell);
 
-        /// <summary>
-        /// Gives the member this cell as its parking slot: goal, claim, wake.
-        /// Idempotent when the goal already matches.
-        /// </summary>
+        /// <inheritdoc/>
         public void ClaimSlot(int id, int cell)
         {
             var agent = _system._agents[id];
@@ -1024,18 +986,14 @@ public sealed class MovementSystem
             _system.Abandon(agent);
         }
 
-        /// <summary>Lets a gated member plan again now.</summary>
+        /// <inheritdoc/>
         public void Wake(int id)
         {
             var agent = _system._agents[id];
             agent.RetryAfterTick = Math.Min(agent.RetryAfterTick, _system.CurrentTick);
         }
 
-        /// <summary>
-        /// Keeps the member standing, quietly: no goal change, no search, no
-        /// stall — just no replanning for a few ticks. Refresh it each tick to
-        /// hold longer; a lapsed hold degrades to planning, never to frozen.
-        /// </summary>
+        /// <inheritdoc/>
         public void Hold(int id, int ticks)
         {
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ticks);
@@ -1043,11 +1001,7 @@ public sealed class MovementSystem
             agent.RetryAfterTick = Math.Max(agent.RetryAfterTick, _system.CurrentTick + ticks);
         }
 
-        /// <summary>
-        /// Empty, unclaimed cells the given members can jointly WALK TO —
-        /// settled units are walls — ordered by field distance then cell. One
-        /// O(cells) sweep; call once per pass, not per member.
-        /// </summary>
+        /// <inheritdoc/>
         public IReadOnlyList<int> ReachableSpots(IReadOnlyList<int> fromMembers)
         {
             ArgumentNullException.ThrowIfNull(fromMembers);

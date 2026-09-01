@@ -123,6 +123,64 @@ public sealed class DistanceFieldTests(ITestOutputHelper output)
         Assert.Throws<ArgumentOutOfRangeException>(() => DistanceField.Build(grid, grid.Index(0, 0)));
     }
 
+    /// <summary>
+    /// Criterion 2: field guidance changes cost, not answers. Every found plan
+    /// has the identical cost either way; expansions can only shrink or hold.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately NOT asserted: cell-for-cell path identity. Two consistent
+    /// heuristics may break ties between equal-cost optimal paths differently,
+    /// so the guarantee is cost and reachability, and the suite's legality and
+    /// collision checks hold whichever route is chosen.
+    /// </remarks>
+    [Theory]
+    [InlineData("gap.map")]
+    [InlineData("crosscut.map")]
+    [InlineData("empty-8-8.map")]
+    public void FieldGuidanceChangesCostNotAnswers(string map)
+    {
+        var grid = Grid.FromMapFile(Fixtures.Map(map));
+        var passable = Enumerable.Range(0, grid.CellCount).Where(cell => grid.IsPassable(cell)).ToArray();
+        var workspace = new SearchWorkspace();
+
+        long octileTotal = 0;
+        long fieldTotal = 0;
+        var plansChecked = 0;
+
+        // Every 5th passable start against every 11th passable goal keeps the
+        // sweep broad without taking minutes.
+        foreach (var start in passable.Where((_, i) => i % 5 == 0))
+        {
+            foreach (var goal in passable.Where((_, i) => i % 11 == 0))
+            {
+                var field = DistanceField.Build(grid, goal);
+
+                var plain = CooperativePlanner.FindPlan(
+                    grid, new ReservationTable(grid.CellCount, 32), 0, start, goal, 0, workspace);
+                var guided = CooperativePlanner.FindPlan(
+                    grid, new ReservationTable(grid.CellCount, 32), 0, start, goal, 0, workspace, field);
+
+                Assert.Equal(plain.Found, guided.Found);
+                if (plain.Found)
+                {
+                    Assert.True(
+                        Math.Abs(plain.Cost - guided.Cost) <= 1e-9,
+                        $"{map}: {start}->{goal} octile {plain.Cost:F9} vs field {guided.Cost:F9}");
+                }
+
+                octileTotal += plain.Expanded;
+                fieldTotal += guided.Expanded;
+                plansChecked++;
+            }
+        }
+
+        output.WriteLine(
+            $"{map}: {plansChecked} plans; expansions octile {octileTotal:N0} vs field {fieldTotal:N0} " +
+            $"({(double)octileTotal / fieldTotal:F2}x)");
+
+        Assert.True(fieldTotal <= octileTotal, "the dominant heuristic expanded more overall");
+    }
+
     [Fact]
     public void TheCacheSharesAndEvictsDeterministically()
     {

@@ -126,8 +126,12 @@ public sealed class TickBudgetTests(ITestOutputHelper output)
             $"BASELINE 200-agent arena order: {arrived} arrived (last at tick {lastArrivalTick}), " +
             $"{stuck} stuck, {system.TotalExpanded:N0} total nodes at plateau");
 
-        Assert.Equal(126, arrived);
-        Assert.Equal(74, stuck);
+        // Pinned at 126/74 before field guidance; the field's different
+        // tie-breaking nudged three more agents into arrival. The structural
+        // defect -- goals frozen inside the settled pile -- stands until
+        // reconciliation, which is expected to move this pin to 200/0.
+        Assert.Equal(129, arrived);
+        Assert.Equal(71, stuck);
     }
 
     [Fact]

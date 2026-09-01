@@ -50,6 +50,7 @@ public static class CooperativePlanner
         int start,
         int goal,
         int startTick,
-        SearchWorkspace workspace) =>
-        new BudgetedSearch(grid, reservations, agent, start, goal, startTick, workspace).RunToCompletion();
+        SearchWorkspace workspace,
+        DistanceField? field = null) =>
+        new BudgetedSearch(grid, reservations, agent, start, goal, startTick, workspace, field).RunToCompletion();
 }

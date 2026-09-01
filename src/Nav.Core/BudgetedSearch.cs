@@ -50,12 +50,24 @@ public sealed class BudgetedSearch
     private readonly byte[] _state;
     private readonly int[] _stamp;
     private readonly BinaryHeap _frontier;
+    private readonly DistanceField? _field;
+    private readonly double _fieldAtGoal;
 
     private int _bestState = -1;
     private double _bestH = double.PositiveInfinity;
     private double _bestCost = double.PositiveInfinity;
     private int _expanded;
 
+    /// <param name="field">
+    /// Optional heuristic source: a <see cref="DistanceField"/> for the order's
+    /// destination, shared by the whole group. The agent's own goal need not be
+    /// the field's destination — the heuristic is shaded by the triangle
+    /// inequality, <c>h(c) = max(octile, field(c) − field(goal))</c>, which is
+    /// admissible and consistent for any goal and collapses expansions where the
+    /// field's destination and the goal agree. Without a field, octile as ever.
+    /// A field only sharpens the estimate; it never changes what is reachable,
+    /// so every reservation and legality rule binds exactly as before.
+    /// </param>
     public BudgetedSearch(
         Grid grid,
         ReservationTable reservations,
@@ -63,7 +75,8 @@ public sealed class BudgetedSearch
         int start,
         int goal,
         int startTick,
-        SearchWorkspace workspace)
+        SearchWorkspace workspace,
+        DistanceField? field = null)
     {
         ArgumentNullException.ThrowIfNull(grid);
         ArgumentNullException.ThrowIfNull(reservations);
@@ -86,6 +99,8 @@ public sealed class BudgetedSearch
         _lastTick = _baseTick + reservations.Horizon - 1;
         _goalX = grid.ColumnOf(goal);
         _goalY = grid.RowOf(goal);
+        _field = field;
+        _fieldAtGoal = field?.CostFrom(goal) ?? double.PositiveInfinity;
 
         // Everything decidable before the first node is expanded is decided here,
         // so a caller that only ever calls Advance still gets these answers.
@@ -116,7 +131,7 @@ public sealed class BudgetedSearch
             return;
         }
 
-        var startH = Movement.OctileDistance(grid.ColumnOf(start), grid.RowOf(start), _goalX, _goalY);
+        var startH = Heuristic(start, grid.ColumnOf(start), grid.RowOf(start));
         _stamp[_startState] = _generation;
         _cost[_startState] = 0.0;
         _parent[_startState] = -1;
@@ -174,7 +189,7 @@ public sealed class BudgetedSearch
 
             var x = _grid.ColumnOf(cell);
             var y = _grid.RowOf(cell);
-            var h = Movement.OctileDistance(x, y, _goalX, _goalY);
+            var h = Heuristic(cell, x, y);
 
             // Arriving is only arriving if the agent may stay.
             if (cell == _goal && _reservations.IsHoldable(cell, tick, _agent))
@@ -268,8 +283,34 @@ public sealed class BudgetedSearch
         _parent[next] = from;
         _state[next] = Open;
 
-        var h = Movement.OctileDistance(cellX, cellY, _goalX, _goalY);
+        var h = Heuristic(cell, cellX, cellY);
         _frontier.Push(next, cost + h, h);
+    }
+
+    /// <summary>
+    /// The remaining-distance estimate: octile alone, or the maximum of octile
+    /// and the field's triangle-shaded distance when a field is present. Both
+    /// components are admissible and consistent, so their maximum is too — and
+    /// dominates each, which is the whole point of carrying the field.
+    /// </summary>
+    private double Heuristic(int cell, int x, int y)
+    {
+        var octile = Movement.OctileDistance(x, y, _goalX, _goalY);
+        if (_field is null || double.IsPositiveInfinity(_fieldAtGoal))
+        {
+            return octile;
+        }
+
+        var fromCell = _field.CostFrom(cell);
+        if (double.IsPositiveInfinity(fromCell))
+        {
+            // The cell cannot reach the field's destination. If the goal can,
+            // the cell cannot reach the goal either -- but that is the search's
+            // discovery to make; the heuristic just declines to help.
+            return octile;
+        }
+
+        return Math.Max(octile, fromCell - _fieldAtGoal);
     }
 
     private PlanResult Reconstruct(int endState, bool found)

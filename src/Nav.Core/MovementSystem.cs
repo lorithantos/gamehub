@@ -114,6 +114,13 @@ public sealed class MovementSystem
         public int LastPlanAttemptTick { get; set; } = -1;
 
         public bool WantsPlan { get; set; }
+
+        /// <summary>
+        /// The order's destination, which keys the shared distance field. The
+        /// assigned <see cref="Goal"/> is per-agent; the field is per-order, so
+        /// a whole group shares one. -1 until the first order.
+        /// </summary>
+        public int FieldKey { get; set; } = -1;
     }
 
     private readonly Grid _grid;
@@ -122,6 +129,7 @@ public sealed class MovementSystem
     private readonly Stack<SearchWorkspace> _workspacePool = new();
     private readonly int _nodeBudgetPerTick;
     private readonly int _maxSearchesInFlight;
+    private readonly FieldCache _fields;
 
     /// <param name="nodeBudgetPerTick">
     /// Search nodes a tick may spend across every agent. The ceiling criterion 9
@@ -146,6 +154,7 @@ public sealed class MovementSystem
         _table = new ReservationTable(grid.CellCount, horizon);
         _nodeBudgetPerTick = nodeBudgetPerTick;
         _maxSearchesInFlight = maxSearchesInFlight;
+        _fields = new FieldCache(grid, capacity: 8);
     }
 
     public int CurrentTick { get; private set; }
@@ -193,6 +202,13 @@ public sealed class MovementSystem
         {
             var agent = _agents[id];
             agent.Goal = goal;
+
+            // The FIELD is keyed by the order's destination, so the whole group
+            // shares one; the assigned goal stays per-agent. An impassable
+            // destination (a click on a wall) falls back to the assigned goal,
+            // which GoalSpread guarantees passable.
+            agent.FieldKey = _grid.IsPassable(goalCell) ? goalCell : goal;
+
             agent.StalledTicks = 0;
             agent.RetryAfterTick = 0;
             agent.WantsPlan = true;
@@ -310,8 +326,13 @@ public sealed class MovementSystem
         // standing somewhere, and everyone planning meanwhile has to see that.
         _table.Reserve([agent.Cell], CurrentTick, agent.Id);
 
+        // The field build is amortised: once per destination, cached across the
+        // whole system, and O(cells log cells) -- not charged to the node budget
+        // because it is not search work, the same way Advance's ring clear is not.
+        var field = _fields.For(agent.FieldKey >= 0 ? agent.FieldKey : agent.Goal);
+
         agent.Search = new BudgetedSearch(
-            _grid, _table, agent.Id, agent.Cell, agent.Goal, agent.AnchorTick, agent.Workspace);
+            _grid, _table, agent.Id, agent.Cell, agent.Goal, agent.AnchorTick, agent.Workspace, field);
     }
 
     /// <summary>What became of a search this call.</summary>

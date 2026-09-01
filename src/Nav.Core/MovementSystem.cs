@@ -279,6 +279,9 @@ public sealed class MovementSystem
     /// <summary>Distance fields currently cached, of <see cref="FieldCapacity"/>.</summary>
     public int LiveFields => _fields.Count;
 
+    /// <summary>SPIKE PROBE. The table, so a test can ask who holds a cell at a tick.</summary>
+    internal ReservationTable Table => _table;
+
     /// <summary>
     /// How many destinations may hold a live distance field before the coldest is
     /// dropped. Scaled to the handful of orders a match runs at once, never to the

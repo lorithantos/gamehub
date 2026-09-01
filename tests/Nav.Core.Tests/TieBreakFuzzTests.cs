@@ -85,6 +85,36 @@ public sealed class TieBreakFuzzTests
             $"{name} at budget {nodeBudgetPerTick}: {failures.Count} of 8 seeds collided:\n  " + string.Join("\n  ", failures));
     }
 
+    public static IEnumerable<object[]> ScenariosAtOtherHorizons =>
+        Scenarios.SelectMany(s => new[] { 8, 16, 64 }.Select(horizon => new[] { s[0], horizon }));
+
+    [Theory]
+    [MemberData(nameof(ScenariosAtOtherHorizons))]
+    public void NoTieBreakProducesACollisionAtOtherHorizons(string name, int horizon)
+    {
+        // Every run above used the default window of 32. A short window is the
+        // regime where plans reach the window edge constantly and the parking
+        // rule, not the ring, is what keeps an arrived unit visible; a long one
+        // is where the ring carries the most state across the most ticks. The
+        // collision verdict has to hold in both, under orderings the production
+        // heap never picks.
+        var (scenario, grid) = Load(name);
+        var failures = new List<string>();
+
+        for (var seed = 0; seed < 8; seed++)
+        {
+            var outcome = ScenarioPlayback.Play(scenario, grid, horizon: horizon, tieBreakSeed: seed);
+            if (!outcome.Conflicts.Clean)
+            {
+                failures.Add($"seed {seed}: {outcome.Conflicts.Conflicts[0]}");
+            }
+        }
+
+        Assert.True(
+            failures.Count == 0,
+            $"{name} at horizon {horizon}: {failures.Count} of 8 seeds collided:\n  " + string.Join("\n  ", failures));
+    }
+
     [Theory]
     [MemberData(nameof(Scenarios))]
     public void ASeedReplaysToTheSameTrajectories(string name)

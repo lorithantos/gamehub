@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -30,7 +30,7 @@
   -->
   <ItemGroup>
     <Content Include="..\..\maps\fixtures\*.map" Link="Fixtures\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="..\..\maps\fixtures\arena.map.scen" Link="Fixtures\arena.map.scen" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\maps\fixtures\*.scen" Link="Fixtures\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\maps\fixtures\scenarios\*.scenario" Link="Fixtures\scenarios\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

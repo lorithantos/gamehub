@@ -142,6 +142,75 @@ public sealed class ScenarioPlaybackTests(ITestOutputHelper output)
         }
     }
 
+    // --- criterion 5: the cost bound, reported as the ratio ------------------
+
+    [Theory]
+    [InlineData("headon")]
+    [InlineData("chokepoint")]
+    [InlineData("group")]
+    [InlineData("crossing")]
+    [InlineData("standing")]
+    [InlineData("crosscut")]
+    public void TheCostRatioAgainstTheSingleAgentOptimumIsAtLeastOne(string name)
+    {
+        // A multi-agent solution cheaper than the sum of individual optima is
+        // not a better solution; it is a collision the checker missed. The
+        // ratio over the lower bound is the quality number.
+        var (scenario, grid) = Fixtures.Load(name);
+        var outcome = ScenarioPlayback.Play(scenario, grid);
+
+        var actual = 0.0;
+        var lowerBound = 0.0;
+        foreach (var (agent, trail) in outcome.Trajectories)
+        {
+            var cells = trail.Cells;
+            if (cells[0] == cells[^1] && cells.All(c => c == cells[0]))
+            {
+                continue;   // never moved and ended at home: contributes zero to both sums
+            }
+
+            // Interior waits are paid moves (yielding costs time); the
+            // stationary spans before the first move and after the last are
+            // not part of the journey.
+            var first = 0;
+            while (cells[first] == cells[first + 1])
+            {
+                first++;
+            }
+
+            var last = cells.Count - 1;
+            while (cells[last] == cells[last - 1])
+            {
+                last--;
+            }
+
+            for (var i = first + 1; i <= last; i++)
+            {
+                if (cells[i] == cells[i - 1])
+                {
+                    actual += Movement.WaitCost;
+                    continue;
+                }
+
+                var diagonal = grid.ColumnOf(cells[i]) != grid.ColumnOf(cells[i - 1]) &&
+                               grid.RowOf(cells[i]) != grid.RowOf(cells[i - 1]);
+                actual += diagonal ? Movement.ExactCost(0, 1) : Movement.ExactCost(1, 0);
+            }
+
+            var optimal = PathFinder.FindPath(grid, cells[0], cells[^1]);
+            Assert.True(optimal.Found, $"{name}: agent {agent}'s final cell is unreachable from its start");
+            lowerBound += optimal.Cost;
+        }
+
+        output.WriteLine(lowerBound > 0
+            ? $"{name}: cost {actual:F5} against lower bound {lowerBound:F5}  ratio {actual / lowerBound:F4}"
+            : $"{name}: nobody moved; ratio not applicable");
+
+        Assert.True(
+            actual >= lowerBound - 1e-6,
+            $"{name}: cost {actual:F5} is below the single-agent lower bound {lowerBound:F5}");
+    }
+
     // --- criterion 6, which is what the format exists for --------------------
 
     [Theory]

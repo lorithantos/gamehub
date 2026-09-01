@@ -272,11 +272,15 @@ public sealed class ScenarioPlaybackTests(ITestOutputHelper output)
         Assert.Equal(0, outcome.Arrived);
         Assert.Equal(2, outcome.Stuck);
 
-        // StalledTicks counts failed REPLANS, not ticks, so the backoff makes it
-        // smaller rather than larger -- which is the point.
+        // StalledTicks counts failed REPLANS, not ticks. Under the milestone-2
+        // timer this was >= 3 probes in sixty ticks; milestone 3 made retries
+        // event-driven, and in a deadlock no event ever fires -- so ONE failed
+        // replan is the honest count, and MORE would mean the backstop is
+        // spinning. The report (both stuck) is the criterion; the probe count
+        // is the economy.
         Assert.True(
-            outcome.MaxStalledTicks >= 3,
-            $"a permanent deadlock should show repeated failed replans, saw {outcome.MaxStalledTicks}");
+            outcome.MaxStalledTicks >= 1,
+            $"a permanent deadlock should show at least one failed replan, saw {outcome.MaxStalledTicks}");
 
         // And the backoff is what stops a hopeless retry eating the budget.
         // Before it existed this scenario spent 14,266 nodes replanning two

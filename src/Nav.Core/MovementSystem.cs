@@ -76,14 +76,14 @@ public sealed class MovementSystem
     /// </remarks>
     private const int InitialPlanningLatency = 4;
 
-    /// <summary>How long a stalled agent waits before trying again.</summary>
-    /// <remarks>
-    /// Two agents deadlocked in a corridor replanned every tick for sixty ticks and
-    /// spent 14,266 search nodes against 126 for a scenario that actually
-    /// completed. Retrying a hopeless search every tick is not persistence, it is
-    /// the whole budget spent on the one agent that cannot use it.
-    /// </remarks>
-    private const int StallBackoffTicks = 8;
+    /// <summary>
+    /// How long a stalled agent waits before a timer-driven retry. Long,
+    /// deliberately: retries are EVENT-driven now — an arrival, an order, a
+    /// reconciliation — and the timer is only the backstop that turns a missed
+    /// wake into slow instead of frozen. The headon trace showed the old
+    /// 8-tick timer re-asking an unchanged question at 196 nodes a probe.
+    /// </summary>
+    private const int StallBackstopTicks = 64;
 
     private sealed class Agent(int id, int cell)
     {
@@ -121,6 +121,26 @@ public sealed class MovementSystem
         /// a whole group shares one. -1 until the first order.
         /// </summary>
         public int FieldKey { get; set; } = -1;
+
+        /// <summary>The order this agent last belonged to, or null.</summary>
+        public Group? Group { get; set; }
+    }
+
+    /// <summary>
+    /// One order's members, for reconciliation and the leader. Assignment is a
+    /// snapshot but settling is a process; the group is what reconciles the two.
+    /// </summary>
+    private sealed class Group
+    {
+        public required int Destination { get; init; }
+
+        public required List<Agent> Members { get; init; }
+
+        // Far enough in the past to always fire, small enough that the
+        // subtraction in the hysteresis check cannot overflow.
+        public int LastReconcileTick { get; set; } = -1_000_000;
+
+        public int Leader { get; set; } = -1;
     }
 
     private readonly Grid _grid;
@@ -130,6 +150,7 @@ public sealed class MovementSystem
     private readonly int _nodeBudgetPerTick;
     private readonly int _maxSearchesInFlight;
     private readonly FieldCache _fields;
+    private readonly List<Group> _groups = [];
 
     /// <param name="nodeBudgetPerTick">
     /// Search nodes a tick may spend across every agent. The ceiling criterion 9
@@ -198,7 +219,14 @@ public sealed class MovementSystem
         ArgumentNullException.ThrowIfNull(agents);
 
         var squad = agents.Select(id => (Agent: id, Cell: _agents[id].Cell)).ToArray();
-        foreach (var (id, goal) in GoalSpread.Assign(_grid, goalCell, squad))
+        var assigned = GoalSpread.Assign(_grid, goalCell, squad);
+        if (assigned.Count == 0)
+        {
+            return;
+        }
+
+        var group = new Group { Destination = goalCell, Members = [] };
+        foreach (var (id, goal) in assigned)
         {
             var agent = _agents[id];
             agent.Goal = goal;
@@ -213,25 +241,251 @@ public sealed class MovementSystem
             agent.RetryAfterTick = 0;
             agent.WantsPlan = true;
             Abandon(agent);
+
+            agent.Group?.Members.Remove(agent);
+            agent.Group = group;
+            group.Members.Add(agent);
         }
+
+        _groups.RemoveAll(g => g.Members.Count == 0);
+        _groups.Add(group);
+        ElectLeader(group);
     }
 
-    /// <summary>Advances one tick: spend the planning budget, then move everybody.</summary>
+    /// <summary>
+    /// Advances one tick: reconcile settling groups, spend the planning budget,
+    /// then move everybody — and wake the stalled if anyone arrived, because an
+    /// arrival is exactly the event that can change a stalled agent's answer.
+    /// </summary>
     public void Tick()
     {
+        Reconcile();
+
         LastTick = SpendPlanningBudget();
 
         CurrentTick++;
         _table.Advance();
 
+        var anyArrived = false;
         foreach (var agent in _agents)
         {
             var at = agent.Plan?.CellAt(CurrentTick) ?? -1;
             if (at >= 0)
             {
+                var wasArrived = agent.Cell == agent.Goal;
                 agent.Cell = at;
+                anyArrived |= !wasArrived && agent.Cell == agent.Goal;
             }
         }
+
+        if (anyArrived)
+        {
+            foreach (var agent in _agents)
+            {
+                if (agent.StalledTicks > 0 && agent.Cell != agent.Goal)
+                {
+                    agent.RetryAfterTick = CurrentTick;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// The milestone-2 defect, fixed where it lives: goal assignment is a
+    /// snapshot but a group's settling is a process. When a member stalls, the
+    /// not-yet-arrived members are re-assigned from their CURRENT positions,
+    /// with every settled unit's cell off the table — so a stuck unit either
+    /// gets a goal it can actually reach, or gets its own cell and arrives in
+    /// place, and either way stops burning budget on a goal frozen inside the
+    /// pile.
+    /// </summary>
+    /// <remarks>
+    /// Hysteresis (once per <see cref="StallBackstopTicks"/>/8 per group) keeps
+    /// reassignment from becoming churn; fixed group order and id-ordered
+    /// members keep it deterministic. A goal change is a wake: exactly the
+    /// members whose goals moved are replanned, nobody else.
+    /// </remarks>
+    private void Reconcile()
+    {
+        foreach (var group in _groups)
+        {
+            // Groups of one are exempt on principle: an individually addressed
+            // order means THIS unit, THERE, and reassigning it falsifies the
+            // player's intent. Reconciliation is a group-order semantic.
+            if (group.Members.Count < 2 ||
+                CurrentTick - group.LastReconcileTick < StallBackstopTicks / 8)
+            {
+                continue;
+            }
+
+            // Only HARD-stalled members are re-goaled: two failed replans, not
+            // one. A single no-progress replan is usually traffic, and a first
+            // version that reassigned on any stall re-goaled transiently blocked
+            // units constantly -- arrivals froze while goals played musical
+            // chairs on an 8-tick beat. Stalled members are also STANDING
+            // members, which is what makes giving one its own cell an arrival
+            // rather than a contradiction.
+            var stalled = group.Members
+                .Where(m => m.StalledTicks >= 2 && m.Cell != m.Goal)
+                .OrderBy(m => m.Id)
+                .ToArray();
+            if (stalled.Length == 0)
+            {
+                continue;
+            }
+
+            group.LastReconcileTick = CurrentTick;
+            ReconcileGroup(group, stalled);
+            ElectLeader(group);
+        }
+    }
+
+    /// <summary>
+    /// Re-goals a group's hard-stalled members onto spots they can ACTUALLY
+    /// WALK TO. One multi-source breadth-first sweep from all stalled members
+    /// at once (settled units' cells are walls), then closest member takes
+    /// closest spot by field distance. A member with no reachable empty spot
+    /// takes its own cell — a hopeless jam becomes an honest arrival in place,
+    /// which is what a real crowd does when the destination is full: it stops
+    /// where it meets the mass.
+    /// </summary>
+    /// <remarks>
+    /// One O(cells) sweep per firing, deliberately: the first version ran a
+    /// breadth-first search per member and put p99 tick cost at 51 ms — the
+    /// frame ceiling criterion exists precisely to catch that. Assigning by
+    /// raw distance without the reachability sweep is worse than slow: the
+    /// 200-agent run froze at 129 arrivals with 71 units expensively probing
+    /// goals the arrived crust had sealed shut.
+    /// </remarks>
+    private void ReconcileGroup(Group group, Agent[] stalled)
+    {
+        var key = group.Members[0].FieldKey >= 0 ? group.Members[0].FieldKey : group.Destination;
+        var field = _fields.For(key);
+
+        // Flat maps, not sets: the sweep touches every cell a few times.
+        var claimed = new bool[_grid.CellCount];
+        var settled = new bool[_grid.CellCount];
+        var occupied = new bool[_grid.CellCount];
+        foreach (var agent in _agents)
+        {
+            claimed[agent.Goal] = true;
+            occupied[agent.Cell] = true;
+            if (agent.Cell == agent.Goal)
+            {
+                settled[agent.Cell] = true;
+            }
+        }
+
+        // Multi-source BFS over what the stalled crowd can jointly reach.
+        var seen = new bool[_grid.CellCount];
+        var queue = new Queue<int>();
+        foreach (var member in stalled)
+        {
+            seen[member.Cell] = true;
+            queue.Enqueue(member.Cell);
+        }
+
+        var spots = new List<int>();
+        while (queue.Count > 0)
+        {
+            var cell = queue.Dequeue();
+
+            // A spot must be EMPTY and unclaimed: handing out a cell somebody
+            // stands on re-creates the frozen-goal wait.
+            if (!claimed[cell] && !occupied[cell] && field.Reaches(cell))
+            {
+                spots.Add(cell);
+            }
+
+            var x = _grid.ColumnOf(cell);
+            var y = _grid.RowOf(cell);
+            foreach (var step in Movement.Steps)
+            {
+                if (!Movement.IsLegalStep(_grid, x, y, step.DeltaX, step.DeltaY))
+                {
+                    continue;
+                }
+
+                var next = ((y + step.DeltaY) * _grid.Width) + x + step.DeltaX;
+                if (seen[next] || settled[next])
+                {
+                    continue;
+                }
+
+                seen[next] = true;
+                queue.Enqueue(next);
+            }
+        }
+
+        // Closest member takes closest spot, both by field distance, ties on
+        // cell/id — deterministic, and it fills the crust from the inside out.
+        spots.Sort((a, b) =>
+        {
+            var byCost = field.CostFrom(a).CompareTo(field.CostFrom(b));
+            return byCost != 0 ? byCost : a.CompareTo(b);
+        });
+
+        var members = stalled
+            .OrderBy(m => field.CostFrom(m.Cell))
+            .ThenBy(m => m.Id)
+            .ToArray();
+
+        for (var i = 0; i < members.Length; i++)
+        {
+            var member = members[i];
+            var pick = i < spots.Count ? spots[i] : (claimed[member.Cell] ? -1 : member.Cell);
+            if (pick < 0 || pick == member.Goal)
+            {
+                continue;
+            }
+
+            // Never move a member's goal FARTHER from the destination than its
+            // own position: beyond the crust there is nothing to gain, and a
+            // member whose best spot is worse than standing arrives in place.
+            if (pick != member.Cell &&
+                field.CostFrom(pick) > field.CostFrom(member.Cell) &&
+                !claimed[member.Cell])
+            {
+                pick = member.Cell;
+                if (pick == member.Goal)
+                {
+                    continue;
+                }
+            }
+
+            claimed[member.Goal] = false;
+            claimed[pick] = true;
+            member.Goal = pick;
+            member.StalledTicks = 0;
+            member.RetryAfterTick = CurrentTick;
+            member.WantsPlan = true;
+            Abandon(member);
+        }
+    }
+
+    /// <summary>
+    /// The member best placed to head the group: minimal field distance to the
+    /// destination, ties on id. Presentational and diagnostic this milestone —
+    /// the hook later steering hangs off, not a special planner.
+    /// </summary>
+    private void ElectLeader(Group group)
+    {
+        var key = group.Members[0].FieldKey >= 0 ? group.Members[0].FieldKey : group.Members[0].Goal;
+        var field = _fields.For(key);
+
+        var best = -1;
+        var bestCost = double.PositiveInfinity;
+        foreach (var member in group.Members.OrderBy(m => m.Id))
+        {
+            var cost = field.CostFrom(member.Cell);
+            if (cost < bestCost)
+            {
+                best = member.Id;
+                bestCost = cost;
+            }
+        }
+
+        group.Leader = best;
     }
 
     /// <summary>Every agent's plan as it currently stands, for collision checking.</summary>
@@ -322,17 +576,45 @@ public sealed class MovementSystem
         agent.AnchorTick = CurrentTick + agent.Latency;
         agent.Workspace = _workspacePool.Count > 0 ? _workspacePool.Pop() : new SearchWorkspace();
 
-        // It holds its cell while it thinks. A unit deciding where to go is still
-        // standing somewhere, and everyone planning meanwhile has to see that.
-        _table.Reserve([agent.Cell], CurrentTick, agent.Id);
+        // THE TABLE MUST DESCRIBE THE MOVEMENT THAT WILL ACTUALLY HAPPEN while
+        // the search runs. A standing thinker holds its cell. A MOVING one keeps
+        // walking its old plan until the new one lands -- so its old route stays
+        // reserved, sliced from now. Reserving only the current cell here
+        // (Reserve is release-then-mark) silently dropped a moving agent's route
+        // reservations while the route was still being walked, and everyone else
+        // then planned straight through its future -- three scenarios collided
+        // the first time reconciliation started mid-route searches.
+        if (agent.Plan is { } live && live.LastTick > CurrentTick)
+        {
+            var remaining = new List<int>(live.LastTick - CurrentTick + 1);
+            for (var t = CurrentTick; t <= live.LastTick; t++)
+            {
+                remaining.Add(live.CellAt(t));
+            }
+
+            _table.Reserve(remaining, CurrentTick, agent.Id);
+        }
+        else
+        {
+            _table.Reserve([agent.Cell], CurrentTick, agent.Id);
+        }
 
         // The field build is amortised: once per destination, cached across the
         // whole system, and O(cells log cells) -- not charged to the node budget
         // because it is not search work, the same way Advance's ring clear is not.
         var field = _fields.For(agent.FieldKey >= 0 ? agent.FieldKey : agent.Goal);
 
+        // The search starts from where the agent WILL BE at the anchor -- along
+        // its old plan if one is still walking, its own cell if it stands. A
+        // moving agent planned from its Begin-time cell commits a teleport.
+        var start = agent.Plan?.CellAt(agent.AnchorTick) ?? agent.Cell;
+        if (start < 0)
+        {
+            start = agent.Cell;
+        }
+
         agent.Search = new BudgetedSearch(
-            _grid, _table, agent.Id, agent.Cell, agent.Goal, agent.AnchorTick, agent.Workspace, field);
+            _grid, _table, agent.Id, start, agent.Goal, agent.AnchorTick, agent.Workspace, field);
     }
 
     /// <summary>What became of a search this call.</summary>
@@ -385,9 +667,9 @@ public sealed class MovementSystem
             {
                 // Already given every tick the window has and still not finished.
                 // Retrying identically is a treadmill, so this becomes a reported
-                // stall and a backoff rather than another attempt next tick.
+                // stall that waits for an event, with the timer as the backstop.
                 agent.StalledTicks++;
-                agent.RetryAfterTick = CurrentTick + StallBackoffTicks;
+                agent.RetryAfterTick = CurrentTick + StallBackstopTicks;
             }
             else
             {
@@ -421,18 +703,19 @@ public sealed class MovementSystem
 
     private void Commit(Agent agent, PlanResult plan)
     {
-        // The agent stands where it is until the anchor, then follows the plan.
-        // Splicing the two here means CellAt answers for every tick in between,
-        // and one Reserve call covers the whole future rather than two that would
-        // each replace the other.
+        // The agent follows its OLD plan until the anchor -- standing still if it
+        // has none -- then follows the new one. Splicing the two here means
+        // CellAt answers for every tick in between, and one Reserve call covers
+        // the whole future rather than two that would each replace the other.
         var pad = agent.AnchorTick - CurrentTick;
         var cells = new List<int>(pad + plan.Cells.Count);
-        for (var i = 0; i < pad; i++)
+        for (var t = CurrentTick; t < agent.AnchorTick; t++)
         {
-            cells.Add(agent.Cell);
+            var at = agent.Plan?.CellAt(t) ?? -1;
+            cells.Add(at >= 0 ? at : agent.Cell);
         }
 
-        cells.AddRange(plan.IsStuck ? [agent.Cell] : plan.Cells);
+        cells.AddRange(plan.IsStuck ? [cells.Count > 0 ? cells[^1] : agent.Cell] : plan.Cells);
 
         agent.Plan = new PlanResult(cells, CurrentTick, plan.Cost, plan.Expanded, plan.Found);
         _table.Reserve(cells, CurrentTick, agent.Id);
@@ -452,8 +735,12 @@ public sealed class MovementSystem
         }
         else
         {
+            // No progress. Wait for an event -- an arrival, an order, a
+            // reconciliation -- rather than re-asking an unchanged world on a
+            // short timer; the backstop turns a missed wake into slow, not
+            // frozen.
             agent.StalledTicks++;
-            agent.RetryAfterTick = CurrentTick + StallBackoffTicks;
+            agent.RetryAfterTick = CurrentTick + StallBackstopTicks;
         }
     }
 

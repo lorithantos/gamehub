@@ -107,31 +107,38 @@ public sealed class TickBudgetTests(ITestOutputHelper output)
 
         system.Order([.. Enumerable.Range(0, Agents)], grid.Index(44, 44));
 
-        // Run to a plateau: stop once arrivals have not changed for 500 ticks.
-        var lastArrivalTick = 0;
-        var arrived = 0;
-        for (var tick = 0; tick < 5000 && system.CurrentTick - lastArrivalTick < 500; tick++)
+        var settledAt = -1;
+        long nodesAtSettle = 0;
+        for (var tick = 0; tick < 1500; tick++)
         {
             system.Tick();
-            var now = system.Agents.Count(a => a.Arrived);
-            if (now > arrived)
+            if (settledAt < 0 && system.Agents.All(a => a.Arrived))
             {
-                arrived = now;
-                lastArrivalTick = system.CurrentTick;
+                settledAt = system.CurrentTick;
+                nodesAtSettle = system.TotalExpanded;
+                break;
             }
         }
 
-        var stuck = system.Agents.Count(a => a.Stuck);
-        output.WriteLine(
-            $"BASELINE 200-agent arena order: {arrived} arrived (last at tick {lastArrivalTick}), " +
-            $"{stuck} stuck, {system.TotalExpanded:N0} total nodes at plateau");
+        // Then hold for 200 more ticks: a settled world must be a silent one.
+        for (var tick = 0; tick < 200; tick++)
+        {
+            system.Tick();
+        }
 
-        // Pinned at 126/74 before field guidance; the field's different
-        // tie-breaking nudged three more agents into arrival. The structural
-        // defect -- goals frozen inside the settled pile -- stands until
-        // reconciliation, which is expected to move this pin to 200/0.
-        Assert.Equal(129, arrived);
-        Assert.Equal(71, stuck);
+        output.WriteLine(
+            $"200-agent arena order: all arrived at tick {settledAt}, {nodesAtSettle:N0} nodes to settle, " +
+            $"{system.TotalExpanded - nodesAtSettle:N0} nodes after settling");
+
+        // The milestone-2 baseline NEVER completed: it froze at 126 arrived and
+        // 74 permanently stuck (129/71 with field tie-breaking), burning the
+        // full 4,000-node budget every tick forever -- ~4.96M at the plateau
+        // and unbounded beyond it. Goal reconciliation completes the order and
+        // then goes silent, which is criteria 3 and 6 in one measurement: a
+        // finite total against an unbounded one, and zero spend after settling.
+        Assert.True(settledAt > 0, $"only {system.Agents.Count(a => a.Arrived)} of {Agents} arrived");
+        Assert.Equal(0, system.Agents.Count(a => a.Stuck));
+        Assert.Equal(0, system.TotalExpanded - nodesAtSettle);
     }
 
     [Fact]

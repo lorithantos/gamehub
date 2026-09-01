@@ -26,7 +26,12 @@ public static class GoalSpread
     /// <paramref name="count"/> cells come back when the region cannot hold them,
     /// which the caller must handle rather than being told a comfortable lie.
     /// </remarks>
-    public static IReadOnlyList<int> Nearest(Grid grid, int target, int count)
+    /// <param name="excluded">
+    /// Cells that may not be handed out as goals — an arrived unit's cell during
+    /// reconciliation, say. Excluded cells are still traversed, so the region
+    /// beyond a parked unit is not falsely unreachable.
+    /// </param>
+    public static IReadOnlyList<int> Nearest(Grid grid, int target, int count, Func<int, bool>? excluded = null)
     {
         ArgumentNullException.ThrowIfNull(grid);
         ArgumentOutOfRangeException.ThrowIfNegative(count);
@@ -46,7 +51,10 @@ public static class GoalSpread
         while (queue.Count > 0 && found.Count < count)
         {
             var cell = queue.Dequeue();
-            found.Add(cell);
+            if (excluded is null || !excluded(cell))
+            {
+                found.Add(cell);
+            }
 
             var x = grid.ColumnOf(cell);
             var y = grid.RowOf(cell);
@@ -88,7 +96,8 @@ public static class GoalSpread
     public static IReadOnlyList<(int Agent, int Goal)> Assign(
         Grid grid,
         int target,
-        IReadOnlyList<(int Agent, int Cell)> agents)
+        IReadOnlyList<(int Agent, int Cell)> agents,
+        Func<int, bool>? excluded = null)
     {
         ArgumentNullException.ThrowIfNull(grid);
         ArgumentNullException.ThrowIfNull(agents);
@@ -98,7 +107,7 @@ public static class GoalSpread
             return [];
         }
 
-        var goals = Nearest(grid, target, agents.Count);
+        var goals = Nearest(grid, target, agents.Count, excluded);
         if (goals.Count == 0)
         {
             return [];

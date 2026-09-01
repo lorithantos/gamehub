@@ -22,7 +22,7 @@ namespace Nav.Core;
 /// per tick rather than once per search.
 /// </para>
 /// </remarks>
-public sealed class ReservationTable
+public sealed class ReservationTable : IReservationView
 {
     /// <summary>No agent. Agent ids are non-negative, so this cannot collide with one.</summary>
     private const int Free = -1;
@@ -72,43 +72,20 @@ public sealed class ReservationTable
         }
     }
 
-    /// <summary>
-    /// How many ticks the window covers. Fixed at construction, never below 2, and
-    /// the price of lookahead paid twice over: the ring holds this many
-    /// grid-sized arrays, and a space-time search over the window has
-    /// <c>Horizon * cellCount</c> states to work in.
-    /// </summary>
+    /// <inheritdoc/>
     public int Horizon { get; }
 
-    /// <summary>The earliest tick still tracked. The window is <c>[CurrentTick, CurrentTick + Horizon)</c>.</summary>
+    /// <inheritdoc/>
     public int CurrentTick { get; private set; }
 
-    /// <summary>
-    /// True if <paramref name="agent"/> may occupy <paramref name="cell"/> at
-    /// <paramref name="tick"/> -- either nobody holds it, or this agent already
-    /// does.
-    /// </summary>
-    /// <remarks>
-    /// An agent never conflicts with itself. Replanning would otherwise be blocked
-    /// by the plan it is replacing.
-    /// </remarks>
+    /// <inheritdoc/>
     public bool IsFree(int cell, int tick, int agent)
     {
         var holder = Occupant(cell, tick);
         return holder == Free || holder == agent;
     }
 
-    /// <summary>
-    /// True if moving <paramref name="from"/> to <paramref name="to"/> across the
-    /// tick beginning at <paramref name="tick"/> would pass through another agent
-    /// coming the other way.
-    /// </summary>
-    /// <remarks>
-    /// THE EDGE COLLISION, and the one a cell-occupancy check cannot see. Two
-    /// agents exchanging places share no cell at either tick -- A is here then
-    /// there, B is there then here -- and they walk through each other. A suite
-    /// that checks only occupancy reports it as clean.
-    /// </remarks>
+    /// <inheritdoc/>
     public bool IsSwap(int from, int to, int tick, int agent)
     {
         var other = Occupant(to, tick);
@@ -123,17 +100,7 @@ public sealed class ReservationTable
     /// <summary>The agent holding a cell at a tick, or -1. Beyond the horizon, -1.</summary>
     public int HolderOf(int cell, int tick) => Occupant(cell, tick);
 
-    /// <summary>
-    /// True if <paramref name="agent"/> could occupy <paramref name="cell"/> from
-    /// <paramref name="fromTick"/> to the end of the window and not move again.
-    /// </summary>
-    /// <remarks>
-    /// A plan does not only pass through cells, it ends on one — and stopping is a
-    /// commitment to stay. An agent that walks somewhere it may not remain parks in
-    /// another agent's path, and because <see cref="Reserve"/> holds the final cell
-    /// for the rest of the window it does so by overwriting a reservation that was
-    /// already there. Every step legal, the destination not.
-    /// </remarks>
+    /// <inheritdoc/>
     public bool IsHoldable(int cell, int fromTick, int agent)
     {
         var last = CurrentTick + Horizon - 1;

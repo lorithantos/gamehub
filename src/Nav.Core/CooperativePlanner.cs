@@ -45,7 +45,7 @@ public static class CooperativePlanner
     /// </remarks>
     public static PlanResult FindPlan(
         Grid grid,
-        ReservationTable reservations,
+        IReservationView reservations,
         int agent,
         int start,
         int goal,

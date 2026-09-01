@@ -33,7 +33,7 @@ public sealed class BudgetedSearch
     private const double Improvement = 1e-9;
 
     private readonly Grid _grid;
-    private readonly ReservationTable _reservations;
+    private readonly IReservationView _reservations;
     private readonly int _agent;
     private readonly int _goal;
     private readonly int _baseTick;
@@ -103,7 +103,7 @@ public sealed class BudgetedSearch
     /// </param>
     public BudgetedSearch(
         Grid grid,
-        ReservationTable reservations,
+        IReservationView reservations,
         int agent,
         int start,
         int goal,

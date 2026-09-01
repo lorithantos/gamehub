@@ -38,68 +38,22 @@ internal static class Program
             return 0;
         }
 
-        Grid grid;
-        string mapName;
-        RecordedScenario? scenario = null;
-        try
+        // The session owns loading and every refusal in it: unreadable files,
+        // malformed maps and scenarios, all-wall maps, agents placed on walls.
+        // The message names the problem; printing it beats a stack trace, and
+        // beats opening a window onto nothing.
+        if (!ViewerSession.TryLoad(options, out var session, out var loadError))
         {
-            if (options.ScenarioPath is { } scenarioFile)
-            {
-                scenario = RecordedScenario.FromFile(scenarioFile);
-                var mapFile = options.MapPath
-                    ?? ViewerOptions.ResolveScenarioMap(scenarioFile, scenario.MapName);
-                grid = Grid.FromMapFile(mapFile);
-                mapName = $"{Path.GetFileName(scenarioFile)} on {Path.GetFileName(mapFile)}";
-            }
-            else if (options.MapPath is { } path)
-            {
-                grid = Grid.FromMapFile(path);
-                mapName = Path.GetFileName(path);
-            }
-            else
-            {
-                grid = Grid.FromMapText(SampleMaps.CornerCutTrap);
-                mapName = "(embedded fixture)";
-            }
-        }
-        catch (Exception ex) when (ex is MapFormatException or IOException or UnauthorizedAccessException)
-        {
-            // The loader refuses precisely and names the line. Printing that
-            // beats a stack trace, and beats opening a window onto nothing.
-            Console.Error.WriteLine(ex.Message);
+            Console.Error.WriteLine(loadError);
             return 1;
         }
 
-        // A map of nothing but walls parses perfectly well -- "@@@" is valid --
-        // and then ViewerApp has no cell to put the unit on. Found by
-        // exception_escapes once the extraction made this code visible to the
-        // graph: it reported an unconditional InvalidOperationException reaching
-        // Main from EndPassableCell. Refusing here with the map's name beats
-        // catching it later, and beats the stack trace it used to produce.
-        if (grid.PassableCount == 0)
-        {
-            Console.Error.WriteLine($"{mapName} has no passable cell; there is nothing to walk on.");
-            return 1;
-        }
-
-        // Pure, and shared: the WPF host will size itself from this same call,
+        // Pure, and shared: the WPF host sizes itself from this same call,
         // so the two cannot disagree about geometry by accident.
-        var layout = GridLayout.Fit(grid, MaxMapPixels, MaxMapPixels - StatusHeight);
+        var layout = GridLayout.Fit(session.Grid, MaxMapPixels, MaxMapPixels - StatusHeight);
 
-        ViewerApp app;
-        try
-        {
-            app = new ViewerApp(grid, layout, scenario: scenario);
-        }
-        catch (ArgumentOutOfRangeException ex)
-        {
-            // A scenario agent on a wall or off the map. The message names the
-            // cell; refusing beats a window of units that were never placed.
-            Console.Error.WriteLine(ex.Message);
-            return 1;
-        }
-
-        using var host = new RaylibHost(layout, StatusHeight, $"Nav.Viewer - {mapName}", options.MaxFrames);
+        var app = new ViewerApp(session, layout);
+        using var host = new RaylibHost(layout, StatusHeight, $"Nav.Viewer - {session.MapName}", options.MaxFrames);
         host.Run(app);
 
         return 0;

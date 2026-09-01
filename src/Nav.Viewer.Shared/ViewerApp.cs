@@ -6,42 +6,38 @@ using Nav.Core;
 namespace Nav.Viewer;
 
 /// <summary>
-/// The viewer, with no window and no renderer: a squad of units, orders, and a
-/// clock.
+/// The viewer, with no window and no renderer: input in, draw calls out.
 /// </summary>
 /// <remarks>
 /// References nothing but <c>Nav.Core</c> and the seam, and compiles in a project
 /// with no graphics package. That is the claim the two-renderer experiment was
-/// built to test, and it still holds now that the app drives a whole
-/// <see cref="MovementSystem"/> rather than one walker.
+/// built to test, and it still holds.
+/// <para>
+/// Since the <see cref="ViewerSession"/> extraction this class owns only
+/// presentation: the layout, the terrain image, wall-clock accumulation, frame
+/// blending, and the drag rectangle. Everything with a decision in it — what is
+/// loaded, who is selected, whether time runs — lives in the session, and this
+/// class translates input into session commands and session state into the five
+/// renderer verbs.
+/// </para>
 /// <para>
 /// <b><see cref="IRenderer"/> did not have to grow.</b> Many units are
 /// <c>DrawCircle</c> in a loop; the selected unit's route is the same
-/// <c>DrawLine</c> the single-agent viewer used. If a milestone-2 display need had
-/// required a sixth verb, that would have been the seam's first genuine leak and
-/// worth recording — it did not.
+/// <c>DrawLine</c> the single-agent viewer used; the drag band is four lines.
+/// If a milestone-2 display need had required a sixth verb, that would have been
+/// the seam's first genuine leak and worth recording — it did not.
 /// </para>
 /// </remarks>
 public sealed class ViewerApp : IViewerApp
 {
-    private const int Squad = 24;
-
-    /// <summary>Seconds of simulation per tick, matching the recorded-scenario default.</summary>
-    private const double TickSeconds = 1.0 / 60.0;
-
     /// <summary>A drag smaller than this in both axes is a click.</summary>
     private const float ClickSlopPixels = 4.0f;
 
+    private readonly ViewerSession _session;
     private readonly Grid _grid;
     private readonly TerrainImage _terrain;
     private readonly FixedTimestep _clock;
     private readonly int[] _previousCells;
-    private readonly List<int> _selection = [];
-    private readonly RecordedScenario? _scenario;
-
-    // Not readonly: restarting a replay rebuilds both.
-    private MovementSystem _system;
-    private Queue<ScenarioOrder> _orders;
 
     /// <summary>How far through the current tick we are, for drawing between cells.</summary>
     private float _blend;
@@ -50,67 +46,42 @@ public sealed class ViewerApp : IViewerApp
     private Vector2 _dragAnchor;
     private Vector2 _dragCurrent;
 
-    private bool _running = true;
-
-    public ViewerApp(Grid grid, GridLayout layout, int squad = Squad, RecordedScenario? scenario = null)
+    public ViewerApp(ViewerSession session, GridLayout layout)
     {
-        ArgumentNullException.ThrowIfNull(grid);
+        ArgumentNullException.ThrowIfNull(session);
 
-        _grid = grid;
+        _session = session;
+        _grid = session.Grid;
         Layout = layout;
-        _terrain = TerrainImage.FromGrid(grid, RgbaColor.RayWhite, RgbaColor.DarkGray);
-        _scenario = scenario;
-        _clock = new FixedTimestep(scenario?.TickSeconds ?? TickSeconds);
-
-        if (scenario is not null)
-        {
-            // A replay: the recorded placements, the recorded orders queued for
-            // their recorded ticks -- and the clock STOPPED at tick zero, so
-            // the setup can be looked at before Space runs it. The user's own
-            // clicks still work, and diverge the run from the recording, which
-            // is a viewer's privilege and a test's failure.
-            (_system, _orders) = BuildReplay();
-            _running = false;
-        }
-        else
-        {
-            // A squad to look at before the first click, on any map.
-            _system = new MovementSystem(grid);
-            _orders = new Queue<ScenarioOrder>();
-            var placed = 0;
-            for (var cell = 0; cell < grid.CellCount && placed < squad; cell++)
-            {
-                if (!grid.IsPassable(cell))
-                {
-                    continue;
-                }
-
-                _system.AddAgent(cell);
-                placed++;
-            }
-        }
-
-        _previousCells = [.. _system.Agents.Select(a => a.Cell)];
-        if (_system.Agents.Count > 0)
-        {
-            _selection.Add(0);
-        }
-
+        _terrain = TerrainImage.FromGrid(_grid, RgbaColor.RayWhite, RgbaColor.DarkGray);
+        _clock = new FixedTimestep(session.TickSeconds);
+        _previousCells = [.. session.Agents.Select(a => a.Cell)];
         StatusText = BuildStatus();
+    }
+
+    /// <summary>
+    /// Convenience for tests and callers that have content rather than a
+    /// session: wraps it in one.
+    /// </summary>
+    public ViewerApp(Grid grid, GridLayout layout, int squad = ViewerSession.DefaultSquad, RecordedScenario? scenario = null)
+        : this(BuildSession(grid, scenario, squad), layout)
+    {
     }
 
     public GridLayout Layout { get; }
 
     public string StatusText { get; private set; }
 
+    public ViewerSession Session => _session;
+
     /// <summary>The units orders go to, in id order.</summary>
-    public IReadOnlyList<int> Selection => _selection;
+    public IReadOnlyList<int> Selection => _session.Selection;
 
-    public bool Running => _running;
+    public bool Running => _session.Running;
 
-    public IReadOnlyList<AgentState> Agents => _system.Agents;
+    public IReadOnlyList<AgentState> Agents => _session.Agents;
 
-    public int CurrentTick => _system.CurrentTick;
+    public int CurrentTick => _session.CurrentTick;
 
     public void Update(in InputState input, float deltaSeconds)
     {
@@ -119,12 +90,8 @@ public sealed class ViewerApp : IViewerApp
             // A press selects the nearest unit immediately, the way a click
             // always did. If it turns out to be a drag, the box replaces this
             // on release.
-            _selection.Clear();
             var nearest = NearestAgentTo(picked);
-            if (nearest >= 0)
-            {
-                _selection.Add(nearest);
-            }
+            _session.Select(nearest >= 0 ? [nearest] : []);
 
             _dragging = true;
             _dragAnchor = input.MousePosition;
@@ -142,53 +109,52 @@ public sealed class ViewerApp : IViewerApp
         }
 
         if (input.IsPressed(MouseButtons.Right) &&
-            Layout.TryPick(input.MousePosition, _grid, out var target) &&
-            _selection.Count > 0)
+            Layout.TryPick(input.MousePosition, _grid, out var target))
         {
-            _system.Order([.. _selection], target);
+            _session.OrderSelection(target);
         }
 
         if (input.IsPressed(ViewerKeys.Space))
         {
-            _running = !_running;
+            _session.ToggleRunning();
         }
 
         if (input.IsPressed(ViewerKeys.R))
         {
-            if (_scenario is not null)
+            if (_session.IsReplay)
             {
                 // Reload the recording: tick zero, clock stopped, ready to
                 // watch again.
-                RestartReplay();
+                _session.Restart();
+                for (var id = 0; id < _previousCells.Length; id++)
+                {
+                    _previousCells[id] = _session.Agents[id].Cell;
+                }
+
+                _clock.Reset();
+                _blend = 0f;
+                _dragging = false;
             }
             else
             {
                 // Everybody home. The nearest thing to a reset that means
                 // anything once units have scattered.
-                _system.Order([.. Enumerable.Range(0, _system.Agents.Count)], _previousCells[0]);
+                _session.OrderEveryone(_previousCells[0]);
             }
         }
 
-        if (_running)
+        if (_session.Running)
         {
             var steps = _clock.Accumulate(deltaSeconds);
             for (var i = 0; i < steps; i++)
             {
-                var before = _system.Agents;
+                var before = _session.Agents;
                 for (var id = 0; id < _previousCells.Length; id++)
                 {
                     _previousCells[id] = before[id].Cell;
                 }
 
-                // Recorded orders land at their recorded ticks, exactly as the
-                // headless playback issues them.
-                while (_orders.TryPeek(out var order) && order.Tick <= _system.CurrentTick)
-                {
-                    _orders.Dequeue();
-                    _system.Order(order.Agents, _grid.Index(order.X, order.Y));
-                }
-
-                _system.Tick();
+                _session.Tick();
             }
 
             // Whatever is left over is how far through the next tick we are, and
@@ -214,8 +180,9 @@ public sealed class ViewerApp : IViewerApp
         // A route is drawn only when exactly one unit is selected. Drawing every
         // route at two dozen units is a ball of yarn, and at two hundred it is a
         // solid colour -- a boxed group shows its motion, not its plans.
-        var soleSelection = _selection.Count == 1 ? _selection[0] : -1;
-        var plans = _system.CurrentPlans();
+        var selection = _session.Selection;
+        var soleSelection = selection.Count == 1 ? selection[0] : -1;
+        var plans = _session.CurrentPlans();
         foreach (var (agent, plan) in plans)
         {
             if (agent != soleSelection || plan.Cells.Count < 2)
@@ -240,7 +207,7 @@ public sealed class ViewerApp : IViewerApp
         }
 
         var radius = Math.Max(2.0f, Layout.CellSize * 0.34f);
-        foreach (var agent in _system.Agents)
+        foreach (var agent in _session.Agents)
         {
             var from = CenterOfCell(_previousCells[agent.Id]);
             var to = CenterOfCell(agent.Cell);
@@ -248,7 +215,7 @@ public sealed class ViewerApp : IViewerApp
 
             renderer.DrawCircle(at, radius, ColourFor(agent));
 
-            if (_selection.Contains(agent.Id))
+            if (selection.Contains(agent.Id))
             {
                 // A ring, drawn as a slightly larger circle underneath would be —
                 // but the seam has no stroke, so the selection is a second smaller
@@ -277,6 +244,14 @@ public sealed class ViewerApp : IViewerApp
     }
 
     public Vector2 CenterOfCell(int cell) => Layout.CenterOf(_grid.ColumnOf(cell), _grid.RowOf(cell));
+
+    private static ViewerSession BuildSession(Grid grid, RecordedScenario? scenario, int squad)
+    {
+        ArgumentNullException.ThrowIfNull(grid);
+        return scenario is null
+            ? ViewerSession.FromMap(grid, "(unnamed)", squad)
+            : ViewerSession.FromScenario(grid, "(unnamed)", scenario);
+    }
 
     /// <summary>
     /// A colour per unit, so a crowd is legible as individuals.
@@ -320,36 +295,6 @@ public sealed class ViewerApp : IViewerApp
             (byte)((0.35f + (0.65f * b)) * 255));
     }
 
-    private (MovementSystem System, Queue<ScenarioOrder> Orders) BuildReplay()
-    {
-        var system = new MovementSystem(_grid);
-        foreach (var agent in _scenario!.Agents)
-        {
-            system.AddAgent(_grid.Index(agent.X, agent.Y));
-        }
-
-        return (system, new Queue<ScenarioOrder>(_scenario.Orders));
-    }
-
-    private void RestartReplay()
-    {
-        (_system, _orders) = BuildReplay();
-
-        for (var id = 0; id < _previousCells.Length; id++)
-        {
-            _previousCells[id] = _system.Agents[id].Cell;
-        }
-
-        // The parser refuses a scenario with no agents, so there is a unit 0.
-        _selection.Clear();
-        _selection.Add(0);
-
-        _clock.Reset();
-        _blend = 0f;
-        _dragging = false;
-        _running = false;
-    }
-
     private RectF DragRect()
     {
         var x = Math.Min(_dragAnchor.X, _dragCurrent.X);
@@ -370,15 +315,17 @@ public sealed class ViewerApp : IViewerApp
 
         // The box replaces the press's nearest-unit guess. Boxing empty ground
         // clears the selection, the way every RTS reads that gesture.
-        _selection.Clear();
-        foreach (var agent in _system.Agents)
+        var inside = new List<int>();
+        foreach (var agent in _session.Agents)
         {
             var at = CenterOfCell(agent.Cell);
             if (at.X >= box.X && at.X <= box.Right && at.Y >= box.Y && at.Y <= box.Bottom)
             {
-                _selection.Add(agent.Id);
+                inside.Add(agent.Id);
             }
         }
+
+        _session.Select(inside);
     }
 
     private int NearestAgentTo(int cell)
@@ -389,7 +336,7 @@ public sealed class ViewerApp : IViewerApp
         var best = -1;
         var bestDistance = double.PositiveInfinity;
 
-        foreach (var agent in _system.Agents)
+        foreach (var agent in _session.Agents)
         {
             var distance = Movement.OctileDistance(
                 _grid.ColumnOf(agent.Cell), _grid.RowOf(agent.Cell), x, y);
@@ -406,7 +353,7 @@ public sealed class ViewerApp : IViewerApp
 
     private string BuildStatus()
     {
-        var agents = _system.Agents;
+        var agents = _session.Agents;
         var planning = agents.Count(a => a.Thinking);
         var arrived = agents.Count(a => a.Arrived);
         var stuck = agents.Count(a => a.Stuck);
@@ -421,9 +368,9 @@ public sealed class ViewerApp : IViewerApp
         return string.Create(
             CultureInfo.InvariantCulture,
             $"{_grid.Width}x{_grid.Height}  {agents.Count} units  {Fixed(arrived)} arrived  {Fixed(stuck)} stuck  " +
-            $"{Fixed(planning)} planning  {_system.LastTick.NodesSpent,6} nodes/tick  " +
-            $"tick {_system.CurrentTick,6}  {(_running ? "[running]" : "[paused]"),-9} " +
-            $"sel {Fixed(_selection.Count)}  LMB click/drag select  RMB order  SPACE pause  " +
-            $"{(_scenario is null ? "R regroup" : "R restart")}");
+            $"{Fixed(planning)} planning  {_session.LastTick.NodesSpent,6} nodes/tick  " +
+            $"tick {_session.CurrentTick,6}  {(_session.Running ? "[running]" : "[paused]"),-9} " +
+            $"sel {Fixed(_session.Selection.Count)}  LMB click/drag select  RMB order  SPACE pause  " +
+            $"{(_session.IsReplay ? "R restart" : "R regroup")}");
     }
 }

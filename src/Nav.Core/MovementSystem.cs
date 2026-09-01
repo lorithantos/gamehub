@@ -423,10 +423,28 @@ public sealed class MovementSystem
             Slots = slots,
             Doctrine = doctrine ?? new GatherDoctrine(),
         };
+        // EVERY ID IS RESOLVED BEFORE ANYTHING IS TOUCHED, and that ordering is the
+        // whole of this guard. Resolving inside the loop meant a bad id threw
+        // halfway: the agents before it had already been re-goaled and moved onto
+        // the new group, the new group was never added to _groups, and an emptied
+        // old group was never pruned. ElectLeader then ran over that empty group on
+        // the next tick and every tick after -- so one unknown id made a caught
+        // exception into a MovementSystem that could not tick again.
+        var members = new Agent[agents.Count];
+        var at = 0;
         foreach (var id in agents.OrderBy(id => id))
         {
-            var agent = _agents[id];
+            if (id < 0 || id >= _agents.Count)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(agents), id, $"no such agent; this system has {_agents.Count}.");
+            }
 
+            members[at++] = _agents[id];
+        }
+
+        foreach (var agent in members)
+        {
             // A group member is NOT handed a parking slot here. It walks toward
             // the shared destination and claims the innermost open slot once it
             // gets NEAR -- the way a real team fills in on arrival rather than
@@ -583,13 +601,28 @@ public sealed class MovementSystem
             }
         }
     }
+
     /// <summary>
     /// The member best placed to head the group: minimal field distance to the
     /// destination, ties on id. Presentational and diagnostic this milestone —
     /// the hook later steering hangs off, not a special planner.
     /// </summary>
+    /// <remarks>
+    /// An empty group has no leader and is not an error. It cannot arise from a
+    /// completed order, which prunes emptied groups, but a group with no members is
+    /// a coherent state and dereferencing member zero to discover that is not. This
+    /// guard and the id resolution in
+    /// <see cref="Order(IReadOnlyList{int}, int, GroupDoctrine?)"/> close the same
+    /// hole from both ends.
+    /// </remarks>
     private void ElectLeader(Group group)
     {
+        if (group.Members.Count == 0)
+        {
+            group.Leader = -1;
+            return;
+        }
+
         var key = group.Members[0].FieldKey >= 0 ? group.Members[0].FieldKey : group.Members[0].Goal;
         var field = _fields.For(key);
 
@@ -997,6 +1030,17 @@ public sealed class MovementSystem
         public void ClaimSlot(int id, int cell)
         {
             var agent = _system._agents[id];
+
+            // WHETHER IT HELD ONE IS READ BEFORE IT IS SET, and that is the fix.
+            // Setting HasSlot first and then removing agent.Goal from the claimed
+            // set retracts a claim this agent may never have made: an un-slotted
+            // member's Goal is the shared WALKING TARGET every member was given at
+            // order time, so one member claiming its own cell deleted a different
+            // member's legitimate claim on that target. A third member then saw the
+            // cell as unclaimed and took it, and two members held one cell
+            // permanently -- reachable at default settings whenever three are near
+            // the ring, which is every gather endgame.
+            var held = agent.HasSlot;
             agent.HasSlot = true;
 
             if (agent.Goal == cell)
@@ -1005,7 +1049,11 @@ public sealed class MovementSystem
                 return;
             }
 
-            _system._claimedGoals.Remove(agent.Goal);
+            if (held)
+            {
+                _system._claimedGoals.Remove(agent.Goal);
+            }
+
             _system._claimedGoals.Add(cell);
             agent.Goal = cell;
             agent.StalledTicks = 0;

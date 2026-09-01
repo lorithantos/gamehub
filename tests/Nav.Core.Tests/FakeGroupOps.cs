@@ -133,6 +133,11 @@ public sealed class FakeGroupOps : IGroupOps
         [.. Slots.Where(s => !Claimed.Contains(s) && !Occupied.Contains(s)).OrderBy(FieldCost).ThenBy(s => s)];
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Mirrors the real one deliberately, INCLUDING the held check. A fake that
+    /// retracted unconditionally would hide the bug the real one had; a fake that
+    /// is simply correct lets a test assert the claimed set and mean it.
+    /// </remarks>
     public void ClaimSlot(int id, int cell)
     {
         Claims.Add((id, cell));

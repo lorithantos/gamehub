@@ -69,6 +69,7 @@ internal sealed class RaylibHost(GridLayout layout, int statusHeight, int? maxFr
             _input.SetKeyState(ViewerKeys.Space, global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.Space));
             _input.SetKeyState(ViewerKeys.R, global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.R));
             _input.SetKeyState(ViewerKeys.Step, global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.S));
+            _input.SetKeyState(ViewerKeys.Pace, global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.T));
 
             // Raw frame time, unclamped: FixedTimestep.MaxStepsPerFrame is
             // already the circuit breaker, and a second one here would make the

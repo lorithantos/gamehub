@@ -36,6 +36,9 @@ public sealed record ScriptedFrame(
 /// </remarks>
 public sealed class ScriptedHost(IReadOnlyList<ScriptedFrame> frames, RecordingRenderer renderer) : IViewerHost
 {
+    private static readonly ViewerKeys[] Keys =
+        [.. Enum.GetValues<ViewerKeys>().Where(k => k != ViewerKeys.None)];
+
     private readonly InputAccumulator _input = new();
 
     public int FramesRun { get; private set; }
@@ -48,7 +51,11 @@ public sealed class ScriptedHost(IReadOnlyList<ScriptedFrame> frames, RecordingR
         {
             _input.SetMousePosition(frame.Mouse);
 
-            foreach (var key in new[] { ViewerKeys.Space, ViewerKeys.R, ViewerKeys.Step })
+            // Every key the enum defines, not a list written out here. A hand
+            // written list silently stops reporting a key added later: the pace
+            // key was added and two tests failed with the app never seeing a
+            // press, which looks exactly like a broken feature.
+            foreach (var key in Keys)
             {
                 _input.SetKeyState(key, (frame.KeysDown & key) != 0);
             }

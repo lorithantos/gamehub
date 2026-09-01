@@ -266,6 +266,54 @@ public sealed class ViewerAppTests
     }
 
     [Fact]
+    public void ThePaceKeyCyclesFullThenTwoThenOnePerSecond()
+    {
+        // One press per pair of frames: the key must be released between
+        // presses or the accumulator reports one edge, which is the same
+        // auto-repeat rule Space is held to.
+        var frames = new List<ScriptedFrame>();
+        var labels = new List<string>();
+
+        var renderer = new RecordingRenderer();
+        var grid = Fixture();
+        var app = new ViewerApp(grid, LayoutFor(grid), Squad);
+
+        foreach (var _ in Enumerable.Range(0, 4))
+        {
+            labels.Add(app.PaceLabel);
+            using var host = new ScriptedHost(
+                [new ScriptedFrame(Dt: 0f, KeysDown: ViewerKeys.Pace), new ScriptedFrame(Dt: 0f)], renderer);
+            host.Run(app);
+        }
+
+        Assert.Equal(["full", "2/s", "1/s", "full"], labels);
+    }
+
+    [Fact]
+    public void ASlowPaceAdvancesFewerTicksForTheSameWallClock()
+    {
+        // Two seconds of wall clock. At the map's own rate that is 120 ticks;
+        // at two ticks a second it is 4, which is the whole point -- the same
+        // run, slow enough to read. The simulation is driven by tick count, so
+        // nothing about what happens changes.
+        var grid = Fixture();
+        var app = new ViewerApp(grid, LayoutFor(grid), Squad);
+
+        var frames = new List<ScriptedFrame>
+        {
+            new(Dt: 0f, KeysDown: ViewerKeys.Pace),
+            new(Dt: 0f),
+        };
+        frames.AddRange(ScriptedHost.Idle(120));
+
+        using var host = new ScriptedHost(frames, new RecordingRenderer());
+        host.Run(app);
+
+        Assert.Equal("2/s", app.PaceLabel);
+        Assert.InRange(app.CurrentTick, 3, 5);
+    }
+
+    [Fact]
     public void OnlyTheSelectedUnitsRouteIsDrawn()
     {
         var grid = Fixture();

@@ -252,6 +252,9 @@ internal sealed class WpfHost(GridLayout layout, int? maxFrames) : IViewerHost
             case Key.S:
                 _input.SetKeyState(ViewerKeys.Step, down);
                 break;
+            case Key.T:
+                _input.SetKeyState(ViewerKeys.Pace, down);
+                break;
             case Key.Escape when down:
                 _window?.Close();
                 break;

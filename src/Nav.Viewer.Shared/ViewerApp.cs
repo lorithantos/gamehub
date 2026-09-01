@@ -46,6 +46,23 @@ public sealed class ViewerApp : IViewerApp
     private int[] _previousCells;
     private int _sessionVersion;
 
+    /// <summary>
+    /// Seconds per tick to run at, or null for whatever the content says.
+    /// </summary>
+    /// <remarks>
+    /// The slow paces are for watching. At the content's own rate a gather, a
+    /// retreat or a patrol turn is over in a second or two of wall clock, which
+    /// is fine for a soak test and useless for seeing what a doctrine did; two
+    /// ticks a second is about reading speed, and one is for watching a single
+    /// decision land.
+    /// </remarks>
+    private static readonly double?[] Paces = [null, 0.5, 1.0];
+
+    private int _pace;
+
+    /// <summary>How long one tick takes at the current pace.</summary>
+    private double StepSeconds => Paces[_pace] ?? _session.TickSeconds;
+
     /// <summary>How far through the current tick we are, for drawing between cells.</summary>
     private float _blend;
 
@@ -121,6 +138,14 @@ public sealed class ViewerApp : IViewerApp
 
     /// <summary>The units orders go to, in id order.</summary>
     public IReadOnlyList<int> Selection => _session.Selection;
+
+    /// <summary>
+    /// How fast the clock is feeding ticks, as the status line says it: the
+    /// content's own rate, or one of the slow paces for watching.
+    /// </summary>
+    public string PaceLabel => Paces[_pace] is { } seconds
+        ? string.Create(CultureInfo.InvariantCulture, $"{1.0 / seconds:0.#}/s")
+        : "full";
 
     /// <summary>
     /// <see cref="ViewerSession.Running"/>, forwarded. The app decides
@@ -243,6 +268,16 @@ public sealed class ViewerApp : IViewerApp
 
             _blend = 0f;
             _clock.Reset();
+        }
+
+        if (input.IsPressed(ViewerKeys.Pace))
+        {
+            // Rate only. The simulation is driven by tick COUNT, so slowing the
+            // clock changes what a watcher can follow and nothing about what
+            // happens -- the same run, told slowly.
+            _pace = (_pace + 1) % Paces.Length;
+            _clock = new FixedTimestep(StepSeconds);
+            _blend = 0f;
         }
 
         if (input.IsPressed(ViewerKeys.R))
@@ -423,7 +458,9 @@ public sealed class ViewerApp : IViewerApp
         _grid = _session.Grid;
         Layout = GridLayout.Fit(_grid, _fitWidth, _fitHeight);
         _terrain = TerrainImage.FromGrid(_grid, RgbaColor.RayWhite, RgbaColor.DarkGray);
-        _clock = new FixedTimestep(_session.TickSeconds);
+        // The pace survives a load: somebody watching at one tick a second who
+        // opens another scenario wants to watch that one at the same speed.
+        _clock = new FixedTimestep(StepSeconds);
         _previousCells = [.. _session.Agents.Select(a => a.Cell)];
         _blend = 0f;
         _dragging = false;
@@ -565,7 +602,8 @@ public sealed class ViewerApp : IViewerApp
             $"{Fixed(planning)} planning  fields {_session.LiveFields}/{MovementSystem.FieldCapacity}  " +
             $"{_session.LastTick.NodesSpent,6} nodes/tick  " +
             $"tick {_session.CurrentTick,6}  {(_session.Running ? "[running]" : "[paused]"),-9} " +
-            $"sel {Fixed(_session.Selection.Count)}  LMB click/drag select  RMB order  SPACE pause  S step  " +
+            $"{PaceLabel,-8} sel {Fixed(_session.Selection.Count)}  " +
+            $"LMB click/drag select  RMB order  SPACE pause  S step  T pace  " +
             $"{(_session.IsReplay ? "R restart" : "R regroup")}");
     }
 }

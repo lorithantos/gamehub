@@ -42,4 +42,12 @@ public enum ViewerKeys
     /// forward a tick at a time.
     /// </summary>
     Step = 4,
+
+    /// <summary>
+    /// Cycle the tick rate: full speed, then two ticks a second, then one.
+    /// At sixty ticks a second a group's behaviour is over before it can be
+    /// read; slowed down, the same run is legible without anyone having to
+    /// hold the step key.
+    /// </summary>
+    Pace = 8,
 }

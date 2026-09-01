@@ -121,8 +121,11 @@ public sealed class MovementSystem
 
         public required List<Agent> Members { get; init; }
 
-        /// <summary>The parking ring: nearest cells to the destination, innermost first.</summary>
-        public required IReadOnlyList<int> Slots { get; init; }
+        /// <summary>
+        /// The parking ring: nearest cells to the destination, innermost first.
+        /// Regrown when a unit joins, so it is always sized to the membership.
+        /// </summary>
+        public required IReadOnlyList<int> Slots { get; set; }
 
         /// <summary>How this group moves. Holds its own state; deterministic.</summary>
         public required GroupDoctrine Doctrine { get; init; }
@@ -252,6 +255,13 @@ public sealed class MovementSystem
     /// </summary>
     public int CurrentTick { get; private set; }
 
+    /// <summary>
+    /// The map this system moves over: the one it was built with, held and never
+    /// copied. Exposed so a layer above can measure distances on the same ground
+    /// without being handed the grid twice.
+    /// </summary>
+    public Grid Grid => _grid;
+
     /// <summary>Nodes expanded across every plan ever made. A cost measure.</summary>
     public long TotalExpanded { get; private set; }
 
@@ -317,6 +327,45 @@ public sealed class MovementSystem
     /// </remarks>
     public void Order(IReadOnlyList<int> agents, int goalCell) => Order(agents, goalCell, doctrine: null);
 
+    /// <summary>
+    /// The parking ring for <paramref name="count"/> units at <paramref name="destination"/>:
+    /// the nearest passable cells, innermost first. Empty if the destination is
+    /// impassable. Shared by an order and by a unit joining a formation later,
+    /// so a ring is always sized to the membership it serves.
+    /// </summary>
+    /// <remarks>
+    /// A GROUP's ring keeps doorways clear: no slot on or beside a chokepoint.
+    /// The gap fixture taught this the hard way -- the ring included the gap's
+    /// inner mouth, an early claimer parked in the doorway, and the chamber
+    /// sealed with the rest of the group outside. A single unit is exempt:
+    /// ordering one unit ONTO a doorway is intent.
+    /// </remarks>
+    private IReadOnlyList<int> RingFor(int destination, int count)
+    {
+        Func<int, bool>? keepDoorwaysClear = null;
+        if (count > 1 && MapChokepoints.Count > 0)
+        {
+            var doorways = new HashSet<int>();
+            foreach (var choke in MapChokepoints)
+            {
+                doorways.Add(choke.Cell);
+                var x = _grid.ColumnOf(choke.Cell);
+                var y = _grid.RowOf(choke.Cell);
+                foreach (var step in Movement.Steps)
+                {
+                    if (_grid.IsPassable(x + step.DeltaX, y + step.DeltaY))
+                    {
+                        doorways.Add(((y + step.DeltaY) * _grid.Width) + x + step.DeltaX);
+                    }
+                }
+            }
+
+            keepDoorwaysClear = doorways.Contains;
+        }
+
+        return GoalSpread.Nearest(_grid, destination, count, keepDoorwaysClear);
+    }
+
     /// <param name="agents">
     /// Who to send. The sequence's own order does not matter -- members are taken in
     /// ascending id, so the same order issued twice assigns the same slots.
@@ -374,34 +423,7 @@ public sealed class MovementSystem
 
         // The parking ring doubles as the passability check: an impassable
         // destination yields no ring and the order is refused as before.
-        //
-        // A GROUP's ring keeps doorways clear: no slot on or beside a
-        // chokepoint. The gap fixture taught this the hard way -- the ring
-        // included the gap's inner mouth, an early claimer parked in the
-        // doorway, and the chamber sealed with the rest of the group outside.
-        // A single unit is exempt: ordering one unit ONTO a doorway is intent.
-        Func<int, bool>? keepDoorwaysClear = null;
-        if (agents.Count > 1 && MapChokepoints.Count > 0)
-        {
-            var doorways = new HashSet<int>();
-            foreach (var choke in MapChokepoints)
-            {
-                doorways.Add(choke.Cell);
-                var x = _grid.ColumnOf(choke.Cell);
-                var y = _grid.RowOf(choke.Cell);
-                foreach (var step in Movement.Steps)
-                {
-                    if (_grid.IsPassable(x + step.DeltaX, y + step.DeltaY))
-                    {
-                        doorways.Add(((y + step.DeltaY) * _grid.Width) + x + step.DeltaX);
-                    }
-                }
-            }
-
-            keepDoorwaysClear = doorways.Contains;
-        }
-
-        var slots = GoalSpread.Nearest(_grid, goalCell, agents.Count, keepDoorwaysClear);
+        var slots = RingFor(goalCell, agents.Count);
         if (slots.Count == 0)
         {
             return;
@@ -471,7 +493,7 @@ public sealed class MovementSystem
     /// Sends one agent away on an errand of its own, to <paramref name="destination"/>
     /// with its own field, while its place in the formation it was ordered with is
     /// kept for it. The formation lists it as away rather than on station until
-    /// <see cref="Recall"/> or a new order.
+    /// <see cref="Recall(int)"/> or a new order.
     /// </summary>
     /// <remarks>
     /// Not a movement doctrine's verb, on purpose. Whether a unit should leave its
@@ -531,6 +553,61 @@ public sealed class MovementSystem
 
         // Back to exactly the state Order leaves a group member in.
         var ring = unit.Group.Slots[0];
+        unit.Errand = -1;
+        unit.Goal = ring;
+        unit.FieldKey = ring;
+        unit.HasSlot = false;
+        Redirect(unit);
+    }
+
+    /// <summary>
+    /// Ends an agent's errand into the formation <paramref name="alongside"/> is
+    /// in, rather than the one it left. What a squad needs after a sortie: the
+    /// fellows it left at the station have moved on, and coming back means
+    /// joining them where they are now.
+    /// </summary>
+    /// <remarks>
+    /// The formation's ring is regrown to its new member count, so the joiner
+    /// has a slot to claim on approach like anyone else. Without that it sat
+    /// beside a full ring for a very long time: a member with no slot that makes
+    /// no progress waits four backstops for its next attempt, on the premise that
+    /// a claim will wake it sooner -- and with every slot held, no claim ever
+    /// came. Measured at 256 ticks of nothing before this was written. A no-op on
+    /// an agent that is not away.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">No such agent, either of them.</exception>
+    /// <exception cref="ArgumentException">The two ids are the same agent.</exception>
+    /// <exception cref="InvalidOperationException"><paramref name="alongside"/> has never been ordered.</exception>
+    public void Recall(int agent, int alongside)
+    {
+        var unit = Resolve(agent);
+        var host = Resolve(alongside);
+        if (agent == alongside)
+        {
+            throw new ArgumentException("An agent cannot rejoin alongside itself.", nameof(alongside));
+        }
+
+        if (host.Group is null)
+        {
+            throw new InvalidOperationException(
+                $"agent {alongside} has never been ordered and is in no formation to join.");
+        }
+
+        if (unit.Errand < 0)
+        {
+            return;
+        }
+
+        if (!ReferenceEquals(unit.Group, host.Group))
+        {
+            unit.Group?.Members.Remove(unit);
+            _groups.RemoveAll(g => g.Members.Count == 0);
+            host.Group.Members.Add(unit);
+            unit.Group = host.Group;
+            host.Group.Slots = RingFor(host.Group.Destination, host.Group.Members.Count);
+        }
+
+        var ring = host.Group.Slots[0];
         unit.Errand = -1;
         unit.Goal = ring;
         unit.FieldKey = ring;

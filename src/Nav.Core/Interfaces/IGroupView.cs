@@ -48,7 +48,7 @@ public interface IGroupView
     /// Sending a member away is not a movement doctrine's decision, which is why
     /// no facet here can do it. Membership above the movement layer decides,
     /// through <see cref="MovementSystem.Dispatch"/> and
-    /// <see cref="MovementSystem.Recall"/>; the formation only reports it.
+    /// <see cref="MovementSystem.Recall(int)"/>; the formation only reports it.
     /// </para>
     /// </remarks>
     IReadOnlyList<int> Members { get; }

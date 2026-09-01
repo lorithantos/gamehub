@@ -72,13 +72,21 @@ public sealed class Squad
     public bool Remove(int id) => _members.Remove(id);
 
     /// <summary>
-    /// Runs the doctrine once against <paramref name="system"/>. Call it each
-    /// tick before <see cref="MovementSystem.Tick"/>, so that what the doctrine
+    /// Runs the doctrine once against <paramref name="system"/> in a quiet world:
+    /// nobody hurt, nobody hostile. See the overload for the real thing.
+    /// </summary>
+    public void Advance(MovementSystem system) => Advance(system, NoPerception.Instance);
+
+    /// <summary>
+    /// Runs the doctrine once against <paramref name="system"/>, seeing the world
+    /// as <paramref name="perception"/> reports it this tick. Call it each tick
+    /// before <see cref="MovementSystem.Tick"/>, so that what the doctrine
     /// decides is what the tick then plans.
     /// </summary>
-    public void Advance(MovementSystem system)
+    public void Advance(MovementSystem system, IPerception perception)
     {
         ArgumentNullException.ThrowIfNull(system);
-        Doctrine.Advance(new SquadOps(this, system));
+        ArgumentNullException.ThrowIfNull(perception);
+        Doctrine.Advance(new SquadOps(this, system, perception));
     }
 }

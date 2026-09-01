@@ -13,16 +13,53 @@ internal sealed class SquadOps : ISquadOps
 {
     private readonly Squad _squad;
     private readonly MovementSystem _system;
+    private readonly IPerception _perception;
     private readonly IReadOnlyList<AgentState> _agents;
 
-    internal SquadOps(Squad squad, MovementSystem system)
+    internal SquadOps(Squad squad, MovementSystem system, IPerception perception)
     {
         _squad = squad;
         _system = system;
+        _perception = perception;
         _agents = system.Agents;
 
         Members = [.. squad.Members];
         Away = [.. Members.Where(id => id < _agents.Count && _agents[id].Away)];
+        Hostiles = perception.Hostiles;
+        RepairPoints = perception.RepairPoints;
+    }
+
+    /// <inheritdoc/>
+    public double HealthOf(int id)
+    {
+        RequireMember(id);
+        return _perception.HealthOf(id);
+    }
+
+    /// <inheritdoc/>
+    public IReadOnlyList<int> Hostiles { get; }
+
+    /// <inheritdoc/>
+    public IReadOnlyList<int> RepairPoints { get; }
+
+    /// <inheritdoc/>
+    public double Distance(int cellA, int cellB)
+    {
+        var grid = _system.Grid;
+        return Movement.OctileDistance(
+            grid.ColumnOf(cellA), grid.RowOf(cellA), grid.ColumnOf(cellB), grid.RowOf(cellB));
+    }
+
+    /// <inheritdoc/>
+    public void Sortie(int destination)
+    {
+        var onStation = Members.Where(id => !Away.Contains(id)).ToArray();
+        if (onStation.Length == 0)
+        {
+            return;
+        }
+
+        _system.Order(onStation, destination);
     }
 
     /// <inheritdoc/>
@@ -76,7 +113,19 @@ internal sealed class SquadOps : ISquadOps
     public void Rejoin(int id)
     {
         RequireMember(id);
-        _system.Recall(id);
+
+        // Into the formation the squad is in NOW. After a sortie that is not the
+        // one the member left, so it joins alongside the lowest fellow on
+        // station; with nobody on station, the formation it left is the squad.
+        var alongside = Members.FirstOrDefault(m => m != id && !Away.Contains(m), -1);
+        if (alongside >= 0)
+        {
+            _system.Recall(id, alongside);
+        }
+        else
+        {
+            _system.Recall(id);
+        }
     }
 
     /// <summary>

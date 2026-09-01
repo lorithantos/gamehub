@@ -43,4 +43,20 @@ public interface ISquadView
 
     /// <summary>Where a member away on an errand is going, or -1 for one that is not.</summary>
     int ErrandOf(int id);
+
+    /// <summary>A member's health as a fraction, from the perception this pass was given.</summary>
+    double HealthOf(int id);
+
+    /// <summary>Cells hostile units occupy this tick, ascending. Empty on a quiet map.</summary>
+    IReadOnlyList<int> Hostiles { get; }
+
+    /// <summary>Cells where a unit standing there is repaired, ascending.</summary>
+    IReadOnlyList<int> RepairPoints { get; }
+
+    /// <summary>
+    /// Straight-line octile distance between two cells, in step costs. A leash
+    /// is measured with this: cheap, and blind to walls on purpose, because a
+    /// leash is about how far a unit has strayed, not how far it has walked.
+    /// </summary>
+    double Distance(int cellA, int cellB);
 }

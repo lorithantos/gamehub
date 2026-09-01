@@ -20,6 +20,16 @@ public interface ISquadMovement
     void MoveAll(int destination);
 
     /// <summary>
+    /// A doctrine's move: the members ON STATION go to <paramref name="destination"/>
+    /// as one formation, members away on an errand keep to it, and the anchor
+    /// does not move. A patrol steps between waypoints with this, and an engage
+    /// or a return to station is this too -- a group move would drag a unit
+    /// back from the repair pad, which is exactly what a doctrine must not do.
+    /// A no-op with nobody on station.
+    /// </summary>
+    void Sortie(int destination);
+
+    /// <summary>
     /// Sends one member to <paramref name="destination"/> on its own. It stays a
     /// member, its place in the formation is kept, and it reads as
     /// <see cref="ISquadView.Away"/> until it is brought back or the squad moves.
@@ -35,7 +45,10 @@ public interface ISquadMovement
     void Detach(int id, int destination);
 
     /// <summary>
-    /// Brings a member back to its formation. A no-op on one that is not away.
+    /// Brings a member back to the squad: into the formation its fellows on
+    /// station are in now, which after a sortie is not the one it left. With
+    /// nobody on station it returns to the formation it left. A no-op on a
+    /// member that is not away.
     /// </summary>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="id"/> is not a member.</exception>
     void Rejoin(int id);

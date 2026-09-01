@@ -212,4 +212,106 @@ public sealed class SquadTests
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new Squad("1", [0, -1], new Script()));
     }
+
+    [Fact]
+    public void ASortieLeavesAwayMembersOnTheirErrands()
+    {
+        // The difference between a group move and a doctrine's move. Unit 0 is
+        // at the pad when the rest are sent elsewhere; it stays there, still
+        // away, and the anchor is still the station.
+        var (system, grid) = Scene(agents: 4);
+        var station = grid.Index(4, 4);
+        var pad = grid.Index(8, 8);
+        var elsewhere = grid.Index(1, 7);
+        var squad = new Squad("1", [0, 1, 2, 3], new Script(
+            (0, ops => ops.MoveAll(station)),
+            (30, ops => ops.Detach(0, pad)),
+            (70, ops => ops.Sortie(elsewhere))));
+
+        Run(squad, system, ticks: 160);
+
+        var agents = system.Agents;
+        Assert.Equal(station, squad.Anchor);
+        Assert.Equal(pad, agents[0].Cell);
+        Assert.True(agents[0].Away);
+        Assert.All(agents.Skip(1), a => Assert.True(a.Arrived && Near(grid, a.Cell, elsewhere), $"agent {a.Id} is not parked near the sortie"));
+
+        static bool Near(Grid g, int cell, int target) =>
+            Movement.OctileDistance(g.ColumnOf(cell), g.RowOf(cell), g.ColumnOf(target), g.RowOf(target)) <= 2.0;
+    }
+
+    [Fact]
+    public void RejoiningAfterASortieEntersTheFormationTheSquadIsInNow()
+    {
+        // Unit 0 left from the station. By the time it rejoins, its fellows have
+        // sortied elsewhere; it must go to THEM, not back to the empty station.
+        var (system, grid) = Scene(agents: 4);
+        var station = grid.Index(4, 4);
+        var pad = grid.Index(8, 8);
+        var elsewhere = grid.Index(1, 7);
+        var squad = new Squad("1", [0, 1, 2, 3], new Script(
+            (0, ops => ops.MoveAll(station)),
+            (30, ops => ops.Detach(0, pad)),
+            (70, ops => ops.Sortie(elsewhere)),
+            (130, ops => ops.Rejoin(0))));
+
+        Run(squad, system, ticks: 300);
+
+        var agents = system.Agents;
+        Assert.All(agents, a => Assert.True(a.Arrived, $"agent {a.Id} did not arrive"));
+        Assert.False(agents[0].Away);
+        var d = Movement.OctileDistance(
+            grid.ColumnOf(agents[0].Cell), grid.RowOf(agents[0].Cell), grid.ColumnOf(elsewhere), grid.RowOf(elsewhere));
+        Assert.True(d <= 3.0, $"unit 0 rejoined at distance {d:F1} from the squad");
+        Assert.Equal(agents.Count, agents.Select(a => a.Goal).Distinct().Count());
+    }
+
+    /// <summary>A world a test writes down: health per unit, hostile cells, repair cells.</summary>
+    private sealed class ScriptedPerception : IPerception
+    {
+        public Dictionary<int, double> Health { get; } = [];
+        public List<int> HostileCells { get; } = [];
+        public List<int> RepairCells { get; } = [];
+
+        public double HealthOf(int agent) => Health.TryGetValue(agent, out var h) ? h : 1.0;
+        public IReadOnlyList<int> Hostiles => HostileCells;
+        public IReadOnlyList<int> RepairPoints => RepairCells;
+    }
+
+    [Fact]
+    public void PerceptionReadsThroughTheView()
+    {
+        var (system, grid) = Scene(agents: 2);
+        var world = new ScriptedPerception { Health = { [0] = 0.25 }, HostileCells = { grid.Index(7, 7) }, RepairCells = { grid.Index(0, 8) } };
+        double? health = null;
+        IReadOnlyList<int>? hostiles = null;
+        IReadOnlyList<int>? repair = null;
+        double? distance = null;
+        var squad = new Squad("1", [0, 1], new Script((0, ops =>
+        {
+            health = ops.HealthOf(0);
+            hostiles = ops.Hostiles;
+            repair = ops.RepairPoints;
+            distance = ops.Distance(grid.Index(0, 0), grid.Index(3, 4));
+        })));
+
+        squad.Advance(system, world);
+
+        Assert.Equal(0.25, health);
+        Assert.Equal([grid.Index(7, 7)], hostiles);
+        Assert.Equal([grid.Index(0, 8)], repair);
+        Assert.Equal(Movement.OctileDistance(0, 0, 3, 4), distance);
+    }
+
+    [Fact]
+    public void AQuietWorldIsTheDefault()
+    {
+        var (system, _) = Scene(agents: 1);
+        double? health = null;
+        var squad = new Squad("1", [0], new Script((0, ops => health = ops.HealthOf(0))));
+
+        squad.Advance(system);
+
+        Assert.Equal(1.0, health);
+    }
 }

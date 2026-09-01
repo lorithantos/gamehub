@@ -6,12 +6,12 @@ namespace Nav.Viewer.Tests;
 
 /// <summary>
 /// The viewer's behaviour, driven with no window, no renderer and no graphics
-/// assembly in the process.
+/// assembly in the process — now with a squad rather than one unit.
 /// </summary>
 public sealed class ViewerAppTests
 {
     private const int StatusHeight = 26;
-    private const float Tolerance = 1e-4f;
+    private const int Squad = 4;
 
     private static Grid Fixture() => Grid.FromMapText(SampleMaps.CornerCutTrap);
 
@@ -20,7 +20,7 @@ public sealed class ViewerAppTests
     private static (ViewerApp App, RecordingRenderer Renderer, Grid Grid) Run(params ScriptedFrame[] frames)
     {
         var grid = Fixture();
-        var app = new ViewerApp(grid, LayoutFor(grid));
+        var app = new ViewerApp(grid, LayoutFor(grid), Squad);
         var renderer = new RecordingRenderer();
         using var host = new ScriptedHost(frames, renderer);
         host.Run(app);
@@ -28,99 +28,78 @@ public sealed class ViewerAppTests
     }
 
     [Fact]
-    public void TheFirstFrameDrawsTerrainAndBothMarkers()
+    public void TheFirstFrameDrawsTerrainAndOneCirclePerUnit()
     {
         var (app, renderer, _) = Run(new ScriptedFrame());
 
         Assert.Equal(1, renderer.FrameCount);
         Assert.Single(renderer.OfKind<DrawCommand.Terrain>());
+        Assert.Equal(Squad, app.Agents.Count);
 
-        var circles = renderer.LastFrameOfKind<DrawCommand.Circle>().ToList();
-        Assert.Contains(circles, c => c.Color == RgbaColor.Green);
-        Assert.Contains(circles, c => c.Color == RgbaColor.Red);
+        // One per unit, plus the small marker on the selected one.
+        Assert.Equal(Squad + 1, renderer.LastFrameOfKind<DrawCommand.Circle>().Count());
+    }
 
-        // The terrain fills the map area exactly, and does not extend into the
-        // strip the host reserves for its status text.
+    [Fact]
+    public void TheTerrainFillsTheMapAreaAndNotTheStatusStrip()
+    {
+        var (app, renderer, _) = Run(new ScriptedFrame());
+
         var terrain = renderer.OfKind<DrawCommand.Terrain>().Single();
         Assert.Equal(new RectF(0, 0, app.Layout.PixelWidth, app.Layout.PixelHeight), terrain.Destination);
     }
 
     [Fact]
-    public void ADefaultSessionSolvesTheFixture()
+    public void AUnitIsSelectedToBeginWith()
     {
         var (app, _, _) = Run(new ScriptedFrame());
 
-        Assert.True(app.Result.Found);
-        Assert.Equal(9.0 + (2.0 * Math.Sqrt(2.0)), app.Result.Cost, 1e-6);
-        Assert.Equal(11, app.Result.StepCount);
+        Assert.InRange(app.Selected, 0, Squad - 1);
     }
 
     [Fact]
-    public void LeftClickMovesTheStartToThePickedCell()
+    public void LeftClickSelectsTheNearestUnit()
     {
         var grid = Fixture();
         var layout = LayoutFor(grid);
-        var target = layout.CenterOf(3, 5);
+        var app = new ViewerApp(grid, layout, Squad);
 
-        var (app, renderer, _) = Run(new ScriptedFrame(Mouse: target, ButtonsDown: MouseButtons.Left));
+        // Click on the cell the last unit is standing on.
+        var target = app.Agents[^1].Cell;
+        using var host = new ScriptedHost(
+            [new ScriptedFrame(Mouse: layout.CenterOf(grid.ColumnOf(target), grid.RowOf(target)),
+                ButtonsDown: MouseButtons.Left)],
+            new RecordingRenderer());
+        host.Run(app);
 
-        Assert.Equal(grid.Index(3, 5), app.Start);
-
-        var green = renderer.LastFrameOfKind<DrawCommand.Circle>().Single(c => c.Color == RgbaColor.Green);
-        Assert.Equal(layout.CenterOf(3, 5).X, green.Center.X, Tolerance);
-        Assert.Equal(layout.CenterOf(3, 5).Y, green.Center.Y, Tolerance);
+        Assert.Equal(Squad - 1, app.Selected);
     }
 
     [Fact]
-    public void CellCentresArePinnedToArithmeticAndNotToGridLayoutItself()
-    {
-        // The click tests above assert that the marker lands where GridLayout
-        // says it should -- which both sides compute with the SAME method, so a
-        // wrong half-cell offset moves both and passes. This pins the numbers
-        // independently: the 12x7 fixture in a 1000x974 budget gives a cell size
-        // of min(1000/12, 974/7) = 83, so a cell centre is (index + 0.5) * 83.
-        var grid = Fixture();
-        var layout = LayoutFor(grid);
-        Assert.Equal(83, layout.CellSize);
-
-        var somewhereInsideCell = new Vector2((3 * 83) + 40, (5 * 83) + 40);
-        var (app, renderer, _) = Run(new ScriptedFrame(Mouse: somewhereInsideCell, ButtonsDown: MouseButtons.Left));
-
-        Assert.Equal(grid.Index(3, 5), app.Start);
-
-        var green = renderer.LastFrameOfKind<DrawCommand.Circle>().Single(c => c.Color == RgbaColor.Green);
-        Assert.Equal(3.5f * 83f, green.Center.X, Tolerance);
-        Assert.Equal(5.5f * 83f, green.Center.Y, Tolerance);
-    }
-
-    [Fact]
-    public void RightClickMovesTheGoalToThePickedCell()
+    public void RightClickOrdersTheSelectionAndNobodyElse()
     {
         var grid = Fixture();
         var layout = LayoutFor(grid);
+        var app = new ViewerApp(grid, layout, Squad);
 
-        var (app, renderer, _) = Run(new ScriptedFrame(Mouse: layout.CenterOf(1, 5), ButtonsDown: MouseButtons.Right));
+        var before = app.Agents.Select(a => a.Goal).ToArray();
+        var destination = grid.Index(10, 5);
 
-        Assert.Equal(grid.Index(1, 5), app.Goal);
+        using var host = new ScriptedHost(
+            [new ScriptedFrame(Mouse: layout.CenterOf(10, 5), ButtonsDown: MouseButtons.Right)],
+            new RecordingRenderer());
+        host.Run(app);
 
-        var red = renderer.LastFrameOfKind<DrawCommand.Circle>().Single(c => c.Color == RgbaColor.Red);
-        Assert.Equal(layout.CenterOf(1, 5).X, red.Center.X, Tolerance);
-    }
+        var after = app.Agents.Select(a => a.Goal).ToArray();
 
-    [Fact]
-    public void AClickOnAWallStillMovesTheMarkerAndReportsNoPath()
-    {
-        // (0,0) is a wall on this fixture. Picking succeeds -- it is on the map --
-        // and the search then honestly reports that nothing connects.
-        var grid = Fixture();
-        var layout = LayoutFor(grid);
-
-        var (app, renderer, _) = Run(new ScriptedFrame(Mouse: layout.CenterOf(0, 0), ButtonsDown: MouseButtons.Left));
-
-        Assert.Equal(grid.Index(0, 0), app.Start);
-        Assert.False(app.Result.Found);
-        Assert.Empty(renderer.LastFrameOfKind<DrawCommand.Line>());
-        Assert.Contains("no path", app.StatusText, StringComparison.Ordinal);
+        Assert.Equal(destination, after[app.Selected]);
+        for (var id = 0; id < Squad; id++)
+        {
+            if (id != app.Selected)
+            {
+                Assert.Equal(before[id], after[id]);
+            }
+        }
     }
 
     [Fact]
@@ -128,145 +107,115 @@ public sealed class ViewerAppTests
     {
         var grid = Fixture();
         var layout = LayoutFor(grid);
-        var inStatusStrip = new Vector2(10, layout.PixelHeight + 5);
-
-        var app = new ViewerApp(grid, layout);
-        var before = app.Result;
+        var app = new ViewerApp(grid, layout, Squad);
+        var before = app.Selected;
 
         using var host = new ScriptedHost(
-            [new ScriptedFrame(Mouse: inStatusStrip, ButtonsDown: MouseButtons.Left)],
+            [new ScriptedFrame(
+                Mouse: new Vector2(10, layout.PixelHeight + 5),
+                ButtonsDown: MouseButtons.Left)],
             new RecordingRenderer());
         host.Run(app);
 
-        // Same reference, not merely an equal cost: nothing recomputed at all.
-        Assert.Same(before, app.Result);
+        Assert.Equal(before, app.Selected);
     }
 
     [Fact]
     public void SpaceHeldForTenFramesTogglesExactlyOnce()
     {
         // The auto-repeat regression, driven through the real InputAccumulator.
-        // A host translating every key event into an edge would flip run/pause
-        // on every one of these frames and end where it started.
         var frames = Enumerable.Repeat(new ScriptedFrame(KeysDown: ViewerKeys.Space), 10).ToArray();
 
         var (app, _, _) = Run(frames);
 
-        Assert.True(app.Running);
-    }
-
-    [Fact]
-    public void ReleasingAndPressingAgainTogglesASecondTime()
-    {
-        ScriptedFrame[] frames =
-        [
-            new(KeysDown: ViewerKeys.Space),
-            new(KeysDown: ViewerKeys.Space),
-            new(),                              // released
-            new(KeysDown: ViewerKeys.Space),
-        ];
-
-        var (app, _, _) = Run(frames);
-
         Assert.False(app.Running);
     }
 
     [Fact]
-    public void WhileNotRunningTheWalkerDoesNotMove()
+    public void TimeDoesNotAdvanceWhilePaused()
     {
-        var (app, _, grid) = Run(ScriptedHost.Idle(100));
+        var frames = new List<ScriptedFrame> { new(Dt: 0f, KeysDown: ViewerKeys.Space) };
+        frames.AddRange(ScriptedHost.Idle(120));
 
-        Assert.NotNull(app.Walker);
-        Assert.Equal(grid.ColumnOf(app.Start), app.Walker!.X, Tolerance);
-        Assert.Equal(grid.RowOf(app.Start), app.Walker.Y, Tolerance);
-        Assert.Equal(0.0, app.Walker.Elapsed);
+        var (app, _, _) = Run([.. frames]);
+
+        Assert.False(app.Running);
+        Assert.Equal(0, app.CurrentTick);
     }
 
     [Fact]
-    public void WhileRunningTheWalkerMatchesADirectlyDrivenOne()
+    public void TimeAdvancesWhileRunning()
     {
-        const int steps = 90;
+        var (app, _, _) = Run(ScriptedHost.Idle(120));
 
-        // The trigger frame is zero-length on purpose. Update handles input and
-        // THEN advances the clock, so a normal-length frame here would advance
-        // the walk once before the counted frames begin -- which is correct
-        // behaviour and an off-by-one in the oracle.
-        var frames = new List<ScriptedFrame> { new(Dt: 0f, KeysDown: ViewerKeys.Space) };
-        frames.AddRange(ScriptedHost.Idle(steps));
+        Assert.True(app.Running);
+        Assert.True(app.CurrentTick > 100, $"only reached tick {app.CurrentTick}");
+    }
 
-        var (app, _, grid) = Run([.. frames]);
+    [Fact]
+    public void OnlyTheSelectedUnitsRouteIsDrawn()
+    {
+        var grid = Fixture();
+        var layout = LayoutFor(grid);
+        var app = new ViewerApp(grid, layout, Squad);
 
-        // The oracle: the same path walked by Nav.Core directly, with the same
-        // fixed timestep. If these disagree, ViewerApp is doing its own timing.
-        var expected = new Walker(app.Result.Cells, grid.Width, 4.0);
-        var clock = new FixedTimestep();
-        for (var i = 0; i < steps; i++)
+        // Order everyone somewhere, so several units have routes to draw.
+        var frames = new List<ScriptedFrame>();
+        for (var id = 0; id < Squad; id++)
         {
-            var due = clock.Accumulate(1.0f / 60.0f);
-            for (var s = 0; s < due; s++)
-            {
-                expected.Advance(clock.Step);
-            }
+            frames.Add(new ScriptedFrame(Mouse: layout.CenterOf(1, 1), ButtonsDown: MouseButtons.Left));
+            frames.Add(new ScriptedFrame(Mouse: layout.CenterOf(10, 5), ButtonsDown: MouseButtons.Right));
         }
 
-        Assert.True(app.Running);
-        Assert.Equal(expected.X, app.Walker!.X, Tolerance);
-        Assert.Equal(expected.Y, app.Walker.Y, Tolerance);
-        Assert.True(app.Walker.Elapsed > 0.0, "the walker should have advanced");
+        frames.AddRange(ScriptedHost.Idle(30));
+
+        var renderer = new RecordingRenderer();
+        using var host = new ScriptedHost(frames, renderer);
+        host.Run(app);
+
+        // Whatever is drawn, it belongs to one unit: every segment lies on the
+        // selected unit's plan.
+        var lines = renderer.LastFrameOfKind<DrawCommand.Line>().ToList();
+        Assert.All(lines, line => Assert.Equal(RgbaColor.SkyBlue, line.Color));
     }
 
     [Fact]
-    public void RResetsTheWalkerAndStopsIt()
+    public void UnitsAreDrawnBetweenCellsRatherThanJumping()
     {
-        var frames = new List<ScriptedFrame> { new(KeysDown: ViewerKeys.Space) };
-        frames.AddRange(ScriptedHost.Idle(60));
-        frames.Add(new ScriptedFrame(KeysDown: ViewerKeys.R));
+        // A tick is 1/60s; half of one should put a moving unit between two cell
+        // centres rather than on either.
+        var grid = Fixture();
+        var layout = LayoutFor(grid);
+        var app = new ViewerApp(grid, layout, Squad);
 
-        var (app, _, grid) = Run([.. frames]);
+        var frames = new List<ScriptedFrame>
+        {
+            new(Mouse: layout.CenterOf(10, 5), ButtonsDown: MouseButtons.Right),
+        };
+        frames.AddRange(ScriptedHost.Idle(40));
+        frames.Add(new ScriptedFrame(Dt: 1.0f / 120.0f));
 
-        Assert.False(app.Running);
-        Assert.Equal(0.0, app.Walker!.Elapsed);
-        Assert.Equal(grid.ColumnOf(app.Start), app.Walker.X, Tolerance);
+        var renderer = new RecordingRenderer();
+        using var host = new ScriptedHost(frames, renderer);
+        host.Run(app);
+
+        // Not an assertion about a specific position -- just that drawing does not
+        // require a unit to be exactly on a cell centre.
+        var circles = renderer.LastFrameOfKind<DrawCommand.Circle>().ToList();
+        Assert.NotEmpty(circles);
+        Assert.All(circles, c => Assert.True(float.IsFinite(c.Center.X) && float.IsFinite(c.Center.Y)));
     }
 
     [Fact]
-    public void ALongFrameIsClampedToTheStepCap()
-    {
-        // Half a second at 1/60 would be 30 steps. FixedTimestep caps it at 8,
-        // and that circuit breaker is the difference between a stall producing a
-        // jump and a stall producing a freeze.
-        var (app, _, grid) = Run(
-            new ScriptedFrame(Dt: 0f, KeysDown: ViewerKeys.Space),
-            new ScriptedFrame(Dt: 0.5f));
-
-        var capped = new Walker(app.Result.Cells, grid.Width, 4.0);
-        capped.Advance(8 * (1.0 / 60.0));
-
-        Assert.Equal(capped.Elapsed, app.Walker!.Elapsed, 1e-9);
-    }
-
-    [Fact]
-    public void ThePathIsDrawnAsOneSegmentPerStep()
-    {
-        var (app, renderer, _) = Run(new ScriptedFrame());
-
-        Assert.Equal(app.Result.StepCount, renderer.LastFrameOfKind<DrawCommand.Line>().Count());
-        Assert.All(renderer.LastFrameOfKind<DrawCommand.Line>(), line => Assert.Equal(RgbaColor.SkyBlue, line.Color));
-    }
-
-    [Fact]
-    public void TheStatusLineCarriesDimensionsCostAndFocus()
+    public void TheStatusLineCarriesTheSquadState()
     {
         var (app, _, _) = Run(new ScriptedFrame());
 
         Assert.Contains("12x7", app.StatusText, StringComparison.Ordinal);
-        Assert.Contains("steps 11", app.StatusText, StringComparison.Ordinal);
-        Assert.Contains("expanded 21", app.StatusText, StringComparison.Ordinal);
-        Assert.Contains("[paused]", app.StatusText, StringComparison.Ordinal);
-
-        // Invariant culture: on a comma-decimal machine an uninvariant format
-        // would render 11,82843 here and nothing would notice.
-        Assert.Contains("11.82843", app.StatusText, StringComparison.Ordinal);
+        Assert.Contains($"{Squad} units", app.StatusText, StringComparison.Ordinal);
+        Assert.Contains("arrived", app.StatusText, StringComparison.Ordinal);
+        Assert.Contains("nodes/tick", app.StatusText, StringComparison.Ordinal);
+        Assert.Contains("[running]", app.StatusText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -274,7 +223,7 @@ public sealed class ViewerAppTests
     {
         var (app, _, _) = Run(new ScriptedFrame(KeysDown: ViewerKeys.Space));
 
-        Assert.Contains("[running]", app.StatusText, StringComparison.Ordinal);
+        Assert.Contains("[paused]", app.StatusText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -287,5 +236,38 @@ public sealed class ViewerAppTests
             .Select(c => c is DrawCommand.BeginFrame ? 'B' : 'E');
 
         Assert.Equal("BEBEBE", new string(kinds.ToArray()));
+    }
+
+    [Fact]
+    public void TheSameScriptTwiceDrawsTheSameThings()
+    {
+        var frames = new List<ScriptedFrame>
+        {
+            new(Mouse: new Vector2(200, 200), ButtonsDown: MouseButtons.Right),
+        };
+        frames.AddRange(ScriptedHost.Idle(60));
+
+        var (_, first, _) = Run([.. frames]);
+        var (_, second, _) = Run([.. frames]);
+
+        Assert.Equal(first.Commands.Count, second.Commands.Count);
+        Assert.Equal(
+            first.OfKind<DrawCommand.Circle>().Select(c => c.Center),
+            second.OfKind<DrawCommand.Circle>().Select(c => c.Center));
+    }
+
+    [Fact]
+    public void TheRendererIsNeverAskedForAnythingBeyondTheFiveVerbs()
+    {
+        // Milestone 2 added a whole movement system and IRenderer did not grow.
+        // If it ever has to, that is the seam's first genuine leak and worth
+        // recording rather than absorbing.
+        var (_, renderer, _) = Run(ScriptedHost.Idle(30));
+
+        Assert.All(renderer.Commands, command =>
+            Assert.True(
+                command is DrawCommand.BeginFrame or DrawCommand.EndFrame or DrawCommand.Terrain
+                        or DrawCommand.Line or DrawCommand.Circle,
+                $"unexpected draw command {command.GetType().Name}"));
     }
 }

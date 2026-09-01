@@ -8,6 +8,7 @@ public enum ViewerKeys
     None = 0,
     Space = 1,
     R = 2,
+    Step = 4,
 }
 
 [Flags]

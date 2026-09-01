@@ -48,7 +48,7 @@ public sealed class ScriptedHost(IReadOnlyList<ScriptedFrame> frames, RecordingR
         {
             _input.SetMousePosition(frame.Mouse);
 
-            foreach (var key in new[] { ViewerKeys.Space, ViewerKeys.R })
+            foreach (var key in new[] { ViewerKeys.Space, ViewerKeys.R, ViewerKeys.Step })
             {
                 _input.SetKeyState(key, (frame.KeysDown & key) != 0);
             }

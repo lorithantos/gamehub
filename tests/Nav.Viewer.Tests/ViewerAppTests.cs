@@ -369,6 +369,62 @@ public sealed class ViewerAppTests
     }
 
     [Fact]
+    public void StepWalksAPausedReplayForwardOneTickPerPress()
+    {
+        var scenario = RecordedScenario.FromText(
+            "version 1\nmap any.map\nagent 0 1 1\norder 0 0 10 5\nend 60\n");
+        var grid = Fixture();
+        var app = new ViewerApp(grid, LayoutFor(grid), scenario: scenario);
+
+        // Three presses, each with a release frame between so each is an edge.
+        var frames = new List<ScriptedFrame>();
+        for (var press = 0; press < 3; press++)
+        {
+            frames.Add(new ScriptedFrame(KeysDown: ViewerKeys.Step));
+            frames.Add(new ScriptedFrame());
+        }
+
+        using var host = new ScriptedHost(frames, new RecordingRenderer());
+        host.Run(app);
+
+        Assert.False(app.Running);
+        Assert.Equal(3, app.CurrentTick);
+
+        // The recorded tick-0 order fired on the first step.
+        Assert.Equal(grid.Index(10, 5), app.Agents[0].Goal);
+    }
+
+    [Fact]
+    public void StepWhileRunningPausesAndAdvancesExactlyOnce()
+    {
+        var grid = Fixture();
+        var app = new ViewerApp(grid, LayoutFor(grid), Squad);
+
+        // Dt of zero on the step frame, so the only tick is the step's own.
+        using var host = new ScriptedHost(
+            [new ScriptedFrame(Dt: 0f, KeysDown: ViewerKeys.Step)],
+            new RecordingRenderer());
+        host.Run(app);
+
+        Assert.False(app.Running);
+        Assert.Equal(1, app.CurrentTick);
+    }
+
+    [Fact]
+    public void HoldingStepStepsOnceNotSixty()
+    {
+        var grid = Fixture();
+        var app = new ViewerApp(grid, LayoutFor(grid), Squad);
+
+        var frames = Enumerable.Repeat(new ScriptedFrame(Dt: 0f, KeysDown: ViewerKeys.Step), 60).ToArray();
+
+        using var host = new ScriptedHost(frames, new RecordingRenderer());
+        host.Run(app);
+
+        Assert.Equal(1, app.CurrentTick);
+    }
+
+    [Fact]
     public void ARecordedOrderFiresAtItsRecordedTickAndNotBefore()
     {
         var scenario = RecordedScenario.FromText(

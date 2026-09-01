@@ -165,6 +165,30 @@ public sealed class ViewerApp : IViewerApp
             _session.ToggleRunning();
         }
 
+        if (input.IsPressed(ViewerKeys.Step))
+        {
+            // One tick per press, frozen before and after. Pressing it while
+            // running pauses first, so a burst can be caught mid-flight and
+            // walked forward from there.
+            _session.SetRunning(false);
+            for (var id = 0; id < _previousCells.Length; id++)
+            {
+                _previousCells[id] = _session.Agents[id].Cell;
+            }
+
+            _session.Tick();
+
+            // Draw the completed tick, not a blend into it: a step should land
+            // exactly on the state it produced.
+            for (var id = 0; id < _previousCells.Length; id++)
+            {
+                _previousCells[id] = _session.Agents[id].Cell;
+            }
+
+            _blend = 0f;
+            _clock.Reset();
+        }
+
         if (input.IsPressed(ViewerKeys.R))
         {
             if (_session.IsReplay)
@@ -439,7 +463,7 @@ public sealed class ViewerApp : IViewerApp
             $"{_grid.Width}x{_grid.Height}  {agents.Count} units  {Fixed(arrived)} arrived  {Fixed(stuck)} stuck  " +
             $"{Fixed(planning)} planning  {_session.LastTick.NodesSpent,6} nodes/tick  " +
             $"tick {_session.CurrentTick,6}  {(_session.Running ? "[running]" : "[paused]"),-9} " +
-            $"sel {Fixed(_session.Selection.Count)}  LMB click/drag select  RMB order  SPACE pause  " +
+            $"sel {Fixed(_session.Selection.Count)}  LMB click/drag select  RMB order  SPACE pause  S step  " +
             $"{(_session.IsReplay ? "R restart" : "R regroup")}");
     }
 }

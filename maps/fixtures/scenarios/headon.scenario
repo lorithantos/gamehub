@@ -4,6 +4,7 @@
 # outcome is that one of them does not get through.
 version 1
 map corridor.map
+size 11 3
 tick 0.016666667
 agent 0 1 1
 agent 1 9 1

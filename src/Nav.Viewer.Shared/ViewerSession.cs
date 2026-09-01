@@ -153,15 +153,24 @@ public sealed class ViewerSession
     /// read -- and stepped -- before it bursts to the end.
     /// </summary>
     /// <remarks>
-    /// Throws <see cref="ArgumentOutOfRangeException"/> when a recorded placement
-    /// is off the map or on a wall. <see cref="TryLoad"/> is the path that turns
-    /// that into a named refusal rather than a stack trace.
+    /// Throws <see cref="MapFormatException"/> when <paramref name="grid"/> is not
+    /// the size the scenario was recorded against, and
+    /// <see cref="ArgumentOutOfRangeException"/> when a recorded placement is off
+    /// the map or on a wall. <see cref="TryLoad"/> is the path that turns either
+    /// into a named refusal rather than a stack trace.
     /// </remarks>
     public static ViewerSession FromScenario(Grid grid, string mapName, RecordedScenario scenario)
     {
         ArgumentNullException.ThrowIfNull(grid);
         ArgumentException.ThrowIfNullOrWhiteSpace(mapName);
         ArgumentNullException.ThrowIfNull(scenario);
+
+        // The same guard playback runs, for the same reason. The viewer usually
+        // resolves the map from the scenario's own name, so this fires when the
+        // map has been edited since the recording rather than when someone paired
+        // the wrong two files -- which is the likelier mistake of the two.
+        scenario.EnsureMatches(grid);
+
         return new ViewerSession(grid, mapName, scenario, squad: 0);
     }
 
@@ -188,10 +197,12 @@ public sealed class ViewerSession
                 ? FromMap(grid, mapName)
                 : FromScenario(grid, mapName, scenario);
         }
-        catch (ArgumentOutOfRangeException ex)
+        catch (Exception ex) when (ex is ArgumentOutOfRangeException or MapFormatException)
         {
-            // A scenario agent on a wall or off the map. The message names the
-            // cell; refusing beats a window of units that were never placed.
+            // A scenario agent on a wall or off the map, or a map that is not the
+            // size the scenario was recorded against. The message names the cell
+            // or the mismatch; refusing beats a window of units that were never
+            // placed, or a replay quietly running on the wrong ground.
             error = ex.Message;
             return false;
         }
@@ -229,7 +240,7 @@ public sealed class ViewerSession
         {
             (system, orders) = BuildWorld(grid, scenario, DefaultSquad);
         }
-        catch (ArgumentOutOfRangeException ex)
+        catch (Exception ex) when (ex is ArgumentOutOfRangeException or MapFormatException)
         {
             error = ex.Message;
             return false;

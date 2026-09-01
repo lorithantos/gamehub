@@ -36,6 +36,7 @@ public sealed class ScenarioPlaybackTests(ITestOutputHelper output)
 
             version 1
             map hall.map
+            size 12 12
 
             # agents
             agent 0 1 1
@@ -53,8 +54,11 @@ public sealed class ScenarioPlaybackTests(ITestOutputHelper output)
     [InlineData("version 1\nmap m.map\nagent 0 1 1\norder 0 3 5 5\nend 5\n", "unknown agent")]
     [InlineData("version 1\nmap m.map\nagent 0 1 1\norder 5 0 5 5\norder 1 0 6 6\nend 9\n", "tick sequence")]
     [InlineData("version 1\nmap m.map\nagent 0 1 1\nsprint 3\nend 5\n", "unrecognised")]
-    [InlineData("version 1\nmap m.map\nagent 0 1 1\n", "'end'")]
+    [InlineData("version 1\nmap m.map\nsize 12 7\nagent 0 1 1\n", "'end'")]
     [InlineData("version 1\nagent 0 1 1\nend 5\n", "'map'")]
+    [InlineData("version 1\nmap m.map\nagent 0 1 1\nend 5\n", "'size'")]
+    [InlineData("version 1\nmap m.map\nsize 0 7\nagent 0 1 1\nend 5\n", "positive")]
+    [InlineData("version 1\nmap m.map\nsize wide 7\nagent 0 1 1\nend 5\n", "'width'")]
     public void AMalformedScenarioIsRefusedWithAReason(string text, string expected)
     {
         var error = Assert.Throws<MapFormatException>(() => RecordedScenario.FromText(text));
@@ -66,12 +70,56 @@ public sealed class ScenarioPlaybackTests(ITestOutputHelper output)
     public void AnAgentPlacedOnAWallIsRefused()
     {
         var scenario = RecordedScenario.FromText(
-            "version 1\nmap hall.map\nagent 0 0 0\nend 5\n");
+            "version 1\nmap hall.map\nsize 12 12\nagent 0 0 0\nend 5\n");
         var grid = Grid.FromMapFile(Fixtures.Map("hall.map"));
 
         var error = Assert.Throws<ArgumentOutOfRangeException>(() => ScenarioPlayback.Play(scenario, grid));
 
         Assert.Contains("not passable", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AScenarioRecordedAgainstADifferentlySizedMapIsRefused()
+    {
+        // The replay twin of ScenarioFileTests.ARecordSizedForADifferentMapIsRefusedRatherThanScaled.
+        // Without this the run is not an error, which is the problem: every
+        // placement below is legal on both maps, so the units go somewhere
+        // plausible and the outcome means nothing.
+        var scenario = RecordedScenario.FromText(
+            "version 1\nmap hall.map\nsize 12 12\nagent 0 1 1\norder 0 0 5 5\nend 5\n");
+        var grid = Grid.FromMapText(SampleMaps.CornerCutTrap);
+
+        var error = Assert.Throws<MapFormatException>(() => ScenarioPlayback.Play(scenario, grid));
+
+        Assert.Contains("12x12", error.Message, StringComparison.Ordinal);
+        Assert.Contains("12x7", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ARoundTripKeepsTheRecordedSize()
+    {
+        // The size line has to survive ToText, or a scenario re-saved by the
+        // recorder comes back unverifiable.
+        //
+        // The explicit tick is not incidental: ToText writes TickSeconds with
+        // "0.#########", so the DEFAULT of 1/60 comes back as 0.016666667 and the
+        // record no longer equals itself. That is a real (and harmless) fidelity
+        // gap in the format, banked separately; pinning an exactly representable
+        // tick here keeps this test about the size line.
+        var original = RecordedScenario.FromText(
+            "version 1\nmap hall.map\nsize 12 12\ntick 0.05\nagent 0 1 1\norder 0 0 5 5\nend 5\n");
+
+        var round = RecordedScenario.FromText(original.ToText());
+
+        Assert.Equal(12, round.MapWidth);
+        Assert.Equal(12, round.MapHeight);
+
+        // Compared as TEXT, which is what ToText exists for. Record equality would
+        // be the obvious assertion and it is the wrong one: Agents and Orders are
+        // IReadOnlyList, so the compiler-generated Equals compares them by
+        // REFERENCE, and two parses of the same string are never equal no matter
+        // how identical their contents.
+        Assert.Equal(original.ToText(), round.ToText());
     }
 
     [Fact]
@@ -82,7 +130,7 @@ public sealed class ScenarioPlaybackTests(ITestOutputHelper output)
         // off-map order does not fail -- it lands on a plausible cell in some
         // other row and the run quietly tests a journey nobody wrote.
         var scenario = RecordedScenario.FromText(
-            "version 1\nmap hall.map\nagent 0 1 1\norder 0 0 900 900\nend 5\n");
+            "version 1\nmap hall.map\nsize 12 12\nagent 0 1 1\norder 0 0 900 900\nend 5\n");
         var grid = Grid.FromMapFile(Fixtures.Map("hall.map"));
 
         var error = Assert.Throws<ArgumentOutOfRangeException>(() => ScenarioPlayback.Play(scenario, grid));
@@ -97,7 +145,7 @@ public sealed class ScenarioPlaybackTests(ITestOutputHelper output)
         // the ground beside it, so Order snaps to the nearest passable cell; off
         // the map has no such reading and is refused.
         var scenario = RecordedScenario.FromText(
-            "version 1\nmap hall.map\nagent 0 1 1\norder 0 0 0 0\nend 5\n");
+            "version 1\nmap hall.map\nsize 12 12\nagent 0 1 1\norder 0 0 0 0\nend 5\n");
         var grid = Grid.FromMapFile(Fixtures.Map("hall.map"));
 
         var outcome = ScenarioPlayback.Play(scenario, grid);

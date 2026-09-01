@@ -38,14 +38,80 @@ public sealed record ScenarioOrder(int Tick, IReadOnlyList<int> Agents, int X, i
 /// one as cheaply.
 /// </para>
 /// </remarks>
+/// <param name="MapName">
+/// The map file this was recorded against, as a bare name resolved relative to
+/// the scenario. It is how a caller finds the map; it is <em>not</em> a check
+/// that the map is the right one -- see <see cref="MapWidth"/>.
+/// </param>
+/// <param name="MapWidth">
+/// Width of the map at recording time, in cells. Recorded so a replay can refuse
+/// a map of the wrong shape instead of running plausibly against it; compared by
+/// <see cref="EnsureMatches"/>.
+/// </param>
+/// <param name="MapHeight">Height of the map at recording time, in cells.</param>
+/// <param name="TickSeconds">
+/// Wall-clock seconds per simulated tick, which sets playback speed and nothing
+/// else -- the simulation itself is driven by tick count, so this cannot change
+/// what happens.
+/// </param>
+/// <param name="Agents">Starting placements, indexed by the id each one carries.</param>
+/// <param name="Orders">
+/// The order timeline in tick sequence. Replaying these inputs is what reproduces
+/// the run, which is why this is a list of orders rather than of positions.
+/// </param>
+/// <param name="EndTick">
+/// The last tick simulated, inclusive. A scenario that never ends cannot fail, so
+/// the format requires it.
+/// </param>
 public sealed record RecordedScenario(
     string MapName,
+    int MapWidth,
+    int MapHeight,
     double TickSeconds,
     IReadOnlyList<ScenarioAgent> Agents,
     IReadOnlyList<ScenarioOrder> Orders,
     int EndTick)
 {
     private const double DefaultTickSeconds = 1.0 / 60.0;
+
+    /// <summary>
+    /// Throws unless <paramref name="grid"/> is the size this scenario was
+    /// recorded against.
+    /// </summary>
+    /// <remarks>
+    /// The replay twin of <see cref="ScenarioRecord.EnsureMatches"/>, and it
+    /// exists for the same reason: replaying against a map that is merely the
+    /// wrong shape produces a run that is plausible and meaningless, every
+    /// position slightly off and nothing obviously broken. Refusing is the only
+    /// useful behaviour.
+    /// <para>
+    /// <b>Dimensions only.</b> This says the map is the right <em>size</em>; it
+    /// cannot say it is the right map. A differently walled map of identical
+    /// width and height passes here and is not detectable from anything the
+    /// format records -- closing that would mean a content fingerprint, which
+    /// would also make these files impossible to write by hand.
+    /// <see cref="ScenarioPlayback.Play"/> still checks every coordinate against
+    /// the grid, which is what catches the rest.
+    /// </para>
+    /// </remarks>
+    /// <param name="grid">The map the scenario is about to be replayed on.</param>
+    /// <param name="source">
+    /// The scenario's path, when there is one, so the refusal names the file
+    /// rather than only the mismatch.
+    /// </param>
+    /// <exception cref="MapFormatException"><paramref name="grid"/> is a different size.</exception>
+    public void EnsureMatches(Grid grid, string? source = null)
+    {
+        ArgumentNullException.ThrowIfNull(grid);
+
+        if (grid.Width != MapWidth || grid.Height != MapHeight)
+        {
+            throw new MapFormatException(
+                source,
+                1,
+                $"the scenario expects a {MapWidth}x{MapHeight} map but '{MapName}' loaded as {grid.Width}x{grid.Height}");
+        }
+    }
 
     /// <summary>
     /// Reads a scenario off disk. <paramref name="path"/> travels into any
@@ -80,6 +146,7 @@ public sealed record RecordedScenario(
         var builder = new StringBuilder();
         builder.Append("version 1\n");
         builder.Append(CultureInfo.InvariantCulture, $"map {MapName}\n");
+        builder.Append(CultureInfo.InvariantCulture, $"size {MapWidth} {MapHeight}\n");
         builder.Append(CultureInfo.InvariantCulture, $"tick {TickSeconds.ToString("0.#########", CultureInfo.InvariantCulture)}\n");
 
         foreach (var agent in Agents)
@@ -108,6 +175,7 @@ public sealed record RecordedScenario(
 
         var lines = text.Split('\n');
         string? mapName = null;
+        (int Width, int Height)? size = null;
         var tickSeconds = DefaultTickSeconds;
         var agents = new List<ScenarioAgent>();
         var orders = new List<ScenarioOrder>();
@@ -142,6 +210,20 @@ public sealed record RecordedScenario(
                 case "map" when parts.Length == 2:
                     mapName = parts[1];
                     break;
+
+                case "size" when parts.Length == 3:
+                {
+                    var width = RequireInt(parts[1], "width", source, lineNumber);
+                    var height = RequireInt(parts[2], "height", source, lineNumber);
+                    if (width <= 0 || height <= 0)
+                    {
+                        throw new MapFormatException(
+                            source, lineNumber, $"'size' must be positive, found {width}x{height}");
+                    }
+
+                    size = (width, height);
+                    break;
+                }
 
                 case "tick" when parts.Length == 2:
                     tickSeconds = RequireDouble(parts[1], "tick", source, lineNumber);
@@ -217,6 +299,15 @@ public sealed record RecordedScenario(
             throw new MapFormatException(source, lines.Length, "no 'map' line");
         }
 
+        // Required, not optional. An optional dimension line would be absent from
+        // exactly the scenarios nobody thought about, which are the ones that go
+        // wrong -- and a check that silently does not run is worse than no check,
+        // because the absence looks like a pass.
+        if (size is not { } mapSize)
+        {
+            throw new MapFormatException(source, lines.Length, "no 'size' line");
+        }
+
         if (agents.Count == 0)
         {
             throw new MapFormatException(source, lines.Length, "no agents");
@@ -233,7 +324,7 @@ public sealed record RecordedScenario(
             throw new MapFormatException(source, lines.Length, $"'end' must not be negative, found {end}");
         }
 
-        return new RecordedScenario(mapName, tickSeconds, agents, orders, end);
+        return new RecordedScenario(mapName, mapSize.Width, mapSize.Height, tickSeconds, agents, orders, end);
     }
 
     private static int RequireInt(string value, string field, string? source, int lineNumber)

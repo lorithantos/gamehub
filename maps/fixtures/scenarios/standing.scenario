@@ -4,6 +4,7 @@
 # stationary unit invisible and gets it walked through.
 version 1
 map hall.map
+size 12 12
 tick 0.016666667
 agent 0 5 4
 agent 1 5 5

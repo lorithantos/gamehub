@@ -3,6 +3,7 @@
 # happens long after the group looked settled.
 version 1
 map hall.map
+size 12 12
 tick 0.016666667
 agent 0 1 1
 agent 1 10 1

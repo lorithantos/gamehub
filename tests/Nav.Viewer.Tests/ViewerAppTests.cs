@@ -367,7 +367,7 @@ public sealed class ViewerAppTests
     public void AScenarioPlacesItsAgentsWhereItRecordedThem()
     {
         var scenario = RecordedScenario.FromText(
-            "version 1\nmap any.map\nagent 0 1 1\nagent 1 4 5\nend 30\n");
+            "version 1\nmap any.map\nsize 12 7\nagent 0 1 1\nagent 1 4 5\nend 30\n");
         var grid = Fixture();
 
         var app = new ViewerApp(grid, LayoutFor(grid), scenario: scenario);
@@ -381,7 +381,7 @@ public sealed class ViewerAppTests
     public void AReplayLoadsWithTheClockStoppedAtTickZero()
     {
         var scenario = RecordedScenario.FromText(
-            "version 1\nmap any.map\nagent 0 1 1\norder 0 0 10 5\nend 60\n");
+            "version 1\nmap any.map\nsize 12 7\nagent 0 1 1\norder 0 0 10 5\nend 60\n");
         var grid = Fixture();
         var app = new ViewerApp(grid, LayoutFor(grid), scenario: scenario);
 
@@ -399,7 +399,7 @@ public sealed class ViewerAppTests
     public void RReloadsAReplayToTickZeroStopped()
     {
         var scenario = RecordedScenario.FromText(
-            "version 1\nmap any.map\nagent 0 1 1\nagent 1 4 5\norder 0 0,1 10 5\nend 60\n");
+            "version 1\nmap any.map\nsize 12 7\nagent 0 1 1\nagent 1 4 5\norder 0 0,1 10 5\nend 60\n");
         var grid = Fixture();
         var app = new ViewerApp(grid, LayoutFor(grid), scenario: scenario);
 
@@ -424,7 +424,7 @@ public sealed class ViewerAppTests
     public void StepWalksAPausedReplayForwardOneTickPerPress()
     {
         var scenario = RecordedScenario.FromText(
-            "version 1\nmap any.map\nagent 0 1 1\norder 0 0 10 5\nend 60\n");
+            "version 1\nmap any.map\nsize 12 7\nagent 0 1 1\norder 0 0 10 5\nend 60\n");
         var grid = Fixture();
         var app = new ViewerApp(grid, LayoutFor(grid), scenario: scenario);
 
@@ -480,7 +480,7 @@ public sealed class ViewerAppTests
     public void ARecordedOrderFiresAtItsRecordedTickAndNotBefore()
     {
         var scenario = RecordedScenario.FromText(
-            "version 1\nmap any.map\nagent 0 1 1\norder 10 0 10 5\nend 60\n");
+            "version 1\nmap any.map\nsize 12 7\nagent 0 1 1\norder 10 0 10 5\nend 60\n");
         var grid = Fixture();
         var app = new ViewerApp(grid, LayoutFor(grid), scenario: scenario);
 
@@ -510,7 +510,7 @@ public sealed class ViewerAppTests
         // run diverges from the recording. That is allowed here and fatal in
         // ScenarioPlayback, which is the difference between the two on purpose.
         var scenario = RecordedScenario.FromText(
-            "version 1\nmap any.map\nagent 0 1 1\nagent 1 3 1\nend 60\n");
+            "version 1\nmap any.map\nsize 12 7\nagent 0 1 1\nagent 1 3 1\nend 60\n");
         var grid = Fixture();
         var layout = LayoutFor(grid);
         var app = new ViewerApp(grid, layout, scenario: scenario);

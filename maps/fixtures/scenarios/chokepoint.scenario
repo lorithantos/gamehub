@@ -3,6 +3,7 @@
 # must queue rather than jam, and none may be starved indefinitely.
 version 1
 map gap.map
+size 13 9
 tick 0.016666667
 agent 0 1 1
 agent 1 2 1

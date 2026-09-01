@@ -3,6 +3,7 @@
 # window boundaries to exercise the frame budget rather than a single search.
 version 1
 map crosscut.map
+size 21 7
 tick 0.016666667
 agent 0 1 1
 agent 1 1 2

@@ -3,6 +3,7 @@
 # planning load spread over time and a late order into an occupied region.
 version 1
 map hall.map
+size 12 12
 tick 0.016666667
 agent 0 1 1
 agent 1 2 1

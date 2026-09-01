@@ -83,17 +83,16 @@ public static class ScenarioPlayback
     /// </para>
     /// </remarks>
     /// <param name="scenario">
-    /// Placements and the order timeline. Every coordinate it names is checked
-    /// against <paramref name="grid"/> before the run starts -- placements must be
-    /// in bounds and passable, order destinations in bounds.
+    /// Placements and the order timeline, checked against <paramref name="grid"/>
+    /// before the run starts: the map must be the size the scenario was recorded
+    /// against (<see cref="RecordedScenario.EnsureMatches"/>), placements must be
+    /// in bounds and passable, and order destinations in bounds.
     /// <para>
-    /// What is <em>not</em> checked is <see cref="RecordedScenario.MapName"/>,
-    /// because the format records a name and no dimensions -- unlike
-    /// <see cref="ScenarioRecord"/>, which carries both and can therefore offer
-    /// <see cref="ScenarioRecord.EnsureMatches"/>. A wrong map of a different size
-    /// will almost always fail one of the coordinate checks above; a wrong map of
-    /// the <em>same</em> size cannot be detected here at all, and pairing the two
-    /// files correctly remains the caller's job.
+    /// The one wrong pairing that survives all of that is a map of the
+    /// <em>same</em> size with different walls. Catching it would take a content
+    /// fingerprint, which would also make these files impossible to write by hand,
+    /// so it is deliberately not caught -- though a scenario whose units start
+    /// inside the new walls still fails the passability check.
     /// </para>
     /// </param>
     /// <param name="grid">The map to run on.</param>
@@ -110,6 +109,10 @@ public static class ScenarioPlayback
     /// What happened: trajectories, the conflict verdict over them, and the
     /// counters that separate a finished run from a deadlocked one.
     /// </returns>
+    /// <exception cref="MapFormatException">
+    /// <paramref name="grid"/> is not the size <paramref name="scenario"/> was
+    /// recorded against.
+    /// </exception>
     /// <exception cref="ArgumentOutOfRangeException">
     /// An agent is placed off the map or on an impassable cell, or an order sends
     /// agents to a cell off the map.
@@ -119,6 +122,11 @@ public static class ScenarioPlayback
     {
         ArgumentNullException.ThrowIfNull(scenario);
         ArgumentNullException.ThrowIfNull(grid);
+
+        // Shape first, coordinates second. Checking placements against a map of
+        // the wrong size answers a question nobody asked -- every one of them can
+        // be perfectly in bounds on a map the scenario was never recorded on.
+        scenario.EnsureMatches(grid);
 
         var system = new MovementSystem(grid, horizon);
         var trails = new List<int>[scenario.Agents.Count];

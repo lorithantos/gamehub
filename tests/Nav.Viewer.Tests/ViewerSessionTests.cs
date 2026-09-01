@@ -70,7 +70,7 @@ public sealed class ViewerSessionTests
         {
             File.WriteAllText(Path.Combine(root.FullName, "m.map"), SampleMaps.CornerCutTrap);
             var scenarioPath = Path.Combine(root.FullName, "bad.scenario");
-            File.WriteAllText(scenarioPath, "version 1\nmap m.map\nagent 0 0 0\nend 5\n");
+            File.WriteAllText(scenarioPath, "version 1\nmap m.map\nsize 12 7\nagent 0 0 0\nend 5\n");
 
             Assert.False(
                 ViewerSession.TryLoad(new ViewerOptions(null, null, false, scenarioPath), out _, out var error));
@@ -91,7 +91,7 @@ public sealed class ViewerSessionTests
         {
             File.WriteAllText(Path.Combine(root.FullName, "m.map"), SampleMaps.CornerCutTrap);
             var scenarioPath = Path.Combine(root.FullName, "run.scenario");
-            File.WriteAllText(scenarioPath, "version 1\nmap m.map\nagent 0 1 1\norder 0 0 10 5\nend 30\n");
+            File.WriteAllText(scenarioPath, "version 1\nmap m.map\nsize 12 7\nagent 0 1 1\norder 0 0 10 5\nend 30\n");
 
             Assert.True(
                 ViewerSession.TryLoad(new ViewerOptions(null, null, false, scenarioPath), out var session, out _));
@@ -153,7 +153,7 @@ public sealed class ViewerSessionTests
         {
             File.WriteAllText(Path.Combine(root.FullName, "m.map"), SampleMaps.CornerCutTrap);
             var scenarioPath = Path.Combine(root.FullName, "run.scenario");
-            File.WriteAllText(scenarioPath, "version 1\nmap m.map\nagent 0 1 1\norder 0 0 10 5\nend 30\n");
+            File.WriteAllText(scenarioPath, "version 1\nmap m.map\nsize 12 7\nagent 0 1 1\norder 0 0 10 5\nend 30\n");
 
             session.SetRunning(true);
             Assert.True(session.TryLoadFile(scenarioPath, out _));

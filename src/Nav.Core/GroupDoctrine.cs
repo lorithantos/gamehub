@@ -143,7 +143,7 @@ public class GatherDoctrine : GroupDoctrine
             // standing on it.
             if (ops.CellOf(id) == ops.GoalOf(id))
             {
-                claiming.ClaimSlot(id, ops.GoalOf(id));
+                ClaimDisplacing(ops, claiming, id, ops.GoalOf(id));
                 continue;
             }
 
@@ -283,8 +283,32 @@ public class GatherDoctrine : GroupDoctrine
                 }
             }
 
-            claiming.ClaimSlot(id, pick);
+            ClaimDisplacing(ops, claiming, id, pick);
         }
+    }
+
+    /// <summary>
+    /// Claims a cell for a member, first releasing the fellow member who claimed
+    /// it from afar, if any.
+    /// </summary>
+    /// <remarks>
+    /// Arrival beats intention: the unit standing on the cell is already there
+    /// and the claimant is not, so the claimant goes back to the queue NOW rather
+    /// than after two failed replans and a reconcile. Without this, two members
+    /// held one cell for a while -- a transient the claimed-goal cache tolerated
+    /// silently, and which the head-of-tick rebuild now refuses. A holder from
+    /// another group is not this doctrine's to displace and is left alone; the
+    /// claim then goes through as before.
+    /// </remarks>
+    private static void ClaimDisplacing(IGroupView ops, IGroupClaiming claiming, int id, int cell)
+    {
+        var holder = ops.ClaimantOf(cell);
+        if (holder >= 0 && holder != id && ops.Members.Contains(holder))
+        {
+            claiming.ReleaseSlot(holder);
+        }
+
+        claiming.ClaimSlot(id, cell);
     }
 }
 

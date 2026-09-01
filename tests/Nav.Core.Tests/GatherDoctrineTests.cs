@@ -217,4 +217,26 @@ public sealed class GatherDoctrineTests
         Assert.Empty(ops.Releases);
         Assert.Empty(ops.Claims);
     }
+
+    [Fact]
+    public void ArrivingOnTheWalkingTargetDisplacesTheMemberWhoClaimedItFromAfar()
+    {
+        // Member 1 claimed the destination from out at cost 3. Member 0 walked
+        // there first and is standing on it. Arrival beats intention: member 0
+        // takes the cell and member 1 is released to claim again now, rather
+        // than stalling on an occupied goal for two replans and being
+        // reconciled away. Before this, both held the cell at once -- the
+        // transient the head-of-tick rebuild now refuses within a group.
+        var ops = new FakeGroupOps { Destination = 5, Slots = [5, 6] }
+            .With(id: 0, cell: 5, goal: 5)
+            .With(id: 1, cell: 9, goal: 5, hasSlot: true)
+            .Cost(5, 0.0)
+            .Cost(6, 1.0)
+            .Cost(9, 3.0);
+
+        new GatherDoctrine().Advance(ops);
+
+        Assert.Equal([1], ops.Releases);
+        Assert.Equal([(0, 5)], ops.Claims);
+    }
 }

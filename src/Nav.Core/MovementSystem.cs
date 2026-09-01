@@ -514,15 +514,47 @@ public sealed class MovementSystem
         _occupiedCells.Clear();
         foreach (var agent in _agents)
         {
-            if (agent.HasSlot)
-            {
-                _claimedGoals[agent.Goal] = agent.Id;
-            }
-
             _occupiedCells.Add(agent.Cell);
             if (agent.Cell == agent.Goal)
             {
                 _settledCells.Add(agent.Cell);
+            }
+        }
+
+        // Claimed goals are rebuilt group by group, so that the one thing the
+        // doctrine does guarantee can be ASSERTED: within a group, no two
+        // slot-holders share a cell. Two groups may legitimately hold one cell,
+        // because two single-unit orders aimed at the same spot are two claims
+        // on it by design (one arrives, the other stalls and reconciles to a
+        // neighbour), and the cache then records the later group's holder.
+        // Within a group the same state was the endgame defect: two members
+        // standing on one cell for good, visible only as an arrival count. The
+        // doctrine displaces the absent claimant instead, and if that ever
+        // stops holding, the tick that first sees it names both agents rather
+        // than letting the last writer quietly win the cache.
+        foreach (var group in _groups)
+        {
+            foreach (var agent in group.Members)
+            {
+                if (!agent.HasSlot)
+                {
+                    continue;
+                }
+
+                if (_claimedGoals.TryGetValue(agent.Goal, out var holder))
+                {
+                    foreach (var other in group.Members)
+                    {
+                        if (other.Id == holder)
+                        {
+                            throw new InvalidOperationException(
+                                $"agents {holder} and {agent.Id} of the group ordered to cell {group.Destination} " +
+                                $"both hold cell {agent.Goal} as their slot.");
+                        }
+                    }
+                }
+
+                _claimedGoals[agent.Goal] = agent.Id;
             }
         }
 

@@ -262,4 +262,57 @@ public sealed class MovementSystemGuardTests
         Assert.Equal(0, second.Claimant);
         Assert.False(second.ClaimantIsAMember);
     }
+
+    /// <summary>Claims the innermost slot for two members, once.</summary>
+    private sealed class ClaimOneCellTwice : GroupDoctrine
+    {
+        private bool _done;
+
+        public override void Advance(IGroupOps ops)
+        {
+            if (_done) { return; }
+
+            _done = true;
+            ops.ClaimSlot(ops.Members[0], ops.Slots[0]);
+            ops.ClaimSlot(ops.Members[1], ops.Slots[0]);
+        }
+    }
+
+    [Fact]
+    public void TwoSlotHoldersOnOneCellAreCaughtAtTheNextTick()
+    {
+        // The seam still lets a doctrine claim a cell another member already
+        // holds -- every doctrine guards with IsClaimed first, and the seam does
+        // not, yet. What it no longer does is carry that state silently: the next
+        // tick's rebuild of the claimed set refuses it, naming both agents and the
+        // cell, instead of the pair standing on one cell for good.
+        var (system, grid) = Scene();
+        system.Order([0, 1, 2], grid.Index(4, 4), new ClaimOneCellTwice());
+
+        system.Tick();
+
+        var ex = Assert.Throws<InvalidOperationException>(() => system.Tick());
+        Assert.Contains("agents 0 and 1", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TwoSingleUnitOrdersToOneCellAreTwoLegitimateClaims()
+    {
+        // A single-unit order is an immediate claim on its cell, so two of them
+        // aimed at the same spot are two holders of one cell -- across two
+        // groups, which is allowed. The assertion above is scoped WITHIN a group
+        // for exactly this reason: the viewer's per-unit ordering produced this
+        // shape on its first frame and must not throw.
+        var (system, grid) = Scene(agents: 2);
+        var spot = grid.Index(4, 4);
+
+        system.Order([0], spot);
+        system.Order([1], spot);
+        for (var tick = 0; tick < 60; tick++)
+        {
+            system.Tick();
+        }
+
+        Assert.Contains(system.Agents, a => a.Cell == spot);
+    }
 }

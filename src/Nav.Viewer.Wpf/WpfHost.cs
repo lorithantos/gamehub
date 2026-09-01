@@ -25,12 +25,13 @@ namespace Nav.Viewer.Wpf;
 /// exactly the shape the catalog's WPF notes warn about.
 /// </para>
 /// </remarks>
-internal sealed class WpfHost(GridLayout layout, string title, int? maxFrames) : IViewerHost
+internal sealed class WpfHost(GridLayout layout, int? maxFrames) : IViewerHost
 {
     private readonly InputAccumulator _input = new();
     private readonly FrameClock _clock = new();
     private readonly D3DImage _image = new();
 
+    private GridLayout _layout = layout;
     private MainWindow? _window;
     private ID3D11Device? _device;
     private ID3D11DeviceContext? _context;
@@ -48,7 +49,7 @@ internal sealed class WpfHost(GridLayout layout, string title, int? maxFrames) :
         ArgumentNullException.ThrowIfNull(app);
         _app = app;
 
-        _window = new MainWindow { Title = title };
+        _window = new MainWindow { Title = app.WindowTitle };
         _window.Surface.Source = _image;
 
         _window.SourceInitialized += OnSourceInitialized;
@@ -58,6 +59,11 @@ internal sealed class WpfHost(GridLayout layout, string title, int? maxFrames) :
         _window.MouseUp += OnMouseButton;
         _window.MouseMove += OnMouseMove;
         _window.Closed += OnClosed;
+
+        // Loading is host chrome, WPF's way: a file dropped on the window, or
+        // Ctrl+O for the stock dialog. What the file means is the app's business.
+        _window.AllowDrop = true;
+        _window.Drop += OnDrop;
 
         // Auto-size exactly once, then lock: after the first layout, nothing --
         // not chrome, not text -- may move the window again.
@@ -90,18 +96,10 @@ internal sealed class WpfHost(GridLayout layout, string title, int? maxFrames) :
         // that pick cells are physical pixels. Everything below stays in
         // PHYSICAL pixels, and the only conversion is sizing the WPF element.
         _dpiScale = VisualTreeHelper.GetDpi(_window!).DpiScaleX;
-        _window!.Surface.Width = layout.PixelWidth / _dpiScale;
-        _window.Surface.Height = layout.PixelHeight / _dpiScale;
-
-        // The surface, not the status text, decides the window's width. Without
-        // this the squad status line was the widest element on small maps, and
-        // SizeToContent re-measured the WHOLE WINDOW every time a counter
-        // changed digit count -- the window visibly shook while a stalled agent
-        // replanned. The text trims instead.
-        _window.StatusBar.Width = layout.PixelWidth / _dpiScale;
+        SizeChrome();
 
         CreateDevice();
-        _surface = new SharedSurface(_device!, handle, layout.PixelWidth, layout.PixelHeight);
+        _surface = new SharedSurface(_device!, handle, _layout.PixelWidth, _layout.PixelHeight);
         _renderer = new D3D11Renderer(_device!, _context!, _surface);
 
         _image.Lock();
@@ -109,6 +107,52 @@ internal sealed class WpfHost(GridLayout layout, string title, int? maxFrames) :
         _image.Unlock();
 
         CompositionTarget.Rendering += OnRendering;
+    }
+
+    /// <summary>
+    /// The surface, not the status text, decides the window's width. Without
+    /// this the squad status line was the widest element on small maps, and
+    /// SizeToContent re-measured the WHOLE WINDOW every time a counter changed
+    /// digit count -- the window visibly shook while a stalled agent replanned.
+    /// The text trims instead.
+    /// </summary>
+    private void SizeChrome()
+    {
+        _window!.Surface.Width = _layout.PixelWidth / _dpiScale;
+        _window.Surface.Height = _layout.PixelHeight / _dpiScale;
+        _window.StatusBar.Width = _layout.PixelWidth / _dpiScale;
+    }
+
+    /// <summary>
+    /// The map changed size, so everything sized from it follows: the D3D
+    /// surface and renderer are rebuilt at the new dimensions, the back buffer
+    /// is re-pointed, and the window auto-sizes exactly once more before
+    /// locking again. The same detach-rebuild-reattach order device loss would
+    /// use.
+    /// </summary>
+    private void RebuildForLayout(GridLayout layout)
+    {
+        _layout = layout;
+        SizeChrome();
+
+        _image.Lock();
+        _image.SetBackBuffer(D3DResourceType.IDirect3DSurface9, IntPtr.Zero);
+        _image.Unlock();
+
+        _renderer!.Dispose();
+        _surface!.Dispose();
+
+        var handle = new WindowInteropHelper(_window!).Handle;
+        _surface = new SharedSurface(_device!, handle, _layout.PixelWidth, _layout.PixelHeight);
+        _renderer = new D3D11Renderer(_device!, _context!, _surface);
+
+        _image.Lock();
+        _image.SetBackBuffer(D3DResourceType.IDirect3DSurface9, _surface.Surface.NativePointer);
+        _image.Unlock();
+
+        _window!.SizeToContent = SizeToContent.WidthAndHeight;
+        _window.UpdateLayout();
+        _window.SizeToContent = SizeToContent.Manual;
     }
 
     private void CreateDevice()
@@ -156,6 +200,16 @@ internal sealed class WpfHost(GridLayout layout, string title, int? maxFrames) :
 
         _app.Update(_input.Snapshot(), deltaSeconds);
 
+        if (_app.Layout != _layout)
+        {
+            RebuildForLayout(_app.Layout);
+        }
+
+        if (!string.Equals(_window.Title, _app.WindowTitle, StringComparison.Ordinal))
+        {
+            _window.Title = _app.WindowTitle;
+        }
+
         _renderer.BeginFrame(RgbaColor.Black);
         _app.Render(_renderer);
         _renderer.EndFrame();
@@ -196,8 +250,32 @@ internal sealed class WpfHost(GridLayout layout, string title, int? maxFrames) :
             case Key.Escape when down:
                 _window?.Close();
                 break;
+            case Key.O when down && (Keyboard.Modifiers & ModifierKeys.Control) != 0:
+                PromptForFile();
+                break;
             default:
                 break;
+        }
+    }
+
+    private void OnDrop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0)
+        {
+            _app?.LoadFile(files[0]);
+        }
+    }
+
+    private void PromptForFile()
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "maps and scenarios|*.map;*.scenario|all files|*.*",
+        };
+
+        if (dialog.ShowDialog(_window) == true)
+        {
+            _app?.LoadFile(dialog.FileName);
         }
     }
 

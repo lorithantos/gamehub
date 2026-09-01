@@ -420,6 +420,73 @@ public sealed class ViewerAppTests
         Assert.Equal(grid.Index(10, 5), app.Agents[1].Goal);
     }
 
+    private const string WideMap =
+        """
+        type octile
+        height 5
+        width 24
+        map
+        @@@@@@@@@@@@@@@@@@@@@@@@
+        @......................@
+        @......................@
+        @......................@
+        @@@@@@@@@@@@@@@@@@@@@@@@
+        """;
+
+    [Fact]
+    public void LoadingAFileSwapsTheWorldAndTheGeometryTheHostsFollow()
+    {
+        var grid = Fixture();
+        var app = new ViewerApp(grid, LayoutFor(grid), Squad);
+        var before = app.Layout;
+
+        var root = Directory.CreateTempSubdirectory("nav-app-test-");
+        try
+        {
+            var mapPath = Path.Combine(root.FullName, "wide.map");
+            File.WriteAllText(mapPath, WideMap);
+
+            app.LoadFile(mapPath);
+
+            Assert.NotEqual(before, app.Layout);
+            Assert.Equal(ViewerSession.DefaultSquad, app.Agents.Count);
+            Assert.Contains("24x5", app.StatusText, StringComparison.Ordinal);
+            Assert.Equal("Nav.Viewer - wide.map", app.WindowTitle);
+
+            // And the app still runs cleanly on the new content.
+            using var host = new ScriptedHost(ScriptedHost.Idle(30), new RecordingRenderer());
+            host.Run(app);
+            Assert.True(app.CurrentTick > 20);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ARefusedLoadKeepsTheWorldAndSaysWhyUntilTheNextInput()
+    {
+        var grid = Fixture();
+        var layout = LayoutFor(grid);
+        var app = new ViewerApp(grid, layout, Squad);
+        var before = app.Layout;
+
+        app.LoadFile(Path.Combine(Path.GetTempPath(), "definitely-absent.map"));
+
+        Assert.StartsWith("load failed:", app.StatusText, StringComparison.Ordinal);
+        Assert.Equal(before, app.Layout);
+        Assert.Equal(Squad, app.Agents.Count);
+
+        // The refusal was read: any input returns the status line to normal.
+        using var host = new ScriptedHost(
+            [new ScriptedFrame(Mouse: layout.CenterOf(1, 1), ButtonsDown: MouseButtons.Left)],
+            new RecordingRenderer());
+        host.Run(app);
+
+        Assert.Contains($"{Squad} units", app.StatusText, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void TheStatusLineNeverChangesLength()
     {

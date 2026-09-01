@@ -48,12 +48,11 @@ internal static class Program
             return 1;
         }
 
-        // Pure, and shared: the WPF host sizes itself from this same call,
-        // so the two cannot disagree about geometry by accident.
-        var layout = GridLayout.Fit(session.Grid, MaxMapPixels, MaxMapPixels - StatusHeight);
-
-        var app = new ViewerApp(session, layout);
-        using var host = new RaylibHost(layout, StatusHeight, $"Nav.Viewer - {session.MapName}", options.MaxFrames);
+        // The app derives its own layout from this budget, now and on every
+        // mid-session load; both hosts use the same budget, so the two windows
+        // cannot disagree about geometry by accident.
+        var app = new ViewerApp(session, MaxMapPixels, MaxMapPixels - StatusHeight);
+        using var host = new RaylibHost(app.Layout, StatusHeight, options.MaxFrames);
         host.Run(app);
 
         return 0;

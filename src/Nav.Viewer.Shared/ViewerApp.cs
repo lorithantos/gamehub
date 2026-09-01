@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Numerics;
 
@@ -34,10 +35,16 @@ public sealed class ViewerApp : IViewerApp
     private const float ClickSlopPixels = 4.0f;
 
     private readonly ViewerSession _session;
-    private readonly Grid _grid;
-    private readonly TerrainImage _terrain;
-    private readonly FixedTimestep _clock;
-    private readonly int[] _previousCells;
+    private readonly int _fitWidth;
+    private readonly int _fitHeight;
+
+    // All derived from the session's content, and all rebuilt when its Version
+    // moves: a load replaces the map, and everything below follows the map.
+    private Grid _grid;
+    private TerrainImage _terrain;
+    private FixedTimestep _clock;
+    private int[] _previousCells;
+    private int _sessionVersion;
 
     /// <summary>How far through the current tick we are, for drawing between cells.</summary>
     private float _blend;
@@ -46,31 +53,38 @@ public sealed class ViewerApp : IViewerApp
     private Vector2 _dragAnchor;
     private Vector2 _dragCurrent;
 
-    public ViewerApp(ViewerSession session, GridLayout layout)
+    /// <summary>Why the last load was refused, shown until the next input.</summary>
+    private string? _loadError;
+
+    public ViewerApp(ViewerSession session, int maxPixelWidth, int maxPixelHeight)
     {
         ArgumentNullException.ThrowIfNull(session);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(maxPixelWidth, 0);
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(maxPixelHeight, 0);
 
         _session = session;
-        _grid = session.Grid;
-        Layout = layout;
-        _terrain = TerrainImage.FromGrid(_grid, RgbaColor.RayWhite, RgbaColor.DarkGray);
-        _clock = new FixedTimestep(session.TickSeconds);
-        _previousCells = [.. session.Agents.Select(a => a.Cell)];
+        _fitWidth = maxPixelWidth;
+        _fitHeight = maxPixelHeight;
+        AdoptContent();
         StatusText = BuildStatus();
     }
 
     /// <summary>
     /// Convenience for tests and callers that have content rather than a
-    /// session: wraps it in one.
+    /// session: wraps it in one. The layout's own pixel box is handed back as
+    /// the fit budget, which reproduces the identical layout because
+    /// <see cref="GridLayout.Fit"/> is a fixed point over its own output.
     /// </summary>
     public ViewerApp(Grid grid, GridLayout layout, int squad = ViewerSession.DefaultSquad, RecordedScenario? scenario = null)
-        : this(BuildSession(grid, scenario, squad), layout)
+        : this(BuildSession(grid, scenario, squad), layout.PixelWidth, layout.PixelHeight)
     {
     }
 
-    public GridLayout Layout { get; }
+    public GridLayout Layout { get; private set; }
 
     public string StatusText { get; private set; }
+
+    public string WindowTitle => $"Nav.Viewer - {_session.MapName}";
 
     public ViewerSession Session => _session;
 
@@ -83,8 +97,40 @@ public sealed class ViewerApp : IViewerApp
 
     public int CurrentTick => _session.CurrentTick;
 
+    /// <summary>
+    /// A file from the host's chrome — a dialog, a drop. A refusal keeps the
+    /// current content and says why in the status line until the next input.
+    /// </summary>
+    public void LoadFile(string path)
+    {
+        if (_session.TryLoadFile(path, out var error))
+        {
+            _loadError = null;
+            AdoptContent();
+        }
+        else
+        {
+            _loadError = error;
+        }
+
+        StatusText = BuildStatus();
+    }
+
     public void Update(in InputState input, float deltaSeconds)
     {
+        // Defensive: LoadFile adopts eagerly, but if anyone else ever loads
+        // into the session, the app must not draw a new grid with old geometry.
+        if (_session.Version != _sessionVersion)
+        {
+            AdoptContent();
+        }
+
+        if (input.KeysPressed != ViewerKeys.None || input.ButtonsPressed != MouseButtons.None)
+        {
+            // Any input clears a lingering load refusal: it was read.
+            _loadError = null;
+        }
+
         if (input.IsPressed(MouseButtons.Left) && Layout.TryPick(input.MousePosition, _grid, out var picked))
         {
             // A press selects the nearest unit immediately, the way a click
@@ -254,6 +300,24 @@ public sealed class ViewerApp : IViewerApp
     }
 
     /// <summary>
+    /// Rebuilds everything the app derives from the session's content. Runs at
+    /// construction and after every version bump, so derived state can never
+    /// describe a map that is no longer loaded.
+    /// </summary>
+    [MemberNotNull(nameof(_grid), nameof(_terrain), nameof(_clock), nameof(_previousCells))]
+    private void AdoptContent()
+    {
+        _sessionVersion = _session.Version;
+        _grid = _session.Grid;
+        Layout = GridLayout.Fit(_grid, _fitWidth, _fitHeight);
+        _terrain = TerrainImage.FromGrid(_grid, RgbaColor.RayWhite, RgbaColor.DarkGray);
+        _clock = new FixedTimestep(_session.TickSeconds);
+        _previousCells = [.. _session.Agents.Select(a => a.Cell)];
+        _blend = 0f;
+        _dragging = false;
+    }
+
+    /// <summary>
     /// A colour per unit, so a crowd is legible as individuals.
     /// </summary>
     /// <remarks>
@@ -353,6 +417,11 @@ public sealed class ViewerApp : IViewerApp
 
     private string BuildStatus()
     {
+        if (_loadError is { } refusal)
+        {
+            return $"load failed: {refusal}";
+        }
+
         var agents = _session.Agents;
         var planning = agents.Count(a => a.Thinking);
         var arrived = agents.Count(a => a.Arrived);

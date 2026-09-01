@@ -107,6 +107,93 @@ public sealed class ViewerSessionTests
         }
     }
 
+    private const string WideMap =
+        """
+        type octile
+        height 5
+        width 24
+        map
+        @@@@@@@@@@@@@@@@@@@@@@@@
+        @......................@
+        @......................@
+        @......................@
+        @@@@@@@@@@@@@@@@@@@@@@@@
+        """;
+
+    [Fact]
+    public void LoadingAFileMidSessionReplacesTheWorldAndBumpsTheVersion()
+    {
+        var session = ViewerSession.FromMap(Grid.FromMapText(SampleMaps.CornerCutTrap), "m.map", squad: 4);
+        var root = TempRoot();
+        try
+        {
+            var mapPath = Path.Combine(root.FullName, "wide.map");
+            File.WriteAllText(mapPath, WideMap);
+
+            Assert.True(session.TryLoadFile(mapPath, out _));
+
+            Assert.Equal(1, session.Version);
+            Assert.Equal(24, session.Grid.Width);
+            Assert.Equal("wide.map", session.MapName);
+            Assert.Equal(ViewerSession.DefaultSquad, session.Agents.Count);
+            Assert.Equal([0], session.Selection);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void LoadingAScenarioFileMidSessionBecomesAPausedReplay()
+    {
+        var session = ViewerSession.FromMap(Grid.FromMapText(SampleMaps.CornerCutTrap), "m.map", squad: 4);
+        var root = TempRoot();
+        try
+        {
+            File.WriteAllText(Path.Combine(root.FullName, "m.map"), SampleMaps.CornerCutTrap);
+            var scenarioPath = Path.Combine(root.FullName, "run.scenario");
+            File.WriteAllText(scenarioPath, "version 1\nmap m.map\nagent 0 1 1\norder 0 0 10 5\nend 30\n");
+
+            session.SetRunning(true);
+            Assert.True(session.TryLoadFile(scenarioPath, out _));
+
+            Assert.True(session.IsReplay);
+            Assert.False(session.Running);
+            Assert.Equal(0, session.CurrentTick);
+            Assert.Single(session.Agents);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ARefusedMidSessionLoadChangesAbsolutelyNothing()
+    {
+        var session = ViewerSession.FromMap(Grid.FromMapText(SampleMaps.CornerCutTrap), "m.map", squad: 4);
+        session.Select([1, 2]);
+        session.Tick();
+
+        var root = TempRoot();
+        try
+        {
+            Assert.False(session.TryLoadFile(Path.Combine(root.FullName, "absent.map"), out var error));
+
+            Assert.NotNull(error);
+            Assert.Equal(0, session.Version);
+            Assert.Equal("m.map", session.MapName);
+            Assert.Equal(4, session.Agents.Count);
+            Assert.Equal([1, 2], session.Selection);
+            Assert.Equal(1, session.CurrentTick);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
     [Fact]
     public void RestartOnAFreeSquadIsRefusedNotIgnored()
     {

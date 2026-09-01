@@ -25,8 +25,12 @@ namespace Nav.Viewer;
 /// </para>
 /// <para>
 /// Loading is where refuse-don't-repair lives, so loading is a session concern:
-/// <see cref="TryLoad"/> is the one implementation of the refusal path the two
-/// host executables used to carry copies of.
+/// <see cref="TryLoad"/> at startup and <see cref="TryLoadFile"/> mid-session
+/// are the one implementation of the refusal path. A refused load changes
+/// <b>nothing</b>: the candidate world is built off to the side and adopted only
+/// whole. Every successful load bumps <see cref="Version"/>, which is how
+/// everyone downstream knows their derived state — terrain image, layout,
+/// window size — is stale.
 /// </para>
 /// </remarks>
 public sealed class ViewerSession
@@ -38,7 +42,7 @@ public sealed class ViewerSession
 
     private readonly List<int> _selection = [];
 
-    // Not readonly: restarting a replay rebuilds both.
+    // Not readonly: loading and replay-restart rebuild them.
     private MovementSystem _system;
     private Queue<ScenarioOrder> _orders;
 
@@ -47,46 +51,23 @@ public sealed class ViewerSession
         Grid = grid;
         MapName = mapName;
         Scenario = scenario;
-
-        if (scenario is not null)
-        {
-            // A replay loads with the clock STOPPED at tick zero, so the
-            // recorded placements can be looked at before Space runs them.
-            (_system, _orders) = BuildReplay();
-            Running = false;
-        }
-        else
-        {
-            _system = new MovementSystem(grid);
-            _orders = new Queue<ScenarioOrder>();
-            Running = true;
-
-            // A squad to look at before the first click, on any map.
-            var placed = 0;
-            for (var cell = 0; cell < grid.CellCount && placed < squad; cell++)
-            {
-                if (!grid.IsPassable(cell))
-                {
-                    continue;
-                }
-
-                _system.AddAgent(cell);
-                placed++;
-            }
-        }
-
-        if (_system.Agents.Count > 0)
-        {
-            _selection.Add(0);
-        }
+        (_system, _orders) = BuildWorld(grid, scenario, squad);
+        Running = scenario is null;
+        ResetSelection();
     }
 
-    public Grid Grid { get; }
+    public Grid Grid { get; private set; }
 
     /// <summary>What the title bar and error messages call this content.</summary>
-    public string MapName { get; }
+    public string MapName { get; private set; }
 
-    public RecordedScenario? Scenario { get; }
+    public RecordedScenario? Scenario { get; private set; }
+
+    /// <summary>
+    /// Bumped by every successful load. Anything derived from the content —
+    /// terrain image, layout, window size — is stale when this moved.
+    /// </summary>
+    public int Version { get; private set; }
 
     public bool IsReplay => Scenario is not null;
 
@@ -130,50 +111,15 @@ public sealed class ViewerSession
         ArgumentNullException.ThrowIfNull(options);
 
         session = null;
-        error = null;
 
-        Grid grid;
-        string mapName;
-        RecordedScenario? scenario = null;
-        try
+        if (!TryReadContent(options, out var content, out error))
         {
-            if (options.ScenarioPath is { } scenarioFile)
-            {
-                scenario = RecordedScenario.FromFile(scenarioFile);
-                var mapFile = options.MapPath
-                    ?? ViewerOptions.ResolveScenarioMap(scenarioFile, scenario.MapName);
-                grid = Grid.FromMapFile(mapFile);
-                mapName = $"{Path.GetFileName(scenarioFile)} on {Path.GetFileName(mapFile)}";
-            }
-            else if (options.MapPath is { } path)
-            {
-                grid = Grid.FromMapFile(path);
-                mapName = Path.GetFileName(path);
-            }
-            else
-            {
-                grid = Grid.FromMapText(SampleMaps.CornerCutTrap);
-                mapName = "(embedded fixture)";
-            }
-        }
-        catch (Exception ex) when (ex is MapFormatException or IOException or UnauthorizedAccessException)
-        {
-            // The loaders refuse precisely and name the line. Reporting that
-            // beats a stack trace, and beats opening a window onto nothing.
-            error = ex.Message;
-            return false;
-        }
-
-        // A map of nothing but walls parses perfectly well -- "@@@" is valid --
-        // and then there is no cell to put a unit on.
-        if (grid.PassableCount == 0)
-        {
-            error = $"{mapName} has no passable cell; there is nothing to walk on.";
             return false;
         }
 
         try
         {
+            var (grid, mapName, scenario) = content.Value;
             session = scenario is null
                 ? FromMap(grid, mapName)
                 : FromScenario(grid, mapName, scenario);
@@ -186,6 +132,53 @@ public sealed class ViewerSession
             return false;
         }
 
+        return true;
+    }
+
+    /// <summary>
+    /// Loads a file into the running session: <c>.scenario</c> replays, anything
+    /// else is read as a map. On success the whole world is replaced and
+    /// <see cref="Version"/> bumps; on refusal nothing changes and the reason
+    /// comes back.
+    /// </summary>
+    public bool TryLoadFile(string path, [NotNullWhen(false)] out string? error)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        var isScenario = string.Equals(Path.GetExtension(path), ".scenario", StringComparison.OrdinalIgnoreCase);
+        var options = isScenario
+            ? new ViewerOptions(null, null, false, path)
+            : new ViewerOptions(path, null, false);
+
+        if (!TryReadContent(options, out var content, out error))
+        {
+            return false;
+        }
+
+        var (grid, mapName, scenario) = content.Value;
+
+        // Build the candidate world completely before touching anything, so a
+        // refusal leaves the current session exactly as it was.
+        MovementSystem system;
+        Queue<ScenarioOrder> orders;
+        try
+        {
+            (system, orders) = BuildWorld(grid, scenario, DefaultSquad);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            error = ex.Message;
+            return false;
+        }
+
+        Grid = grid;
+        MapName = mapName;
+        Scenario = scenario;
+        _system = system;
+        _orders = orders;
+        Running = scenario is null;
+        ResetSelection();
+        Version++;
         return true;
     }
 
@@ -251,20 +244,109 @@ public sealed class ViewerSession
             throw new InvalidOperationException("nothing to restart: this session has no scenario.");
         }
 
-        (_system, _orders) = BuildReplay();
-        _selection.Clear();
-        _selection.Add(0);
+        (_system, _orders) = BuildWorld(Grid, Scenario, squad: 0);
         Running = false;
+        ResetSelection();
     }
 
-    private (MovementSystem System, Queue<ScenarioOrder> Orders) BuildReplay()
+    /// <summary>
+    /// Everything that can refuse about reading content from disk, in one place:
+    /// unreadable files, malformed maps and scenarios, all-wall maps.
+    /// </summary>
+    private static bool TryReadContent(
+        ViewerOptions options,
+        [NotNullWhen(true)] out (Grid Grid, string MapName, RecordedScenario? Scenario)? content,
+        [NotNullWhen(false)] out string? error)
     {
-        var system = new MovementSystem(Grid);
-        foreach (var agent in Scenario!.Agents)
+        content = null;
+        error = null;
+
+        Grid grid;
+        string mapName;
+        RecordedScenario? scenario = null;
+        try
         {
-            system.AddAgent(Grid.Index(agent.X, agent.Y));
+            if (options.ScenarioPath is { } scenarioFile)
+            {
+                scenario = RecordedScenario.FromFile(scenarioFile);
+                var mapFile = options.MapPath
+                    ?? ViewerOptions.ResolveScenarioMap(scenarioFile, scenario.MapName);
+                grid = Grid.FromMapFile(mapFile);
+                mapName = $"{Path.GetFileName(scenarioFile)} on {Path.GetFileName(mapFile)}";
+            }
+            else if (options.MapPath is { } path)
+            {
+                grid = Grid.FromMapFile(path);
+                mapName = Path.GetFileName(path);
+            }
+            else
+            {
+                grid = Grid.FromMapText(SampleMaps.CornerCutTrap);
+                mapName = "(embedded fixture)";
+            }
+        }
+        catch (Exception ex) when (ex is MapFormatException or IOException or UnauthorizedAccessException)
+        {
+            // The loaders refuse precisely and name the line. Reporting that
+            // beats a stack trace, and beats opening a window onto nothing.
+            error = ex.Message;
+            return false;
         }
 
-        return (system, new Queue<ScenarioOrder>(Scenario.Orders));
+        // A map of nothing but walls parses perfectly well -- "@@@" is valid --
+        // and then there is no cell to put a unit on.
+        if (grid.PassableCount == 0)
+        {
+            error = $"{mapName} has no passable cell; there is nothing to walk on.";
+            return false;
+        }
+
+        content = (grid, mapName, scenario);
+        return true;
+    }
+
+    /// <summary>
+    /// A world for the content: recorded placements and the order queue for a
+    /// scenario — which loads with the clock stopped, so the setup can be looked
+    /// at before Space runs it — or a default squad on the first passable cells
+    /// of a free map.
+    /// </summary>
+    private static (MovementSystem System, Queue<ScenarioOrder> Orders) BuildWorld(
+        Grid grid, RecordedScenario? scenario, int squad)
+    {
+        var system = new MovementSystem(grid);
+
+        if (scenario is not null)
+        {
+            foreach (var agent in scenario.Agents)
+            {
+                system.AddAgent(grid.Index(agent.X, agent.Y));
+            }
+
+            return (system, new Queue<ScenarioOrder>(scenario.Orders));
+        }
+
+        var placed = 0;
+        for (var cell = 0; cell < grid.CellCount && placed < squad; cell++)
+        {
+            if (!grid.IsPassable(cell))
+            {
+                continue;
+            }
+
+            system.AddAgent(cell);
+            placed++;
+        }
+
+        return (system, new Queue<ScenarioOrder>());
+    }
+
+    private void ResetSelection()
+    {
+        _selection.Clear();
+        if (_system.Agents.Count > 0)
+        {
+            _selection.Add(0);
+        }
     }
 }

@@ -45,12 +45,10 @@ internal static class Program
             return 1;
         }
 
-        // The same pure call the raylib host makes, so the two windows are the
+        // The same budget the raylib host uses, so the two windows are the
         // same size for the same map by construction rather than by agreement.
-        var layout = GridLayout.Fit(session.Grid, MaxMapPixels, MaxMapPixels - StatusHeight);
-
-        var app = new ViewerApp(session, layout);
-        using var host = new WpfHost(layout, $"Nav.Viewer - {session.MapName}", options.MaxFrames);
+        var app = new ViewerApp(session, MaxMapPixels, MaxMapPixels - StatusHeight);
+        using var host = new WpfHost(app.Layout, options.MaxFrames);
         host.Run(app);
 
         return 0;

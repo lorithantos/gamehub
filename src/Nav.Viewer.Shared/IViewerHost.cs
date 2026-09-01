@@ -30,10 +30,10 @@ namespace Nav.Viewer;
 /// thread.</description></item>
 /// </list>
 /// <para>
-/// Window size and title are host constructor arguments, not app concerns. Both
-/// hosts size themselves from the same <see cref="GridLayout.Fit"/> call, so
-/// their geometry comes from one code path rather than two that agree by
-/// coincidence.
+/// The window title is a host constructor argument; window <em>size</em> follows
+/// <see cref="IViewerApp.Layout"/>. A windowed host reads it after every Update
+/// and resizes when it changed — mid-session loading changes the map, and the map
+/// decides the geometry. A host with no window ignores it, which is legal.
 /// </para>
 /// </remarks>
 public interface IViewerHost : IDisposable
@@ -42,9 +42,20 @@ public interface IViewerHost : IDisposable
 }
 
 /// <summary>
-/// The application, as a host sees it: something to tick, something to draw, and
-/// a line of text to display however the host displays text.
+/// The application, as a host sees it: something to tick, something to draw, a
+/// line of text to display however the host displays text — and, since
+/// mid-session loading, the geometry the host should size its window to and a
+/// way to hand the app a file.
 /// </summary>
+/// <remarks>
+/// <see cref="Layout"/> and <see cref="LoadFile"/> are milestone-2's second
+/// recorded seam change (the first was <see cref="InputState.ButtonsDown"/>).
+/// Both exist because content became loadable mid-session: the host owns the
+/// gesture that produces a file — a dialog, a drop — and the app owns what the
+/// file means; the map then dictates the window size, so geometry had to become
+/// observable rather than a construction-time constant. The drawing verbs were
+/// untouched again.
+/// </remarks>
 public interface IViewerApp
 {
     /// <summary>
@@ -52,6 +63,26 @@ public interface IViewerApp
     /// says, the host decides how it looks.
     /// </summary>
     string StatusText { get; }
+
+    /// <summary>
+    /// What the window should be called. The same split as the status line —
+    /// and observable rather than a constructor argument, because a loaded file
+    /// changes what the window is showing.
+    /// </summary>
+    string WindowTitle { get; }
+
+    /// <summary>
+    /// The map area's pixel geometry. Changes only when content is loaded, and
+    /// only between frames — never during Update or Render.
+    /// </summary>
+    GridLayout Layout { get; }
+
+    /// <summary>
+    /// Load a map or scenario file the host's chrome produced. Never throws for
+    /// a bad file: a refusal keeps the current content and says why in
+    /// <see cref="StatusText"/>.
+    /// </summary>
+    void LoadFile(string path);
 
     void Update(in InputState input, float deltaSeconds);
 

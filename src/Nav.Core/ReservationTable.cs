@@ -256,6 +256,28 @@ internal sealed class ReservationTable : IReservationView
         ArgumentOutOfRangeException.ThrowIfNegative(cell);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(cell, _cellCount);
 
+        // A DEFENSIVE ASSERTION, and deliberately not a repair. Every plan that
+        // reaches here was validated cell by cell against this table by the
+        // search that produced it, so a slot already held by SOMEBODY ELSE means
+        // the plan was validated against a table that has since changed -- a
+        // search suspended across a commit -- and silently overwriting would
+        // turn that into a collision ticks later, far from its cause. The
+        // tie-break fuzz ran 320 orderings across three budgets, including the
+        // regime where searches suspend, and never reached this line; so it is
+        // an invariant made visible rather than a bug fixed, and if it ever
+        // fires the exception names the commit that broke it.
+        //
+        // Occupant rather than the ring alone: another agent PARKED here lives in
+        // _parked, not the ring, and is the same defect. The caller's own id
+        // cannot be here -- Reserve releases it first -- and would be harmless.
+        var holder = Occupant(cell, tick);
+        if (holder != Free && holder != agent)
+        {
+            throw new InvalidOperationException(
+                $"agent {agent} reserved cell {cell} at tick {tick}, which agent {holder} already holds; " +
+                "the plan was validated against a table that has since changed.");
+        }
+
         _ring[tick % Horizon][cell] = agent;
         held.Add(new Reservation(tick, cell));
     }

@@ -269,8 +269,12 @@ public sealed class ReservationTableTests
         // The aliasing hazard. Tick T and tick T+Horizon are the same ring slot.
         // Agent 0's stale record of tick 0 must not delete agent 1's live
         // reservation of tick Horizon, which sits in the same place.
+        //
+        // Agent 0 passes THROUGH cell 3 rather than stopping on it. Stopping would
+        // park it there indefinitely, and agent 1's booking a horizon later would
+        // then be a genuine conflict that Reserve refuses, not a stale alias.
         var table = New();
-        table.Reserve([3], startTick: 0, agent: 0);
+        table.Reserve([3, 4], startTick: 0, agent: 0);
 
         table.Advance(Horizon);
         table.Reserve([3], startTick: Horizon, agent: 1);
@@ -278,21 +282,6 @@ public sealed class ReservationTableTests
         table.Release(0);
 
         Assert.Equal(1, table.HolderOf(3, Horizon));
-    }
-
-    [Fact]
-    public void ReleaseDoesNotClearACellAnotherAgentHasSinceTakenOver()
-    {
-        // Reserve does not police conflicts -- that is the planner's job -- so an
-        // agent's own record can name a cell somebody else now holds. Releasing
-        // must not take it from them.
-        var table = New();
-        table.Reserve([3], startTick: 2, agent: 0);
-        table.Reserve([3], startTick: 2, agent: 1);
-
-        table.Release(0);
-
-        Assert.Equal(1, table.HolderOf(3, 2));
     }
 
     [Fact]

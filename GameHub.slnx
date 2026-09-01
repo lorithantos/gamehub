@@ -6,6 +6,9 @@
     <Project Path="src/Nav.Viewer.Shared/Nav.Viewer.Shared.csproj" />
     <Project Path="src/Nav.Viewer.Wpf/Nav.Viewer.Wpf.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Nav.Demos/Nav.Demos.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Nav.Benchmark/Nav.Benchmark.csproj" />
     <Project Path="tests/Nav.Core.Tests/Nav.Core.Tests.csproj" />

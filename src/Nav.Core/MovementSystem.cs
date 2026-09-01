@@ -95,6 +95,14 @@ public sealed class MovementSystem
         public Group? Group { get; set; }
 
         /// <summary>
+        /// Where this agent is going on its own, or -1 when it is with its group.
+        /// An errand overrides <see cref="Goal"/> and <see cref="FieldKey"/> and
+        /// nothing else: the agent stays in <see cref="Group"/>, and the seam
+        /// stops listing it as on station until it is recalled or re-ordered.
+        /// </summary>
+        public int Errand { get; set; } = -1;
+
+        /// <summary>
         /// True once this agent holds a concrete parking slot. A group member
         /// starts WITHOUT one — it walks toward the shared destination and
         /// claims a slot on approach, the way a person walks toward a gathering
@@ -441,6 +449,7 @@ public sealed class MovementSystem
             agent.Goal = slots[0];
             agent.HasSlot = agents.Count == 1;
             agent.FieldKey = slots[0];
+            agent.Errand = -1;   // an order ends an errand like any other goal
 
             agent.StalledTicks = 0;
             agent.RetryAfterTick = 0;
@@ -643,8 +652,10 @@ public sealed class MovementSystem
             return;
         }
 
-        var key = group.Members[0].FieldKey >= 0 ? group.Members[0].FieldKey : group.Members[0].Goal;
-        var field = _fields.For(key);
+        // Keyed by the ring, not by a member: a member away on an errand carries
+        // the errand's field key, and the leader is measured against the group's
+        // destination whoever happens to be first in the list.
+        var field = _fields.For(group.Slots[0]);
 
         var best = -1;
         var bestCost = double.PositiveInfinity;
@@ -972,10 +983,74 @@ public sealed class MovementSystem
             _system = system;
             _group = group;
 
-            var key = group.Members[0].FieldKey >= 0 ? group.Members[0].FieldKey : group.Destination;
-            _field = system._fields.For(key);
-            Members = [.. group.Members.Select(m => m.Id).OrderBy(id => id)];
-            _members = [.. Members];
+            // The group's field is keyed by its innermost slot, which is what
+            // Order gives every member as its field key. Read from the ring rather
+            // than from a member, because a member away on an errand carries the
+            // errand's key, and "whichever member happens to be first" is not a
+            // fact the group's field should depend on.
+            _field = system._fields.For(group.Slots[0]);
+
+            // Two lists from one membership: on station, and away. Every pass
+            // iterates Members; the mutators accept both, because confinement is
+            // about the group and an errand does not leave it.
+            Members = [.. group.Members.Where(m => m.Errand < 0).Select(m => m.Id).OrderBy(id => id)];
+            Dispatched = [.. group.Members.Where(m => m.Errand >= 0).Select(m => m.Id).OrderBy(id => id)];
+            _members = [.. group.Members.Select(m => m.Id)];
+        }
+
+        /// <inheritdoc/>
+        public IReadOnlyList<int> Dispatched { get; }
+
+        /// <inheritdoc/>
+        public int ErrandOf(int id) => Member(id).Errand;
+
+        /// <inheritdoc/>
+        public void Dispatch(int id, int destination)
+        {
+            var agent = Member(id);
+            if (!_system._grid.IsPassable(destination))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(destination), destination, "An errand must end on a passable cell on the map.");
+            }
+
+            // The slot goes first, so the ring sees the space this tick. Then the
+            // errand is exactly what a single-unit order is: this unit, that cell,
+            // its own field -- the group is untouched.
+            if (agent.HasSlot)
+            {
+                agent.HasSlot = false;
+                Unclaim(agent.Goal, id);
+            }
+
+            agent.Errand = destination;
+            agent.Goal = destination;
+            agent.FieldKey = destination;
+            agent.StalledTicks = 0;
+            agent.RetryAfterTick = _system.CurrentTick;
+            agent.WantsPlan = true;
+            _system.Abandon(agent);
+        }
+
+        /// <inheritdoc/>
+        public void Recall(int id)
+        {
+            var agent = Member(id);
+            if (agent.Errand < 0)
+            {
+                return;
+            }
+
+            // Back to exactly the state Order leaves a group member in: aimed at
+            // the ring's innermost slot, holding nothing, claiming on approach.
+            agent.Errand = -1;
+            agent.Goal = _group.Slots[0];
+            agent.FieldKey = _group.Slots[0];
+            agent.HasSlot = false;
+            agent.StalledTicks = 0;
+            agent.RetryAfterTick = _system.CurrentTick;
+            agent.WantsPlan = true;
+            _system.Abandon(agent);
         }
 
         /// <summary>

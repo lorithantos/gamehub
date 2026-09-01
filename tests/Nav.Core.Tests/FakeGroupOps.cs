@@ -145,7 +145,8 @@ public sealed class FakeGroupOps : IGroupOps
     /// </summary>
     private void RequireMember(int id)
     {
-        if (!Members.Contains(id))
+        // On station or away, both are members: confinement is about the group.
+        if (!Members.Contains(id) && !Dispatched.Contains(id))
         {
             throw new ArgumentOutOfRangeException(nameof(id), id, "Not a member of this group.");
         }
@@ -201,5 +202,52 @@ public sealed class FakeGroupOps : IGroupOps
     {
         RequireMember(id);
         Holds.Add((id, ticks));
+    }
+
+    private readonly Dictionary<int, int> _errand = [];
+
+    /// <summary>Every <see cref="Dispatch"/> in order, as (member, destination).</summary>
+    public List<(int Id, int Destination)> Dispatches { get; } = [];
+
+    /// <summary>Every <see cref="Recall"/> in order.</summary>
+    public List<int> Recalls { get; } = [];
+
+    /// <inheritdoc/>
+    public IReadOnlyList<int> Dispatched { get; private set; } = [];
+
+    /// <inheritdoc/>
+    public int ErrandOf(int id) => _errand.TryGetValue(id, out var destination) ? destination : -1;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Mirrors the real seam: the member leaves <see cref="Members"/> for
+    /// <see cref="Dispatched"/>, drops any slot, and is aimed at the errand -- so
+    /// a pass that iterates Members stops seeing it, which is the property the
+    /// doctrine tests rely on.
+    /// </remarks>
+    public void Dispatch(int id, int destination)
+    {
+        RequireMember(id);
+        Dispatches.Add((id, destination));
+        if (_hasSlot[id]) { Claimed.Remove(_goal[id]); }
+
+        _hasSlot[id] = false;
+        _goal[id] = destination;
+        _errand[id] = destination;
+        Members = [.. Members.Where(m => m != id)];
+        Dispatched = [.. Dispatched.Append(id).Distinct().Order()];
+    }
+
+    /// <inheritdoc/>
+    public void Recall(int id)
+    {
+        RequireMember(id);
+        Recalls.Add(id);
+        if (!_errand.Remove(id)) { return; }
+
+        _hasSlot[id] = false;
+        _goal[id] = Slots.Count > 0 ? Slots[0] : Destination;
+        Dispatched = [.. Dispatched.Where(m => m != id)];
+        Members = [.. Members.Append(id).Distinct().Order()];
     }
 }

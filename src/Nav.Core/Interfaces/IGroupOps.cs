@@ -16,4 +16,4 @@ namespace Nav.Core.Interfaces;
 /// internal, so a third party sees these contracts and no concrete type at all.
 /// </para>
 /// </remarks>
-public interface IGroupOps : IGroupView, IGroupClaiming, IGroupPacing;
+public interface IGroupOps : IGroupView, IGroupClaiming, IGroupPacing, IGroupDispatching;

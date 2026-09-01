@@ -239,4 +239,34 @@ public sealed class GatherDoctrineTests
         Assert.Equal([1], ops.Releases);
         Assert.Equal([(0, 5)], ops.Claims);
     }
+
+    [Fact]
+    public void ADispatchedMemberIsInvisibleToEveryPassUntilRecalled()
+    {
+        // Member 0 stands on the destination, which would ordinarily be claimed by
+        // standing there. Away on an errand it is not on station, so no pass
+        // touches it; recalled, the very next pass claims for it as usual. Every
+        // existing rule keeps working without knowing errands exist, because they
+        // all iterate Members and an errand simply is not in it.
+        var ops = new FakeGroupOps { Destination = 7, Slots = [7, 8] }
+            .With(id: 0, cell: 7, goal: 7)
+            .With(id: 1, cell: 20, goal: 7)
+            .Cost(7, 0.0)
+            .Cost(8, 1.0)
+            .Cost(20, 6.0);
+
+        ops.Dispatch(0, 40);
+        new GatherDoctrine().Advance(ops);
+
+        Assert.Empty(ops.Claims);
+        Assert.Equal([1], ops.Members);
+        Assert.Equal([0], ops.Dispatched);
+        Assert.Equal(40, ops.ErrandOf(0));
+
+        ops.Recall(0);
+        new GatherDoctrine().Advance(ops);
+
+        Assert.Equal([(0, 7)], ops.Claims);
+        Assert.Equal(-1, ops.ErrandOf(0));
+    }
 }

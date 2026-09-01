@@ -34,10 +34,31 @@ public interface IGroupView
     IReadOnlyList<int> Slots { get; }
 
     /// <summary>
-    /// Member ids, ascending. A snapshot taken when the pass began, so it does not
-    /// reflect membership changed during the tick it is serving.
+    /// The members ON STATION, ascending: every member of the group except those
+    /// away on an errand, which <see cref="Dispatched"/> lists instead. A snapshot
+    /// taken when the pass began, so it does not reflect membership changed
+    /// during the tick it is serving.
     /// </summary>
+    /// <remarks>
+    /// The split is what makes an errand safe for every existing pass: a pass
+    /// that iterates this list never claims a slot for, meters, or reconciles a
+    /// unit that is somewhere else on purpose. The mutating facets accept both
+    /// lists; confinement is about the group, not about who is on station.
+    /// </remarks>
     IReadOnlyList<int> Members { get; }
+
+    /// <summary>
+    /// Members away on an errand, ascending -- sent by
+    /// <see cref="IGroupDispatching.Dispatch"/> and not yet recalled. Empty for
+    /// a group nobody has dispatched from, which is every group today.
+    /// </summary>
+    IReadOnlyList<int> Dispatched { get; }
+
+    /// <summary>
+    /// Where a dispatched member is going, or -1 for a member on station. Reads
+    /// for any member of the group, on station or not.
+    /// </summary>
+    int ErrandOf(int id);
 
     /// <summary>
     /// Every chokepoint on the MAP, not merely those between this group and its

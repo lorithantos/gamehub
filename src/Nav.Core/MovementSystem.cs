@@ -124,6 +124,14 @@ public sealed class MovementSystem
 
         /// <summary>The order this agent last belonged to, or null.</summary>
         public Group? Group { get; set; }
+
+        /// <summary>
+        /// True once this agent holds a concrete parking slot. A group member
+        /// starts WITHOUT one — it walks toward the shared destination and
+        /// claims a slot on approach, the way a person walks toward a gathering
+        /// and takes the nearest open spot once they are near.
+        /// </summary>
+        public bool HasSlot { get; set; } = true;
     }
 
     /// <summary>
@@ -135,6 +143,9 @@ public sealed class MovementSystem
         public required int Destination { get; init; }
 
         public required List<Agent> Members { get; init; }
+
+        /// <summary>The parking ring: nearest cells to the destination, innermost first.</summary>
+        public required IReadOnlyList<int> Slots { get; init; }
 
         // Far enough in the past to always fire, small enough that the
         // subtraction in the hysteresis check cannot overflow.
@@ -218,24 +229,27 @@ public sealed class MovementSystem
     {
         ArgumentNullException.ThrowIfNull(agents);
 
-        var squad = agents.Select(id => (Agent: id, Cell: _agents[id].Cell)).ToArray();
-        var assigned = GoalSpread.Assign(_grid, goalCell, squad);
-        if (assigned.Count == 0)
+        // The parking ring doubles as the passability check: an impassable
+        // destination yields no ring and the order is refused as before.
+        var slots = GoalSpread.Nearest(_grid, goalCell, agents.Count);
+        if (slots.Count == 0)
         {
             return;
         }
 
-        var group = new Group { Destination = goalCell, Members = [] };
-        foreach (var (id, goal) in assigned)
+        var group = new Group { Destination = goalCell, Members = [], Slots = slots };
+        foreach (var id in agents.OrderBy(id => id))
         {
             var agent = _agents[id];
-            agent.Goal = goal;
 
-            // The FIELD is keyed by the order's destination, so the whole group
-            // shares one; the assigned goal stays per-agent. An impassable
-            // destination (a click on a wall) falls back to the assigned goal,
-            // which GoalSpread guarantees passable.
-            agent.FieldKey = _grid.IsPassable(goalCell) ? goalCell : goal;
+            // A group member is NOT handed a parking slot here. It walks toward
+            // the shared destination and claims the innermost open slot once it
+            // gets NEAR -- the way a real team fills in on arrival rather than
+            // pre-booking spots from across the map. A single-unit order is its
+            // own claim: this unit, that cell, immediately.
+            agent.Goal = slots[0];
+            agent.HasSlot = agents.Count == 1;
+            agent.FieldKey = slots[0];
 
             agent.StalledTicks = 0;
             agent.RetryAfterTick = 0;
@@ -259,6 +273,7 @@ public sealed class MovementSystem
     /// </summary>
     public void Tick()
     {
+        ClaimSlots();
         Reconcile();
 
         LastTick = SpendPlanningBudget();
@@ -282,6 +297,11 @@ public sealed class MovementSystem
         {
             foreach (var agent in _agents)
             {
+                // An arrival opens space, and not only for slot-holders: the
+                // rear of a marching column stalls against its own squad at
+                // tick one, sits outside the claim radius, and NOTHING else
+                // ever wakes it -- five of the group fixture's twelve froze
+                // exactly that way when this wake was gated to slot-holders.
                 if (agent.StalledTicks > 0 && agent.Cell != agent.Goal)
                 {
                     agent.RetryAfterTick = CurrentTick;
@@ -305,6 +325,89 @@ public sealed class MovementSystem
     /// members keep it deterministic. A goal change is a wake: exactly the
     /// members whose goals moved are replanned, nobody else.
     /// </remarks>
+    /// <summary>
+    /// Hands parking slots to group members as they get NEAR the destination —
+    /// innermost open slot to whoever is closest, in id order within a tick.
+    /// Filling happens in arrival order by construction, which is what stops
+    /// the settled crust sealing holes over slots whose pre-booked owners were
+    /// still fighting through traffic.
+    /// </summary>
+    private void ClaimSlots()
+    {
+        HashSet<int>? settledCells = null;
+
+        foreach (var group in _groups)
+        {
+            if (group.Members.Count < 2 || group.Members.All(m => m.HasSlot))
+            {
+                continue;
+            }
+
+            var field = _fields.For(group.Members[0].FieldKey);
+            var claimed = new HashSet<int>(
+                group.Members.Where(m => m.HasSlot).Select(m => m.Goal));
+
+            // FILL LIKE WATER. Claims open only just ahead of the current
+            // crust: the claiming radius is the outermost claimed slot plus a
+            // small margin, so a slot is booked moments before it is filled,
+            // by whoever is actually closest. A wide radius is pre-booking from
+            // across the field wearing a different hat -- measured at 91 sealed
+            // holes against the 28 it was meant to fix.
+            var frontier = 0.0;
+            foreach (var slot in claimed)
+            {
+                frontier = Math.Max(frontier, field.CostFrom(slot));
+            }
+
+            var radius = frontier + (2.0 * Movement.DiagonalCost);
+
+            var near = group.Members
+                .Where(m => !m.HasSlot)
+                .Select(m => (Member: m, Cost: field.CostFrom(m.Cell)))
+                .Where(pair => pair.Cost <= radius)
+                .OrderBy(pair => pair.Cost)
+                .ThenBy(pair => pair.Member.Id);
+
+            foreach (var (member, _) in near)
+            {
+                // The first unit to reach the destination itself claimed it by
+                // standing on it.
+                if (member.Cell == member.Goal)
+                {
+                    member.HasSlot = true;
+                    claimed.Add(member.Goal);
+                    continue;
+                }
+
+                settledCells ??= [.. _agents.Where(a => a.Cell == a.Goal).Select(a => a.Cell)];
+
+                foreach (var slot in group.Slots)
+                {
+                    if (claimed.Contains(slot) || settledCells.Contains(slot))
+                    {
+                        continue;
+                    }
+
+                    claimed.Add(slot);
+                    member.HasSlot = true;
+                    if (member.Goal != slot)
+                    {
+                        member.Goal = slot;
+                        member.StalledTicks = 0;
+                        member.RetryAfterTick = CurrentTick;
+                        member.WantsPlan = true;
+                        Abandon(member);
+                    }
+
+                    break;
+                }
+
+                // Every slot taken: stay aimed at the destination; the
+                // hard-stall reconciliation is the safety net for that.
+            }
+        }
+    }
+
     private void Reconcile()
     {
         foreach (var group in _groups)
@@ -456,6 +559,7 @@ public sealed class MovementSystem
             claimed[member.Goal] = false;
             claimed[pick] = true;
             member.Goal = pick;
+            member.HasSlot = true;
             member.StalledTicks = 0;
             member.RetryAfterTick = CurrentTick;
             member.WantsPlan = true;
@@ -735,12 +839,15 @@ public sealed class MovementSystem
         }
         else
         {
-            // No progress. Wait for an event -- an arrival, an order, a
-            // reconciliation -- rather than re-asking an unchanged world on a
-            // short timer; the backstop turns a missed wake into slow, not
-            // frozen.
+            // No progress. Wait for an event -- an arrival, an order, a claim,
+            // a reconciliation -- rather than re-asking an unchanged world on
+            // a short timer; the backstop turns a missed wake into slow, not
+            // frozen. A QUEUED member (no slot yet) waits four times longer:
+            // its progress arrives as a claim, which wakes it by name, and its
+            // timer probes against the crowd measured as roughly half the
+            // whole order's node spend.
             agent.StalledTicks++;
-            agent.RetryAfterTick = CurrentTick + StallBackstopTicks;
+            agent.RetryAfterTick = CurrentTick + (agent.HasSlot ? StallBackstopTicks : 4 * StallBackstopTicks);
         }
     }
 

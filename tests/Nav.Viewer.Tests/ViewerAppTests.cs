@@ -121,9 +121,12 @@ public sealed class ViewerAppTests
 
         Assert.Equal(Squad, app.Selection.Count);
 
-        // Everyone got a goal near the destination, and everyone got their own.
-        var goals = app.Agents.Select(a => a.Goal).ToArray();
-        Assert.Equal(Squad, goals.Distinct().Count());
+        // A group order aims everyone at the SHARED destination; distinct
+        // parking slots are claimed on approach, the way a real team fills in
+        // at the gathering point rather than pre-booking spots from across the
+        // map. Distinct final cells are the core suite's business.
+        var destination = grid.Index(9, 5);
+        Assert.All(app.Agents, a => Assert.Equal(destination, a.Goal));
         Assert.All(app.Agents, a => Assert.NotEqual(a.Cell, a.Goal));
     }
 

@@ -172,7 +172,7 @@ public sealed class MovementSystem
     private readonly Stack<SearchWorkspace> _workspacePool = new();
     private readonly int _nodeBudgetPerTick;
     private readonly int _maxSearchesInFlight;
-    private readonly FieldCache _fields;
+    private readonly IDistanceFieldSource _fields;
     private readonly List<Group> _groups = [];
 
     // Per-tick occupancy caches, rebuilt at the top of Tick and kept current by
@@ -204,11 +204,23 @@ public sealed class MovementSystem
     /// search OWNS its workspace — the frontier and state arrays live there
     /// between calls — so this is a memory bound as much as a scheduling one.
     /// </param>
+    /// <param name="fields">
+    /// Where distance fields come from. Defaults to a <see cref="FieldCache"/> of
+    /// <see cref="FieldCapacity"/> built over <paramref name="grid"/>, which is
+    /// what a match wants. Supply one to share a source across systems, to hand in
+    /// fields precomputed at load, or to wrap the default in something that counts
+    /// -- the capacity is a guess until somebody measures it.
+    /// <para>
+    /// Whatever is passed must be deterministic in the sense
+    /// <see cref="IDistanceFieldSource"/> describes, or replay stops being a test.
+    /// </para>
+    /// </param>
     public MovementSystem(
         Grid grid,
         int horizon = 32,
         int nodeBudgetPerTick = 4000,
-        int maxSearchesInFlight = 8)
+        int maxSearchesInFlight = 8,
+        IDistanceFieldSource? fields = null)
     {
         ArgumentNullException.ThrowIfNull(grid);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(nodeBudgetPerTick);
@@ -218,7 +230,7 @@ public sealed class MovementSystem
         _table = new ReservationTable(grid.CellCount, horizon);
         _nodeBudgetPerTick = nodeBudgetPerTick;
         _maxSearchesInFlight = maxSearchesInFlight;
-        _fields = new FieldCache(grid, FieldCapacity);
+        _fields = fields ?? new FieldCache(grid, FieldCapacity);
     }
 
     /// <summary>

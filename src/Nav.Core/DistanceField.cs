@@ -118,7 +118,7 @@ public sealed class DistanceField
 /// (strict LRU on <see cref="For"/> calls), so two identical runs hold identical
 /// caches — replay determinism must not depend on what happens to be cached.
 /// </remarks>
-public sealed class FieldCache
+public sealed class FieldCache : IDistanceFieldSource
 {
     private readonly Grid _grid;
     private readonly int _capacity;
@@ -139,18 +139,16 @@ public sealed class FieldCache
         _capacity = capacity;
     }
 
-    /// <summary>
-    /// Fields built and held right now, never above the capacity. It is a memory
-    /// reading -- one <c>double</c> per cell apiece -- not a progress one.
-    /// </summary>
+    /// <inheritdoc/>
     public int Count => _fields.Count;
 
-    /// <summary>
-    /// The field for this destination, built on the first ask and then handed to
-    /// every later caller as the SAME instance -- which is the whole economy of the
-    /// design: K fields serve N units. Each call also marks the field most recently
-    /// used, so the sequence of calls is what decides the eviction order.
-    /// </summary>
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Built on the first ask and then handed to every later caller as the SAME
+    /// instance. Each call also marks the field most recently used, so the
+    /// sequence of calls is what decides the eviction order -- which is what
+    /// makes eviction deterministic and replay safe.
+    /// </remarks>
     public DistanceField For(int destination)
     {
         if (_fields.TryGetValue(destination, out var cached))

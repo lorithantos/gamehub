@@ -17,10 +17,11 @@ namespace Nav.Core;
 /// </remarks>
 internal sealed class BinaryHeap
 {
-    private readonly record struct Entry(int Cell, double F, double H);
+    private readonly record struct Entry(int Cell, double F, double H, int R);
 
     private Entry[] _entries;
     private int _count;
+    private readonly Random? _tieBreak;
 
     /// <summary>
     /// An empty heap. <paramref name="capacity"/> is a starting size only -- the
@@ -28,10 +29,27 @@ internal sealed class BinaryHeap
     /// growing frontier would otherwise pay for.
     /// </summary>
     /// <param name="capacity">Initial room, in entries. At least one.</param>
-    public BinaryHeap(int capacity = 128)
+    /// <param name="tieBreakSeed">
+    /// When given, entries that tie EXACTLY on both <c>f</c> and <c>h</c> are
+    /// ordered by a third key drawn from a generator seeded with this value, so
+    /// the heap pops one of the equally good frontiers the caller did not choose.
+    /// When null -- the production default -- the third key is always zero and
+    /// the ordering is identical to a heap without it.
+    /// </param>
+    /// <remarks>
+    /// The seed exists because a search's answer must not depend on which of
+    /// several equal-priority entries happens to pop first, and the only way to
+    /// know that is to pop a different one. A collision that appears under one
+    /// seed and not another is a real defect: every path is still optimal, and
+    /// collision-freedom has to hold for every valid tie-break. Each seed is one
+    /// fixed, replayable ordering -- the draws happen in push order, which is
+    /// itself deterministic -- so a failing seed fails the same way forever.
+    /// </remarks>
+    public BinaryHeap(int capacity = 128, int? tieBreakSeed = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 1);
         _entries = new Entry[capacity];
+        _tieBreak = tieBreakSeed is { } seed ? new Random(seed) : null;
     }
 
     /// <summary>
@@ -65,7 +83,7 @@ internal sealed class BinaryHeap
         }
 
         var index = _count++;
-        _entries[index] = new Entry(cell, f, h);
+        _entries[index] = new Entry(cell, f, h, _tieBreak?.Next() ?? 0);
         SiftUp(index);
     }
 
@@ -105,9 +123,16 @@ internal sealed class BinaryHeap
     /// the difference between probing a plateau of identical <c>f</c> and walking
     /// through it, and it costs one comparison.
     /// </para>
+    /// <para>
+    /// The third key is consulted only when both <c>f</c> and <c>h</c> are exactly
+    /// equal, and in production it is always zero, so this is the same two
+    /// comparisons as before on every path that mattered before.
+    /// </para>
     /// </remarks>
     private static bool IsBetter(in Entry candidate, in Entry incumbent) =>
-        candidate.F < incumbent.F || (candidate.F == incumbent.F && candidate.H < incumbent.H);
+        candidate.F < incumbent.F ||
+        (candidate.F == incumbent.F &&
+            (candidate.H < incumbent.H || (candidate.H == incumbent.H && candidate.R < incumbent.R)));
 
     private void SiftUp(int index)
     {

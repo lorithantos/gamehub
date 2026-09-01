@@ -49,7 +49,12 @@ public sealed class SearchWorkspace
     /// <c>horizon * cells</c> rather than <c>cells</c>, because its state is a
     /// cell and a tick.
     /// </param>
-    public SearchWorkspace(int cellCount = 0)
+    /// <param name="tieBreakSeed">
+    /// Seeds the frontier's third ordering key, so exact <c>(f, h)</c> ties pop
+    /// in a different but fixed order. Null, the default, is the production
+    /// ordering. See <see cref="BinaryHeap"/> for why this exists.
+    /// </param>
+    public SearchWorkspace(int cellCount = 0, int? tieBreakSeed = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(cellCount);
 
@@ -57,7 +62,7 @@ public sealed class SearchWorkspace
         Parent = new int[cellCount];
         State = new byte[cellCount];
         Stamp = new int[cellCount];
-        Frontier = new BinaryHeap();
+        Frontier = new BinaryHeap(tieBreakSeed: tieBreakSeed);
     }
 
     /// <summary>Cells this workspace can currently serve without regrowing.</summary>

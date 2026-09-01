@@ -105,6 +105,12 @@ public static class ScenarioPlayback
     /// issued and <em>before</em> the world advanced, which is the same instant
     /// the trajectory check records. Null when nothing is tracing.
     /// </param>
+    /// <param name="tieBreakSeed">
+    /// Passed through to <see cref="MovementSystem"/>: pops a different but fixed
+    /// one of each search's equally good frontier entries. Null is the production
+    /// ordering; any other value is one alternative valid A*, replayable forever,
+    /// against which the collision verdict must still hold.
+    /// </param>
     /// <returns>
     /// What happened: trajectories, the conflict verdict over them, and the
     /// counters that separate a finished run from a deadlocked one.
@@ -118,7 +124,8 @@ public static class ScenarioPlayback
     /// agents to a cell off the map.
     /// </exception>
     public static ScenarioOutcome Play(
-        RecordedScenario scenario, Grid grid, int horizon = 32, Action<TraceTick>? onTick = null)
+        RecordedScenario scenario, Grid grid, int horizon = 32, Action<TraceTick>? onTick = null,
+        int? tieBreakSeed = null)
     {
         ArgumentNullException.ThrowIfNull(scenario);
         ArgumentNullException.ThrowIfNull(grid);
@@ -128,7 +135,7 @@ public static class ScenarioPlayback
         // cannot drift apart by one of them forgetting a check the other makes.
         scenario.EnsureMatches(grid);
 
-        var system = new MovementSystem(grid, horizon);
+        var system = new MovementSystem(grid, horizon, tieBreakSeed: tieBreakSeed);
         var trails = new List<int>[scenario.Agents.Count];
 
         foreach (var placement in scenario.Agents)

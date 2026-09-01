@@ -1,0 +1,105 @@
+namespace Nav.Core.Tests;
+
+/// <summary>
+/// Every committed scenario, replayed under orderings the production heap never
+/// picks: collision-freedom must hold for all of them.
+/// </summary>
+/// <remarks>
+/// A* is indifferent between frontier entries that tie exactly on <c>(f, h)</c>,
+/// so which one pops first is an accident of heap layout, and the collision core
+/// must be correct whichever accident occurs. The PriorityQueue spike changed
+/// that accident once and found a real hole; this changes it sixteen times per
+/// scenario, on purpose, with each ordering fixed by its seed.
+/// <para>
+/// Reproducibility is the property that makes a failure here worth anything, and
+/// it is asserted rather than assumed: the same seed replayed twice must produce
+/// identical trajectories. If that ever fails, the fuzz heap has stopped being
+/// deterministic and nothing else in this file can be trusted.
+/// </para>
+/// </remarks>
+public sealed class TieBreakFuzzTests
+{
+    private const int Seeds = 16;
+
+    public static IEnumerable<object[]> Scenarios =>
+        new[] { "chokepoint", "countermand", "crosscut", "crossing", "group", "headon", "reconcile", "staggered", "standing", "throng" }
+            .Select(name => new object[] { name });
+
+    private static (RecordedScenario Scenario, Grid Grid) Load(string name)
+    {
+        var scenario = RecordedScenario.FromFile(Fixtures.Scenario(name));
+        return (scenario, Grid.FromMapFile(Fixtures.Map(scenario.MapName)));
+    }
+
+    [Theory]
+    [MemberData(nameof(Scenarios))]
+    public void NoTieBreakProducesACollision(string name)
+    {
+        var (scenario, grid) = Load(name);
+        var failures = new List<string>();
+
+        for (var seed = 0; seed < Seeds; seed++)
+        {
+            var outcome = ScenarioPlayback.Play(scenario, grid, tieBreakSeed: seed);
+            if (!outcome.Conflicts.Clean)
+            {
+                failures.Add($"seed {seed}: {outcome.Conflicts.Conflicts[0]}");
+            }
+        }
+
+        // Every failing seed is reported, not just the first, because two seeds
+        // failing at the same cell and tick and one seed failing somewhere else
+        // are different findings.
+        Assert.True(failures.Count == 0, $"{name}: {failures.Count} of {Seeds} seeds collided:\n  " + string.Join("\n  ", failures));
+    }
+
+    [Theory]
+    [MemberData(nameof(Scenarios))]
+    public void ASeedReplaysToTheSameTrajectories(string name)
+    {
+        // The self-check. Seed 7 is arbitrary; what matters is that it is the
+        // same seed both times.
+        var (scenario, grid) = Load(name);
+
+        var first = ScenarioPlayback.Play(scenario, grid, tieBreakSeed: 7);
+        var second = ScenarioPlayback.Play(scenario, grid, tieBreakSeed: 7);
+
+        Assert.Equal(first.FinalCells, second.FinalCells);
+        Assert.Equal(first.Conflicts.Conflicts.Count, second.Conflicts.Conflicts.Count);
+        Assert.Equal(first.TotalExpanded, second.TotalExpanded);
+        for (var i = 0; i < first.Trajectories.Count; i++)
+        {
+            Assert.Equal(first.Trajectories[i].Plan.Cells, second.Trajectories[i].Plan.Cells);
+        }
+    }
+
+    [Fact]
+    public void ANullSeedIsTheProductionOrdering()
+    {
+        // The seam must be invisible when unused: an unseeded run is the same run
+        // as before the third key existed, expansion for expansion.
+        var (scenario, grid) = Load("throng");
+
+        var unseeded = ScenarioPlayback.Play(scenario, grid);
+        var explicitNull = ScenarioPlayback.Play(scenario, grid, tieBreakSeed: null);
+
+        Assert.Equal(unseeded.TotalExpanded, explicitNull.TotalExpanded);
+        Assert.Equal(unseeded.FinalCells, explicitNull.FinalCells);
+    }
+
+    [Fact]
+    public void DifferentSeedsActuallyProduceDifferentRuns()
+    {
+        // If every seed replayed identically the fuzz would be exploring nothing.
+        // Sixteen seeds on the busiest scenario must not all agree on total
+        // expansions -- if they did, either ties never occur or R is ignored.
+        var (scenario, grid) = Load("throng");
+
+        var expansions = Enumerable.Range(0, Seeds)
+            .Select(seed => ScenarioPlayback.Play(scenario, grid, tieBreakSeed: seed).TotalExpanded)
+            .Distinct()
+            .Count();
+
+        Assert.True(expansions > 1, "every seed produced an identical run; the tie-break key is not being consulted");
+    }
+}

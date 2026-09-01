@@ -182,6 +182,14 @@ public sealed class MovementSystem
     private readonly HashSet<int> _occupiedCells = [];
 
     private readonly IChokepointSource _chokepointSource;
+
+    // Null in production. When set, every workspace this system creates gets a
+    // frontier whose exact-tie ordering is drawn from a seed derived from this
+    // one and the workspace's creation index -- derived with a fixed arithmetic
+    // mix on purpose, because HashCode.Combine is randomised per process and
+    // would make the "same seed" a different ordering on every run.
+    private readonly int? _tieBreakSeed;
+    private int _workspacesCreated;
     private IReadOnlyList<Chokepoint>? _chokepoints;
 
     /// <summary>
@@ -229,13 +237,22 @@ public sealed class MovementSystem
     /// metering off structurally, or a precomputed list for a shipped map whose
     /// gates never change.
     /// </param>
+    /// <param name="tieBreakSeed">
+    /// Makes every search pop a different but fixed one of its equally good
+    /// frontier entries, so a run can be checked against orderings the
+    /// production heap never chooses. Null, the default, is the production
+    /// ordering. A collision that appears under one seed and not another is a
+    /// real defect, because every path is still optimal and collision-freedom
+    /// must hold for every valid tie-break.
+    /// </param>
     public MovementSystem(
         Grid grid,
         int horizon = 32,
         int nodeBudgetPerTick = 4000,
         int maxSearchesInFlight = 8,
         IDistanceFieldSource? fields = null,
-        IChokepointSource? chokepoints = null)
+        IChokepointSource? chokepoints = null,
+        int? tieBreakSeed = null)
     {
         ArgumentNullException.ThrowIfNull(grid);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(nodeBudgetPerTick);
@@ -247,6 +264,19 @@ public sealed class MovementSystem
         _maxSearchesInFlight = maxSearchesInFlight;
         _fields = fields ?? new FieldCache(grid, FieldCapacity);
         _chokepointSource = chokepoints ?? new ChokepointScan();
+        _tieBreakSeed = tieBreakSeed;
+    }
+
+    /// <summary>
+    /// A workspace for the pool. Each one gets its own derived seed so two
+    /// workspaces do not draw identical tie-break sequences, and the derivation
+    /// is plain arithmetic so it is the same on every run.
+    /// </summary>
+    private SearchWorkspace NewWorkspace()
+    {
+        var index = _workspacesCreated++;
+        return new SearchWorkspace(
+            tieBreakSeed: _tieBreakSeed is { } seed ? unchecked((seed * 397) ^ (index * 7919)) : null);
     }
 
     /// <summary>
@@ -725,7 +755,7 @@ public sealed class MovementSystem
         agent.WantsPlan = false;
         agent.LastPlanAttemptTick = CurrentTick;
         agent.AnchorTick = CurrentTick + agent.Latency;
-        agent.Workspace = _workspacePool.Count > 0 ? _workspacePool.Pop() : new SearchWorkspace();
+        agent.Workspace = _workspacePool.Count > 0 ? _workspacePool.Pop() : NewWorkspace();
 
         // THE TABLE MUST DESCRIBE THE MOVEMENT THAT WILL ACTUALLY HAPPEN while
         // the search runs. A standing thinker holds its cell. A MOVING one keeps

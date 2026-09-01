@@ -40,9 +40,18 @@ internal static class Program
 
         Grid grid;
         string mapName;
+        RecordedScenario? scenario = null;
         try
         {
-            if (options.MapPath is { } path)
+            if (options.ScenarioPath is { } scenarioFile)
+            {
+                scenario = RecordedScenario.FromFile(scenarioFile);
+                var mapFile = options.MapPath
+                    ?? ViewerOptions.ResolveScenarioMap(scenarioFile, scenario.MapName);
+                grid = Grid.FromMapFile(mapFile);
+                mapName = $"{Path.GetFileName(scenarioFile)} on {Path.GetFileName(mapFile)}";
+            }
+            else if (options.MapPath is { } path)
             {
                 grid = Grid.FromMapFile(path);
                 mapName = Path.GetFileName(path);
@@ -77,7 +86,19 @@ internal static class Program
         // so the two cannot disagree about geometry by accident.
         var layout = GridLayout.Fit(grid, MaxMapPixels, MaxMapPixels - StatusHeight);
 
-        var app = new ViewerApp(grid, layout);
+        ViewerApp app;
+        try
+        {
+            app = new ViewerApp(grid, layout, scenario: scenario);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            // A scenario agent on a wall or off the map. The message names the
+            // cell; refusing beats a window of units that were never placed.
+            Console.Error.WriteLine(ex.Message);
+            return 1;
+        }
+
         using var host = new RaylibHost(layout, StatusHeight, $"Nav.Viewer - {mapName}", options.MaxFrames);
         host.Run(app);
 

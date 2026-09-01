@@ -312,6 +312,70 @@ public sealed class ViewerAppTests
     }
 
     [Fact]
+    public void AScenarioPlacesItsAgentsWhereItRecordedThem()
+    {
+        var scenario = RecordedScenario.FromText(
+            "version 1\nmap any.map\nagent 0 1 1\nagent 1 4 5\nend 30\n");
+        var grid = Fixture();
+
+        var app = new ViewerApp(grid, LayoutFor(grid), scenario: scenario);
+
+        Assert.Equal(2, app.Agents.Count);
+        Assert.Equal(grid.Index(1, 1), app.Agents[0].Cell);
+        Assert.Equal(grid.Index(4, 5), app.Agents[1].Cell);
+    }
+
+    [Fact]
+    public void ARecordedOrderFiresAtItsRecordedTickAndNotBefore()
+    {
+        var scenario = RecordedScenario.FromText(
+            "version 1\nmap any.map\nagent 0 1 1\norder 10 0 10 5\nend 60\n");
+        var grid = Fixture();
+        var app = new ViewerApp(grid, LayoutFor(grid), scenario: scenario);
+
+        using (var early = new ScriptedHost(ScriptedHost.Idle(5), new RecordingRenderer()))
+        {
+            early.Run(app);
+        }
+
+        // Tick 5: the order recorded for tick 10 has not been issued.
+        Assert.Equal(grid.Index(1, 1), app.Agents[0].Goal);
+
+        using (var later = new ScriptedHost(ScriptedHost.Idle(120), new RecordingRenderer()))
+        {
+            later.Run(app);
+        }
+
+        Assert.Equal(grid.Index(10, 5), app.Agents[0].Goal);
+        Assert.True(app.Agents[0].Arrived, "the replayed order never got its unit there");
+    }
+
+    [Fact]
+    public void ClicksStillWorkDuringAReplay()
+    {
+        // A replay is a viewer, not a verifier: the user may interfere, and the
+        // run diverges from the recording. That is allowed here and fatal in
+        // ScenarioPlayback, which is the difference between the two on purpose.
+        var scenario = RecordedScenario.FromText(
+            "version 1\nmap any.map\nagent 0 1 1\nagent 1 3 1\nend 60\n");
+        var grid = Fixture();
+        var layout = LayoutFor(grid);
+        var app = new ViewerApp(grid, layout, scenario: scenario);
+
+        using var host = new ScriptedHost(
+            [
+                new ScriptedFrame(Mouse: layout.CenterOf(3, 1), ButtonsDown: MouseButtons.Left),
+                new ScriptedFrame(Mouse: layout.CenterOf(3, 1)),
+                new ScriptedFrame(Mouse: layout.CenterOf(10, 5), ButtonsDown: MouseButtons.Right),
+            ],
+            new RecordingRenderer());
+        host.Run(app);
+
+        Assert.Equal([1], app.Selection);
+        Assert.Equal(grid.Index(10, 5), app.Agents[1].Goal);
+    }
+
+    [Fact]
     public void TheStatusLineNeverChangesLength()
     {
         // A breathing status line shook the whole WPF window: the window was

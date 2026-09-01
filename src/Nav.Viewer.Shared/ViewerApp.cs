@@ -35,9 +35,10 @@ public sealed class ViewerApp : IViewerApp
     private readonly Grid _grid;
     private readonly TerrainImage _terrain;
     private readonly MovementSystem _system;
-    private readonly FixedTimestep _clock = new(TickSeconds);
+    private readonly FixedTimestep _clock;
     private readonly int[] _previousCells;
     private readonly List<int> _selection = [];
+    private readonly Queue<ScenarioOrder> _orders;
 
     /// <summary>How far through the current tick we are, for drawing between cells.</summary>
     private float _blend;
@@ -48,7 +49,7 @@ public sealed class ViewerApp : IViewerApp
 
     private bool _running = true;
 
-    public ViewerApp(Grid grid, GridLayout layout, int squad = Squad)
+    public ViewerApp(Grid grid, GridLayout layout, int squad = Squad, RecordedScenario? scenario = null)
     {
         ArgumentNullException.ThrowIfNull(grid);
 
@@ -56,18 +57,34 @@ public sealed class ViewerApp : IViewerApp
         Layout = layout;
         _terrain = TerrainImage.FromGrid(grid, RgbaColor.RayWhite, RgbaColor.DarkGray);
         _system = new MovementSystem(grid);
+        _clock = new FixedTimestep(scenario?.TickSeconds ?? TickSeconds);
+        _orders = new Queue<ScenarioOrder>(scenario?.Orders ?? []);
 
-        // A squad to look at before the first click, on any map.
-        var placed = 0;
-        for (var cell = 0; cell < grid.CellCount && placed < squad; cell++)
+        if (scenario is not null)
         {
-            if (!grid.IsPassable(cell))
+            // A replay: the recorded placements, and the recorded orders fed in
+            // at their recorded ticks. The user's own clicks still work -- and
+            // diverge the run from the recording, which is a viewer's privilege
+            // and a test's failure.
+            foreach (var agent in scenario.Agents)
             {
-                continue;
+                _system.AddAgent(grid.Index(agent.X, agent.Y));
             }
+        }
+        else
+        {
+            // A squad to look at before the first click, on any map.
+            var placed = 0;
+            for (var cell = 0; cell < grid.CellCount && placed < squad; cell++)
+            {
+                if (!grid.IsPassable(cell))
+                {
+                    continue;
+                }
 
-            _system.AddAgent(cell);
-            placed++;
+                _system.AddAgent(cell);
+                placed++;
+            }
         }
 
         _previousCells = [.. _system.Agents.Select(a => a.Cell)];
@@ -149,6 +166,14 @@ public sealed class ViewerApp : IViewerApp
                 for (var id = 0; id < _previousCells.Length; id++)
                 {
                     _previousCells[id] = before[id].Cell;
+                }
+
+                // Recorded orders land at their recorded ticks, exactly as the
+                // headless playback issues them.
+                while (_orders.TryPeek(out var order) && order.Tick <= _system.CurrentTick)
+                {
+                    _orders.Dequeue();
+                    _system.Order(order.Agents, _grid.Index(order.X, order.Y));
                 }
 
                 _system.Tick();

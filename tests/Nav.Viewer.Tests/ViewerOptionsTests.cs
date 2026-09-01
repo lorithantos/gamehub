@@ -44,6 +44,69 @@ public sealed class ViewerOptionsTests
         Assert.True(options.ShowHelp);
     }
 
+    [Theory]
+    [InlineData("--scenario", "runs/headon.scenario")]
+    [InlineData("--scenario=runs/headon.scenario")]
+    public void ScenarioParsesInEitherForm(params string[] args)
+    {
+        Assert.True(ViewerOptions.TryParse(args, out var options, out _));
+
+        Assert.Equal("runs/headon.scenario", options.ScenarioPath);
+        Assert.Null(options.MapPath);
+    }
+
+    [Fact]
+    public void AScenarioAndAnExplicitMapCanCoexist()
+    {
+        // The explicit map wins over the one the scenario names.
+        Assert.True(ViewerOptions.TryParse(["a.map", "--scenario", "b.scenario"], out var options, out _));
+
+        Assert.Equal("a.map", options.MapPath);
+        Assert.Equal("b.scenario", options.ScenarioPath);
+    }
+
+    [Theory]
+    [InlineData("--scenario")]
+    [InlineData("--scenario=")]
+    public void AScenarioWithoutAPathIsRefused(params string[] args)
+    {
+        Assert.False(ViewerOptions.TryParse(args, out _, out var error));
+
+        Assert.NotNull(error);
+        Assert.Contains("--scenario", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheScenarioMapResolvesBesideTheFileThenOneDirectoryUp()
+    {
+        // The fixture layout: scenarios/ sits inside the map folder.
+        var root = Directory.CreateTempSubdirectory("nav-viewer-test-");
+        try
+        {
+            var scenarios = Directory.CreateDirectory(Path.Combine(root.FullName, "scenarios"));
+            var scenarioPath = Path.Combine(scenarios.FullName, "x.scenario");
+            File.WriteAllText(scenarioPath, "unused");
+
+            var above = Path.Combine(root.FullName, "m.map");
+            File.WriteAllText(above, "unused");
+            Assert.Equal(above, ViewerOptions.ResolveScenarioMap(scenarioPath, "m.map"));
+
+            var beside = Path.Combine(scenarios.FullName, "m.map");
+            File.WriteAllText(beside, "unused");
+            Assert.Equal(beside, ViewerOptions.ResolveScenarioMap(scenarioPath, "m.map"));
+
+            // Nothing found: hand back the beside-path so the loader's refusal
+            // names something real.
+            Assert.Equal(
+                Path.Combine(scenarios.FullName, "missing.map"),
+                ViewerOptions.ResolveScenarioMap(scenarioPath, "missing.map"));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
     [Fact]
     public void AnUnknownFlagIsRefusedRatherThanIgnored()
     {

@@ -36,13 +36,28 @@ public sealed class DistanceField
         _cost = cost;
     }
 
+    /// <summary>The cell every cost here is measured to, and the key this field is cached under.</summary>
     public int Destination { get; }
 
     /// <summary>The exact remaining cost, or positive infinity if the cell cannot reach the destination.</summary>
     public double CostFrom(int cell) => _cost[cell];
 
+    /// <summary>
+    /// Can this cell reach the destination at all? Terrain is static, so a false
+    /// here is a permanent verdict about the map -- never a temporary one about traffic.
+    /// </summary>
     public bool Reaches(int cell) => !double.IsPositiveInfinity(_cost[cell]);
 
+    /// <summary>
+    /// Sweeps the whole map once -- a single backward Dijkstra, O(cells log cells)
+    /// -- after which every query is an array read.
+    /// </summary>
+    /// <param name="grid">The map to sweep. Every cell gets an entry, passable or not.</param>
+    /// <param name="destination">The cell the field is keyed by; must be on the map and passable.</param>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="destination"/> is off the map or impassable. An impassable goal
+    /// has no field, and refusing says so where a field of infinities would not.
+    /// </exception>
     public static DistanceField Build(Grid grid, int destination)
     {
         ArgumentNullException.ThrowIfNull(grid);
@@ -110,6 +125,12 @@ public sealed class FieldCache
     private readonly Dictionary<int, DistanceField> _fields = [];
     private readonly List<int> _recency = [];   // least recent first
 
+    /// <summary>An empty cache. Fields are built on first request, never up front.</summary>
+    /// <param name="grid">The map every field in this cache is built over.</param>
+    /// <param name="capacity">
+    /// How many fields to keep live; asking for one more evicts the least recently
+    /// requested. At least one.
+    /// </param>
     public FieldCache(Grid grid, int capacity)
     {
         ArgumentNullException.ThrowIfNull(grid);
@@ -118,8 +139,18 @@ public sealed class FieldCache
         _capacity = capacity;
     }
 
+    /// <summary>
+    /// Fields built and held right now, never above the capacity. It is a memory
+    /// reading -- one <c>double</c> per cell apiece -- not a progress one.
+    /// </summary>
     public int Count => _fields.Count;
 
+    /// <summary>
+    /// The field for this destination, built on the first ask and then handed to
+    /// every later caller as the SAME instance -- which is the whole economy of the
+    /// design: K fields serve N units. Each call also marks the field most recently
+    /// used, so the sequence of calls is what decides the eviction order.
+    /// </summary>
     public DistanceField For(int destination)
     {
         if (_fields.TryGetValue(destination, out var cached))

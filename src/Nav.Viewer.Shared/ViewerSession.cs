@@ -56,11 +56,21 @@ public sealed class ViewerSession
         ResetSelection();
     }
 
+    /// <summary>
+    /// The map in play. Replaced whole by a successful load, never edited in
+    /// place -- so anything derived from it is stale once <see cref="Version"/>
+    /// moves.
+    /// </summary>
     public Grid Grid { get; private set; }
 
     /// <summary>What the title bar and error messages call this content.</summary>
     public string MapName { get; private set; }
 
+    /// <summary>
+    /// The recording being replayed, or <c>null</c> for a free map. It supplies
+    /// the unit placements, the queue of orders <see cref="Tick"/> issues, and
+    /// <see cref="TickSeconds"/>.
+    /// </summary>
     public RecordedScenario? Scenario { get; private set; }
 
     /// <summary>
@@ -69,21 +79,54 @@ public sealed class ViewerSession
     /// </summary>
     public int Version { get; private set; }
 
+    /// <summary>
+    /// True when a <see cref="Scenario"/> is loaded. That is also why the clock
+    /// started stopped, and it is the condition <see cref="Restart"/> requires.
+    /// </summary>
     public bool IsReplay => Scenario is not null;
 
+    /// <summary>
+    /// Simulated seconds one tick represents: the scenario's recorded rate, or
+    /// 1/60 for a free map. It sets how fast a running clock feeds ticks, not
+    /// what a tick does -- the simulation is the same either way.
+    /// </summary>
     public double TickSeconds => Scenario?.TickSeconds ?? DefaultTickSeconds;
 
+    /// <summary>
+    /// Whether the driver may advance time on its own. It gates the clock, not
+    /// the mechanics: a paused session still accepts <see cref="Tick"/>,
+    /// selection and orders, which is what makes single-stepping possible.
+    /// </summary>
     public bool Running { get; private set; }
 
+    /// <summary>
+    /// Ticks elapsed since the world was built. Back to zero after a load or a
+    /// <see cref="Restart"/>, because both build a new world.
+    /// </summary>
     public int CurrentTick => _system.CurrentTick;
 
+    /// <summary>
+    /// Every unit as it stands right now, indexed by agent id. A fresh snapshot
+    /// on each read, not a live view -- one taken before <see cref="Tick"/> still
+    /// describes the tick it was taken in, which is what frame blending needs.
+    /// </summary>
     public IReadOnlyList<AgentState> Agents => _system.Agents;
 
+    /// <summary>
+    /// What the most recent <see cref="Tick"/> cost: nodes expanded, searches
+    /// started, finished and abandoned, and how many agents ended it still
+    /// queued for a planning slot. Replaced by every tick, not accumulated.
+    /// </summary>
     public TickReport LastTick => _system.LastTick;
 
     /// <summary>The units orders go to, in id order.</summary>
     public IReadOnlyList<int> Selection => _selection;
 
+    /// <summary>
+    /// The routes as they currently stand. Only agents that have a plan appear,
+    /// so this is usually shorter than <see cref="Agents"/> and is keyed by id
+    /// rather than indexed by it.
+    /// </summary>
     public IReadOnlyList<AgentPlan> CurrentPlans() => _system.CurrentPlans();
 
     /// <summary>Each live group's leader, for the viewer's mark.</summary>
@@ -92,6 +135,11 @@ public sealed class ViewerSession
     /// <summary>Distance fields cached, of <see cref="MovementSystem.FieldCapacity"/>.</summary>
     public int LiveFields => _system.LiveFields;
 
+    /// <summary>
+    /// A map with no recording: <paramref name="squad"/> units on the first
+    /// passable cells, unit 0 selected, and the clock already running -- there is
+    /// no recorded opening to look at first.
+    /// </summary>
     public static ViewerSession FromMap(Grid grid, string mapName, int squad = DefaultSquad)
     {
         ArgumentNullException.ThrowIfNull(grid);
@@ -99,6 +147,16 @@ public sealed class ViewerSession
         return new ViewerSession(grid, mapName, scenario: null, squad);
     }
 
+    /// <summary>
+    /// A replay of <paramref name="scenario"/>: its placements, its orders queued
+    /// at their recorded ticks, <b>paused at tick zero</b> so the setup can be
+    /// read -- and stepped -- before it bursts to the end.
+    /// </summary>
+    /// <remarks>
+    /// Throws <see cref="ArgumentOutOfRangeException"/> when a recorded placement
+    /// is off the map or on a wall. <see cref="TryLoad"/> is the path that turns
+    /// that into a named refusal rather than a stack trace.
+    /// </remarks>
     public static ViewerSession FromScenario(Grid grid, string mapName, RecordedScenario scenario)
     {
         ArgumentNullException.ThrowIfNull(grid);
@@ -188,8 +246,16 @@ public sealed class ViewerSession
         return true;
     }
 
+    /// <summary>
+    /// Starts or stops the clock. It advances nothing by itself: <see cref="Tick"/>
+    /// remains the only thing that moves the world, whichever way this is set.
+    /// </summary>
     public void SetRunning(bool running) => Running = running;
 
+    /// <summary>
+    /// The pause gesture as a command -- <see cref="Running"/> flipped, so a host
+    /// binding a key to it needs no idea which state the session is in.
+    /// </summary>
     public void ToggleRunning() => Running = !Running;
 
     /// <summary>Replaces the selection. Ids are kept in ascending order.</summary>

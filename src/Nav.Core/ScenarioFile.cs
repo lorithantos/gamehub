@@ -3,18 +3,42 @@ using System.Globalization;
 namespace Nav.Core;
 
 /// <summary>
-/// Reads Moving AI <c>.scen</c> files.
+/// Reads Moving AI <c>.scen</c> files: the published single-agent pathfinding
+/// benchmark, one start/goal problem per line.
 /// </summary>
+/// <remarks>
+/// This is the corpus format, not the replay format. A <c>.scen</c> file is a
+/// list of independent problems with a published optimal cost apiece -- see
+/// <see cref="ScenarioRecord"/>. The project's own multi-agent recordings, with
+/// agents and timed orders, are <see cref="RecordedScenario"/> instead.
+/// </remarks>
 public static class ScenarioFile
 {
     private const int FieldCount = 9;
 
+    /// <summary>
+    /// Reads every record in a <c>.scen</c> file, in file order.
+    /// <paramref name="path"/> travels into any
+    /// <see cref="MapFormatException"/>, so a malformed row is reported as file
+    /// <em>and</em> line number.
+    /// </summary>
+    /// <param name="path">The <c>.scen</c> file to read.</param>
+    /// <returns>One <see cref="ScenarioRecord"/> per non-blank row after the version line.</returns>
+    /// <exception cref="MapFormatException">The version line is missing or a row is malformed.</exception>
     public static IReadOnlyList<ScenarioRecord> FromFile(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         return Parse(File.ReadAllText(path), path);
     }
 
+    /// <summary>
+    /// Reads records from text already in memory -- the form tests use.
+    /// Identical parsing to <see cref="FromFile"/>, except that errors carry only
+    /// a line number, since there is no file to name.
+    /// </summary>
+    /// <param name="text">The scenario text.</param>
+    /// <returns>One <see cref="ScenarioRecord"/> per non-blank row after the version line.</returns>
+    /// <exception cref="MapFormatException">The version line is missing or a row is malformed.</exception>
     public static IReadOnlyList<ScenarioRecord> FromText(string text) => Parse(text, source: null);
 
     private static List<ScenarioRecord> Parse(string text, string? source)

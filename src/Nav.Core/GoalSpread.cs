@@ -26,6 +26,13 @@ public static class GoalSpread
     /// <paramref name="count"/> cells come back when the region cannot hold them,
     /// which the caller must handle rather than being told a comfortable lie.
     /// </remarks>
+    /// <param name="grid">The map the flood runs over, under the search's own step and corner rules.</param>
+    /// <param name="target">
+    /// Where to spread from, and itself the first cell returned unless
+    /// <paramref name="excluded"/> rules it out. An impassable target yields nothing,
+    /// which is what makes this double as the caller's passability check.
+    /// </param>
+    /// <param name="count">How many cells to hand back. Zero is legal and returns nothing.</param>
     /// <param name="excluded">
     /// Cells that may not be handed out as goals — an arrived unit's cell during
     /// reconciliation, say. Excluded cells are still traversed, so the region

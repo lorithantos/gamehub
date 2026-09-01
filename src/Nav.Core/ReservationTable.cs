@@ -72,6 +72,12 @@ public sealed class ReservationTable
         }
     }
 
+    /// <summary>
+    /// How many ticks the window covers. Fixed at construction, never below 2, and
+    /// the price of lookahead paid twice over: the ring holds this many
+    /// grid-sized arrays, and a space-time search over the window has
+    /// <c>Horizon * cellCount</c> states to work in.
+    /// </summary>
     public int Horizon { get; }
 
     /// <summary>The earliest tick still tracked. The window is <c>[CurrentTick, CurrentTick + Horizon)</c>.</summary>
@@ -205,10 +211,11 @@ public sealed class ReservationTable
 
         foreach (var reservation in held)
         {
-            // Two guards, and the second is the load-bearing one. A reservation
-            // whose tick has fallen out of the window shares a ring slot with a
-            // tick one horizon later, which another agent may now hold. Clearing
-            // it by position alone would delete somebody else's reservation.
+            // Two guards, and the second is the one that prevents corruption. A
+            // reservation whose tick has fallen out of the window shares a ring
+            // slot with a tick one horizon later, which another agent may now
+            // hold. Clearing it by position alone would delete somebody else's
+            // reservation.
             if (reservation.Tick < CurrentTick || reservation.Tick >= CurrentTick + Horizon)
             {
                 continue;

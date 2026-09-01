@@ -51,6 +51,15 @@ public class GatherDoctrine : GroupDoctrine
 
     private int _lastReconcileTick = -1_000_000;
 
+    /// <summary>
+    /// Three passes, always in this order: a stalled member standing on ground no
+    /// worse than its goal parks where it is; whoever has reached the crust claims
+    /// the innermost open slots; then, on a cooldown, hard-stalled members are
+    /// re-goaled onto spots they can actually walk to. On a group that has finished
+    /// settling all three fall straight through, which is why leaving the doctrine
+    /// running costs nothing.
+    /// </summary>
+    /// <param name="ops">The seam for this group and tick. Never null.</param>
     public override void Advance(MovementSystem.GroupOps ops)
     {
         ArgumentNullException.ThrowIfNull(ops);
@@ -288,6 +297,14 @@ public sealed class MeteredGatherDoctrine : GroupDoctrine
 
     private readonly GatherDoctrine _gather = new();
 
+    /// <summary>
+    /// Meters, then gathers. The metering pass holds everyone past the front of the
+    /// queue for two ticks; the rest of the tick is <see cref="GatherDoctrine"/>
+    /// unchanged, on the same <paramref name="ops"/>. Metering is dormant until a
+    /// member is actually AT a gate, so on open ground the two doctrines do the same
+    /// thing for the same cost.
+    /// </summary>
+    /// <param name="ops">The seam for this group and tick. Never null.</param>
     public override void Advance(MovementSystem.GroupOps ops)
     {
         ArgumentNullException.ThrowIfNull(ops);

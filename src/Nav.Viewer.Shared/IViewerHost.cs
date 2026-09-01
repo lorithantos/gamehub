@@ -38,6 +38,18 @@ namespace Nav.Viewer;
 /// </remarks>
 public interface IViewerHost : IDisposable
 {
+    /// <summary>
+    /// Runs <paramref name="app"/> to completion, blocking until it is over.
+    /// Everything a host promises -- frame order, raw <c>deltaSeconds</c>,
+    /// one-frame edges, no re-entrancy -- is the contract on
+    /// <see cref="IViewerHost"/>, and this is the only method that has to keep
+    /// it.
+    /// </summary>
+    /// <remarks>
+    /// Called once per host instance. "Over" is the user closing the window for
+    /// a windowed host and the script running out for one without a window, so a
+    /// caller can treat this as run-to-completion whichever it got.
+    /// </remarks>
     void Run(IViewerApp app);
 }
 
@@ -84,7 +96,28 @@ public interface IViewerApp
     /// </summary>
     void LoadFile(string path);
 
+    /// <summary>
+    /// One frame's worth of thinking. <paramref name="deltaSeconds"/> is raw
+    /// wall-clock time, never negative and never smoothed by the host, and every
+    /// edge flag in <paramref name="input"/> is true for exactly this one call --
+    /// both per the contract on <see cref="IViewerHost"/>.
+    /// </summary>
+    /// <remarks>
+    /// The app absorbs the raw delta itself, so a frame worth zero seconds (a
+    /// duplicate compositor callback, a scripted frame) must be harmless rather
+    /// than something a host filters out first.
+    /// </remarks>
     void Update(in InputState input, float deltaSeconds);
 
+    /// <summary>
+    /// Draws what this frame's <see cref="Update"/> produced, always after it and
+    /// on the same thread.
+    /// </summary>
+    /// <remarks>
+    /// The app never learns which <see cref="IRenderer"/> it was handed and must
+    /// not retain <paramref name="renderer"/> past the call -- a host is free to
+    /// throw its renderer away and build another between frames, which is exactly
+    /// what the WPF host does when a loaded map changes the surface size.
+    /// </remarks>
     void Render(IRenderer renderer);
 }

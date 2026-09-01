@@ -30,12 +30,33 @@ public sealed record ScenarioRecord(
     int GoalY,
     double OptimalLength)
 {
+    /// <summary>
+    /// The start as a flat cell index into <paramref name="grid"/>.
+    /// </summary>
+    /// <remarks>
+    /// The <c>.scen</c> format stores x/y pairs; every search in this project
+    /// addresses cells as <c>y * Width + x</c>. This method is that translation,
+    /// and it exists so the conversion happens in exactly one place rather than
+    /// at every call site.
+    /// <para>
+    /// It does <em>not</em> verify that <paramref name="grid"/> is the map this
+    /// record describes -- call <see cref="EnsureMatches"/> first, or an index
+    /// computed against the wrong width lands somewhere plausible and wrong.
+    /// </para>
+    /// </remarks>
+    /// <param name="grid">The map whose width defines the index.</param>
     public int StartIndex(Grid grid)
     {
         ArgumentNullException.ThrowIfNull(grid);
         return grid.Index(StartX, StartY);
     }
 
+    /// <summary>
+    /// The goal as a flat cell index into <paramref name="grid"/>, on the same
+    /// terms as <see cref="StartIndex"/> -- unchecked against the record's own
+    /// dimensions, so pair it with <see cref="EnsureMatches"/>.
+    /// </summary>
+    /// <param name="grid">The map whose width defines the index.</param>
     public int GoalIndex(Grid grid)
     {
         ArgumentNullException.ThrowIfNull(grid);

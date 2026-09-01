@@ -39,6 +39,16 @@ public sealed class SearchWorkspace
     /// </summary>
     internal int Generation;
 
+    /// <summary>
+    /// A workspace pre-sized for <paramref name="cellCount"/> cells. Zero is a
+    /// legitimate size: every search grows the buffers to what it needs before
+    /// touching them, so a size given here only saves the first search its one grow.
+    /// </summary>
+    /// <param name="cellCount">
+    /// Cells to make room for, not negative. A space-time search wants
+    /// <c>horizon * cells</c> rather than <c>cells</c>, because its state is a
+    /// cell and a tick.
+    /// </param>
     public SearchWorkspace(int cellCount = 0)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(cellCount);

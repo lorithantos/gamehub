@@ -26,6 +26,12 @@ public sealed record ScenarioOutcome(
     int Stuck,
     int MaxStalledTicks)
 {
+    /// <summary>
+    /// Every agent was standing on its goal cell when the run ended. It says
+    /// nothing about the journey: a run can be <c>AllArrived</c> and still have
+    /// walked units straight through each other, which is why
+    /// <see cref="Conflicts"/> is a separate verdict and both are asserted.
+    /// </summary>
     public bool AllArrived => Arrived == FinalCells.Count;
 }
 
@@ -54,6 +60,43 @@ public static class ScenarioPlayback
     /// </summary>
     public sealed record TraceTick(int Tick, IReadOnlyList<AgentState> Agents, TickReport Report);
 
+    /// <summary>
+    /// Simulates a scenario from tick 0 through its end tick and reports what
+    /// happened.
+    /// </summary>
+    /// <remarks>
+    /// Placements are validated before anything runs: an agent off the map or on
+    /// a wall throws rather than being clamped onto the nearest legal cell. A
+    /// scenario paired with the wrong map is a broken test, not a harder one, and
+    /// quietly moving the units would turn it into a plausible-looking pass.
+    /// <para>
+    /// The whole run is deterministic, so playing one scenario twice must produce
+    /// an identical <see cref="ScenarioOutcome"/> -- that equality is itself a
+    /// test, and the cheapest determinism check there is.
+    /// </para>
+    /// </remarks>
+    /// <param name="scenario">
+    /// Placements and the order timeline. Its <see cref="RecordedScenario.MapName"/>
+    /// is <em>not</em> checked against <paramref name="grid"/>; pairing the two is
+    /// the caller's job.
+    /// </param>
+    /// <param name="grid">The map to run on.</param>
+    /// <param name="horizon">
+    /// Depth of the reservation window in ticks -- how far ahead agents reserve
+    /// and plan. Passed straight through to <see cref="MovementSystem"/>.
+    /// </param>
+    /// <param name="onTick">
+    /// Called once per tick with the state <em>after</em> that tick's orders were
+    /// issued and <em>before</em> the world advanced, which is the same instant
+    /// the trajectory check records. Null when nothing is tracing.
+    /// </param>
+    /// <returns>
+    /// What happened: trajectories, the conflict verdict over them, and the
+    /// counters that separate a finished run from a deadlocked one.
+    /// </returns>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// An agent is placed off the map or on an impassable cell.
+    /// </exception>
     public static ScenarioOutcome Play(
         RecordedScenario scenario, Grid grid, int horizon = 32, Action<TraceTick>? onTick = null)
     {

@@ -17,6 +17,12 @@ namespace Nav.Viewer;
 /// </remarks>
 public sealed record ViewerOptions(string? MapPath, int? MaxFrames, bool ShowHelp, string? ScenarioPath = null)
 {
+    /// <summary>
+    /// What <c>--help</c> prints, on stdout, with exit code 0. Both hosts also
+    /// print it to <b>stderr</b> beneath the message when <see cref="TryParse"/>
+    /// refuses, and exit 2 -- a refusal is a usage error, not a run that produced
+    /// nothing.
+    /// </summary>
     public static string UsageText =>
         """
         usage: <viewer> [map-path] [--scenario FILE] [--frames N] [--help]
@@ -62,6 +68,31 @@ public sealed record ViewerOptions(string? MapPath, int? MaxFrames, bool ShowHel
         return beside;
     }
 
+    /// <summary>
+    /// The whole command line, or the first reason it cannot be one. Never
+    /// throws for bad input and never repairs it -- refusing is the point.
+    /// </summary>
+    /// <param name="args">
+    /// The arguments, without the executable name. <c>--help</c>, <c>-h</c> or
+    /// <c>/?</c> wins the moment it is seen and the rest of the line is not
+    /// examined, so help is available even beside arguments that would refuse.
+    /// Both <c>--flag value</c> and <c>--flag=value</c> spellings are accepted.
+    /// </param>
+    /// <param name="options">
+    /// The parsed line on success. A help line comes back with
+    /// <see cref="ShowHelp"/> set and nothing else, which the caller is expected
+    /// to check before treating it as a run.
+    /// </param>
+    /// <param name="error">
+    /// On refusal, one sentence naming the offending argument -- an unknown flag,
+    /// a second map path, a <c>--frames</c> that is not a positive integer, a
+    /// <c>--scenario</c> with no file. Null on success.
+    /// </param>
+    /// <returns>
+    /// True when the line parsed. <b>False leaves <paramref name="options"/>
+    /// null</b> and puts the reason in <paramref name="error"/>; both hosts then
+    /// print that reason followed by <see cref="UsageText"/> and exit 2.
+    /// </returns>
     public static bool TryParse(string[] args, [NotNullWhen(true)] out ViewerOptions? options, out string? error)
     {
         ArgumentNullException.ThrowIfNull(args);

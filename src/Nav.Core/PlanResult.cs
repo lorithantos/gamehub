@@ -60,6 +60,13 @@ public sealed record PlanResult(
         return Cells[Math.Min(index, Cells.Count - 1)];
     }
 
+    /// <summary>
+    /// The one genuine failure: an <see cref="IsStuck"/> result with no cells at
+    /// all, not even a tick of waiting. Distinct from <see cref="IsPartial"/>,
+    /// which has cells and merely did not get all the way there.
+    /// </summary>
+    /// <param name="startTick">The tick planning was asked to begin at, kept so the caller can tell when the agent was stuck.</param>
+    /// <param name="expanded">Nodes closed before the search gave up. Zero when the refusal was decided before any search ran.</param>
     public static PlanResult Stuck(int startTick, int expanded) =>
         new([], startTick, 0.0, expanded, Found: false);
 }

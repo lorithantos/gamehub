@@ -42,6 +42,21 @@ public static class ChokepointMap
     /// </summary>
     private const double TrafficShare = 0.1;
 
+    /// <summary>
+    /// Every cell that carries a real share of the map's traffic AND is narrow
+    /// enough to force it, in ascending cell order. Empty is the honest answer for
+    /// open ground, and the common one.
+    /// </summary>
+    /// <remarks>
+    /// Nothing is memoised here -- one call is one full sweep, so callers that want
+    /// this per map hold the result themselves.
+    /// </remarks>
+    /// <param name="grid">The map to analyse.</param>
+    /// <param name="terminals">
+    /// How many sampling points to stride evenly through the passable cells. A* runs
+    /// over every PAIR of them, so the cost of detection grows with the square of
+    /// this. Two at minimum.
+    /// </param>
     public static IReadOnlyList<Chokepoint> Find(Grid grid, int terminals = 24)
     {
         ArgumentNullException.ThrowIfNull(grid);

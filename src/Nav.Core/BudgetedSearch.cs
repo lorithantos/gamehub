@@ -58,6 +58,39 @@ public sealed class BudgetedSearch
     private double _bestCost = double.PositiveInfinity;
     private int _expanded;
 
+    /// <param name="grid">
+    /// The map. It must be sized for the same cell count
+    /// <paramref name="reservations"/> was built for -- the two share flat cell
+    /// indices, and a mismatch surfaces as an out-of-range reservation query
+    /// rather than a wrong answer.
+    /// </param>
+    /// <param name="reservations">
+    /// What everyone else has claimed, and also the clock: the search may plan
+    /// from <c>CurrentTick</c> up to <c>CurrentTick + Horizon - 1</c> and no
+    /// further, and anything past that edge simply reads as free.
+    /// </param>
+    /// <param name="agent">
+    /// Who is planning. Not negative. Its own reservations never block it, so a
+    /// replan is not obstructed by the plan it is about to replace.
+    /// </param>
+    /// <param name="start">
+    /// Flat index of the cell the agent is standing on. Impassable and the search
+    /// is finished stuck before a single node is expanded.
+    /// </param>
+    /// <param name="goal">
+    /// Flat index of the cell it is trying to reach. Impassable finishes it stuck;
+    /// equal to <paramref name="start"/> finishes it at once with a one-cell plan.
+    /// </param>
+    /// <param name="startTick">
+    /// The tick at which the agent is on <paramref name="start"/>. Behind the
+    /// reservation window it throws; past the window's last tick the search is
+    /// finished stuck.
+    /// </param>
+    /// <param name="workspace">
+    /// Scratch, grown here to <c>Horizon * CellCount</c> entries because a state
+    /// is a cell AND a tick. It belongs to this search until the search finishes
+    /// -- see the remarks on the type.
+    /// </param>
     /// <param name="field">
     /// Optional heuristic source: a <see cref="DistanceField"/> for the order's
     /// destination, shared by the whole group. The agent's own goal need not be

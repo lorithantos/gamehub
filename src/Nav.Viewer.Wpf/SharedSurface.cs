@@ -77,7 +77,7 @@ internal sealed class SharedSurface : IDisposable
             D9.CreateFlags.HardwareVertexProcessing | D9.CreateFlags.Multithreaded | D9.CreateFlags.FpuPreserve,
             present);
 
-        // The load-bearing line: passing an existing handle by reference OPENS
+        // This is the whole trick: passing an existing handle by reference OPENS
         // the D3D11 texture rather than allocating a new D3D9 one.
         _texture9 = _device9.CreateTexture(
             (uint)width,

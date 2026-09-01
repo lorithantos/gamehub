@@ -56,6 +56,17 @@ public sealed class ViewerApp : IViewerApp
     /// <summary>Why the last load was refused, shown until the next input.</summary>
     private string? _loadError;
 
+    /// <summary>
+    /// Presentation for <paramref name="session"/>, which keeps ownership of the
+    /// content and the simulation -- this constructor only derives what is drawn
+    /// from them.
+    /// </summary>
+    /// <remarks>
+    /// The two maxima are a <em>budget</em>, not a size: <see cref="GridLayout.Fit"/>
+    /// takes the largest whole-pixel cell that fits inside them, so the resulting
+    /// <see cref="Layout"/> is usually smaller. They are kept, not consumed --
+    /// every later load re-fits the new map into the same budget.
+    /// </remarks>
     public ViewerApp(ViewerSession session, int maxPixelWidth, int maxPixelHeight)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -80,21 +91,54 @@ public sealed class ViewerApp : IViewerApp
     {
     }
 
+    /// <summary>
+    /// The map's pixel geometry, re-fitted whenever the session's content
+    /// changes. A windowed host watches it between frames and resizes when it
+    /// moved -- see <see cref="IViewerHost"/>.
+    /// </summary>
     public GridLayout Layout { get; private set; }
 
+    /// <summary>
+    /// The status line, rebuilt after every <see cref="Update"/> and every load.
+    /// The app owns the <em>string</em> because <see cref="IRenderer"/> has no
+    /// text verb by design; each host owns how it is shown. Its counters are
+    /// padded to a width they cannot outgrow, so the line never changes length
+    /// while the numbers do -- a breathing line shook a window sized to content.
+    /// </summary>
     public string StatusText { get; private set; }
 
+    /// <summary>
+    /// The window's name, following the session's <c>MapName</c> -- so loading a
+    /// file mid-session renames the window without the host being told.
+    /// </summary>
     public string WindowTitle => $"Nav.Viewer - {_session.MapName}";
 
+    /// <summary>
+    /// The state layer this app draws. Exposed so a host or a test can command
+    /// content and clock directly; the app keeps no second copy of any of it.
+    /// </summary>
     public ViewerSession Session => _session;
 
     /// <summary>The units orders go to, in id order.</summary>
     public IReadOnlyList<int> Selection => _session.Selection;
 
+    /// <summary>
+    /// <see cref="ViewerSession.Running"/>, forwarded. The app decides
+    /// <em>when</em> to tick a running session; it never decides whether one is
+    /// running.
+    /// </summary>
     public bool Running => _session.Running;
 
+    /// <summary>
+    /// <see cref="ViewerSession.Agents"/>, forwarded. Read-only here -- units are
+    /// moved by ticking the session, never by touching this.
+    /// </summary>
     public IReadOnlyList<AgentState> Agents => _session.Agents;
 
+    /// <summary>
+    /// <see cref="ViewerSession.CurrentTick"/>, forwarded. Note it is the
+    /// simulation's tick, not a frame count: many frames blend across one tick.
+    /// </summary>
     public int CurrentTick => _session.CurrentTick;
 
     /// <summary>
@@ -116,6 +160,18 @@ public sealed class ViewerApp : IViewerApp
         StatusText = BuildStatus();
     }
 
+    /// <summary>
+    /// One frame's worth of decisions: input becomes session commands, and
+    /// <paramref name="deltaSeconds"/> of wall clock becomes however many whole
+    /// ticks it buys, plus the leftover the units are drawn part-way through.
+    /// </summary>
+    /// <remarks>
+    /// Ordering, one-frame edge flags, and the requirement that
+    /// <paramref name="deltaSeconds"/> be raw unclamped wall-clock time are the
+    /// host's contract -- see <see cref="IViewerHost"/>. Ticks are taken here
+    /// only while the session is running; a paused session still advances one
+    /// tick per press of the step key.
+    /// </remarks>
     public void Update(in InputState input, float deltaSeconds)
     {
         // Defensive: LoadFile adopts eagerly, but if anyone else ever loads
@@ -240,6 +296,19 @@ public sealed class ViewerApp : IViewerApp
         StatusText = BuildStatus();
     }
 
+    /// <summary>
+    /// Draws the frame <see cref="Update"/> decided on: terrain, the sole
+    /// selection's route, every unit lerped by the leftover blend, and the drag
+    /// band. Reads state and moves nothing -- calling it twice draws the same
+    /// picture.
+    /// </summary>
+    /// <remarks>
+    /// Opens and closes the frame itself, so <paramref name="renderer"/> arrives
+    /// unbracketed and leaves flushed. Ordering against <see cref="Update"/> is
+    /// the host's contract -- see <see cref="IViewerHost"/>. Nothing here needs a
+    /// verb <see cref="IRenderer"/> does not have: the band is four lines and the
+    /// leader mark is circles.
+    /// </remarks>
     public void Render(IRenderer renderer)
     {
         ArgumentNullException.ThrowIfNull(renderer);
@@ -323,6 +392,15 @@ public sealed class ViewerApp : IViewerApp
         renderer.EndFrame();
     }
 
+    /// <summary>
+    /// A flat cell index -- <c>y * Width + x</c>, the one cell identity this
+    /// codebase uses -- as the pixel its square is centred on, which is where a
+    /// unit or a route vertex is drawn.
+    /// </summary>
+    /// <remarks>
+    /// Depends on <see cref="Layout"/>, so a position taken before a load and
+    /// used after one is wrong by however much the cell size changed.
+    /// </remarks>
     public Vector2 CenterOfCell(int cell) => Layout.CenterOf(_grid.ColumnOf(cell), _grid.RowOf(cell));
 
     private static ViewerSession BuildSession(Grid grid, RecordedScenario? scenario, int squad)

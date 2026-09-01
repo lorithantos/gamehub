@@ -22,16 +22,41 @@ public sealed class BinaryHeap
     private Entry[] _entries;
     private int _count;
 
+    /// <summary>
+    /// An empty heap. <paramref name="capacity"/> is a starting size only -- the
+    /// backing array doubles on demand -- so it buys nothing but the copies a
+    /// growing frontier would otherwise pay for.
+    /// </summary>
+    /// <param name="capacity">Initial room, in entries. At least one.</param>
     public BinaryHeap(int capacity = 128)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 1);
         _entries = new Entry[capacity];
     }
 
+    /// <summary>
+    /// Entries still to be popped, which is not the number of distinct cells:
+    /// with no decrease-key, one cell can sit in here several times over.
+    /// </summary>
     public int Count => _count;
 
+    /// <summary>
+    /// Forgets every entry and keeps the capacity, so a heap reused across
+    /// searches settles at the largest frontier it has met and stops regrowing.
+    /// </summary>
     public void Clear() => _count = 0;
 
+    /// <summary>
+    /// Adds an entry. Ordering reads <paramref name="f"/> first and consults
+    /// <paramref name="h"/> only to settle a tie; nothing here checks that the
+    /// two are consistent with each other.
+    /// </summary>
+    /// <param name="cell">
+    /// Whatever the caller uses as state identity -- a cell index for a plain
+    /// search, a cell-and-tick state for a space-time one. The heap only carries it.
+    /// </param>
+    /// <param name="f">The priority. Lowest is popped first.</param>
+    /// <param name="h">The tie-break: among equal <paramref name="f"/>, lower wins.</param>
     public void Push(int cell, double f, double h)
     {
         if (_count == _entries.Length)

@@ -19,6 +19,11 @@ namespace Nav.Core;
 /// </remarks>
 public static class Movement
 {
+    /// <summary>
+    /// One north, east, south or west step, and the unit the rest of the model is
+    /// quoted in: <see cref="DiagonalCost"/> is sqrt(2) of it and
+    /// <see cref="WaitCost"/> is exactly one of it.
+    /// </summary>
     public const double CardinalCost = 1.0;
 
     /// <summary>

@@ -52,8 +52,11 @@ public readonly record struct TickReport(
 /// told to move is a hundred searches, and doing them where the order arrives puts
 /// all of that in one frame.
 /// <para>
-/// Agents plan in id order. An arbitrary but FIXED order is what makes a tick
-/// reproducible, which every acceptance criterion downstream depends on.
+/// New searches start longest-waiting first, tie-broken by id; searches already in
+/// flight are continued in id order. What matters is that both orders are total and
+/// FIXED -- that is what makes a tick reproducible, which every acceptance criterion
+/// downstream depends on. Plain id order was tried and starves the tail: under a
+/// budget too small to finish anything, the first agents take every slot forever.
 /// </para>
 /// <para>
 /// <b>An agent whose search is still running holds position and stays reserved.</b>
@@ -183,6 +186,15 @@ public sealed class MovementSystem
     /// <summary>The map's chokepoints, detected once and cached for the system's life.</summary>
     internal IReadOnlyList<Chokepoint> MapChokepoints => _chokepoints ??= ChokepointMap.Find(_grid);
 
+    /// <param name="grid">
+    /// The map every agent moves over. Held, not copied, and taken to be static --
+    /// the distance fields cached behind it are never invalidated.
+    /// </param>
+    /// <param name="horizon">
+    /// Ticks of future the reservation table holds. It also bounds planning
+    /// latency: a search may be anchored at most half a horizon ahead, because an
+    /// anchor at the far edge leaves no room for a plan behind it.
+    /// </param>
     /// <param name="nodeBudgetPerTick">
     /// Search nodes a tick may spend across every agent. The ceiling criterion 9
     /// measures.
@@ -209,6 +221,11 @@ public sealed class MovementSystem
         _fields = new FieldCache(grid, FieldCapacity);
     }
 
+    /// <summary>
+    /// Ticks elapsed, starting at zero and advanced once per <see cref="Tick"/> --
+    /// the clock plans, reservations and every retry gate are indexed against, so
+    /// nothing in this system means anything except relative to it.
+    /// </summary>
     public int CurrentTick { get; private set; }
 
     /// <summary>Nodes expanded across every plan ever made. A cost measure.</summary>
@@ -217,6 +234,11 @@ public sealed class MovementSystem
     /// <summary>What the last <see cref="Tick"/> cost.</summary>
     public TickReport LastTick { get; private set; }
 
+    /// <summary>
+    /// A fresh snapshot of every agent in id order -- values copied out, not handles
+    /// in, so a caller may hold it across a <see cref="Tick"/> and still be reading
+    /// the tick it asked about.
+    /// </summary>
     public IReadOnlyList<AgentState> Agents =>
         [.. _agents.Select(a => new AgentState(
             a.Id, a.Cell, a.Goal, a.Cell == a.Goal, a.StalledTicks, a.Search is not null,
@@ -229,8 +251,21 @@ public sealed class MovementSystem
     /// <summary>Distance fields currently cached, of <see cref="FieldCapacity"/>.</summary>
     public int LiveFields => _fields.Count;
 
+    /// <summary>
+    /// How many destinations may hold a live distance field before the coldest is
+    /// dropped. Scaled to the handful of orders a match runs at once, never to the
+    /// unit count -- that independence is the reason fields are keyed by destination.
+    /// </summary>
     public const int FieldCapacity = 8;
 
+    /// <summary>
+    /// Places an agent and returns its id: consecutive from zero, stable for life,
+    /// and the deterministic tiebreak everything else in this system falls back on.
+    /// The cell is reserved from <see cref="CurrentTick"/> immediately, so a search
+    /// that runs before this agent has ever moved already routes around it.
+    /// </summary>
+    /// <param name="cell">Where it stands. Must be passable.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="cell"/> is impassable.</exception>
     public int AddAgent(int cell)
     {
         if (!_grid.IsPassable(cell))
@@ -257,9 +292,20 @@ public sealed class MovementSystem
     /// </remarks>
     public void Order(IReadOnlyList<int> agents, int goalCell) => Order(agents, goalCell, doctrine: null);
 
+    /// <param name="agents">
+    /// Who to send. The sequence's own order does not matter -- members are taken in
+    /// ascending id, so the same order issued twice assigns the same slots.
+    /// </param>
+    /// <param name="goalCell">
+    /// Where to go. An impassable cell SNAPS to the nearest passable one rather than
+    /// being refused: a click on a wall means the ground beside it.
+    /// </param>
     /// <param name="doctrine">
-    /// How this group should move; defaults to <see cref="MeteredGatherDoctrine"/>,
-    /// which is plain gathering wherever the map has no chokepoint in the way.
+    /// How this group should move. Defaults to <see cref="GatherDoctrine"/> -- the
+    /// scrum -- by measurement rather than by taste: on the gap fixture the pacing
+    /// brake cost four times the arrival time and more nodes than free contention.
+    /// Pass <see cref="MeteredGatherDoctrine"/> to buy a visibly ordered column and
+    /// pay for it.
     /// </param>
     public void Order(IReadOnlyList<int> agents, int goalCell, GroupDoctrine? doctrine)
     {
@@ -843,8 +889,19 @@ public sealed class MovementSystem
             Members = [.. group.Members.Select(m => m.Id).OrderBy(id => id)];
         }
 
+        /// <summary>
+        /// The tick this pass is running for -- identical across every pass and every
+        /// group in the tick, which is what makes a doctrine's own cooldowns
+        /// comparable from one call to the next.
+        /// </summary>
         public int CurrentTick => _system.CurrentTick;
 
+        /// <summary>
+        /// The cell the order was aimed at, after any snap off impassable ground: the
+        /// centre the parking ring surrounds, and not necessarily any member's goal.
+        /// <see cref="FieldCost"/> is measured to the ring's innermost slot, which is
+        /// this cell except where the ring was pushed clear of a doorway.
+        /// </summary>
         public int Destination => _group.Destination;
 
         /// <summary>The parking ring, innermost first.</summary>
@@ -853,18 +910,44 @@ public sealed class MovementSystem
         /// <summary>Member ids, ascending.</summary>
         public IReadOnlyList<int> Members { get; }
 
+        /// <summary>
+        /// Every chokepoint on the MAP, not merely those between this group and its
+        /// destination -- detected once for the system's life and shared by every
+        /// group. A doctrine that wants the gate in its way filters these by
+        /// <see cref="FieldCost"/>.
+        /// </summary>
         public IReadOnlyList<Chokepoint> Chokepoints => _system.MapChokepoints;
 
         /// <summary>Exact distance from a cell to the destination, or infinity.</summary>
         public double FieldCost(int cell) => _field.CostFrom(cell);
 
 
+        /// <summary>
+        /// Where the member is standing. An O(1) indexed read, so a doctrine may call
+        /// it inside a loop without thinking, and FIXED for the whole pass -- agents
+        /// move after planning, never during a doctrine.
+        /// </summary>
         public int CellOf(int id) => _system._agents[id].Cell;
 
+        /// <summary>
+        /// The cell the member is currently aimed at: its parking slot if it holds
+        /// one, otherwise the ring's innermost slot it is walking toward. O(1), and
+        /// LIVE -- a <see cref="ClaimSlot"/> earlier in this same pass shows up here.
+        /// </summary>
         public int GoalOf(int id) => _system._agents[id].Goal;
 
+        /// <summary>
+        /// Consecutive replans that ended no nearer the goal -- failed attempts, not
+        /// ticks waited, so a member sitting out a long backstop still reads 1. Reset
+        /// to zero whenever a claim moves its goal.
+        /// </summary>
         public int StalledReplans(int id) => _system._agents[id].StalledTicks;
 
+        /// <summary>
+        /// False while the member is still QUEUED: walking toward the ring with no
+        /// cell of its own, because group members claim on approach rather than at
+        /// order time. It is the flag the fill-like-water claiming turns on.
+        /// </summary>
         public bool HasSlot(int id) => _system._agents[id].HasSlot;
 
         /// <summary>Is this cell some slot-holder's goal?</summary>
@@ -910,6 +993,11 @@ public sealed class MovementSystem
         /// <summary>Is a unit parked on this cell (standing on its goal)?</summary>
         public bool IsSettled(int cell) => _system._settledCells.Contains(cell);
 
+        /// <summary>
+        /// Is anybody standing here -- this group's members and every other agent
+        /// alike? An O(1) hit against the tick's occupancy snapshot, which no doctrine
+        /// pass can change, since nothing moves until planning is done.
+        /// </summary>
         public bool IsOccupied(int cell) => _system._occupiedCells.Contains(cell);
 
         /// <summary>

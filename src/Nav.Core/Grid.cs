@@ -31,8 +31,16 @@ public sealed class Grid
         PassableCount = passableCount;
     }
 
+    /// <summary>
+    /// Columns, in cells. With <see cref="Height"/> it fixes the flat index
+    /// <c>y * Width + x</c> that is cell identity everywhere in this codebase.
+    /// </summary>
     public int Width { get; }
 
+    /// <summary>
+    /// Rows, in cells. Taken from the header, and the body must have exactly this
+    /// many map lines -- the parser refuses a file where the two disagree.
+    /// </summary>
     public int Height { get; }
 
     /// <summary>Total cells, passable or not. The length every search array wants.</summary>
@@ -41,13 +49,27 @@ public sealed class Grid
     /// <summary>Walkable cells. Counted once during parsing; the grid never changes.</summary>
     public int PassableCount { get; }
 
+    /// <summary>
+    /// True if <paramref name="x"/>, <paramref name="y"/> names a cell of this
+    /// map. Says nothing about whether that cell is walkable; the single unsigned
+    /// compare per axis catches negatives without a second test.
+    /// </summary>
     public bool InBounds(int x, int y) => (uint)x < (uint)Width && (uint)y < (uint)Height;
 
     /// <summary>The flat index of a cell. Callers are expected to have checked bounds.</summary>
     public int Index(int x, int y) => (y * Width) + x;
 
+    /// <summary>
+    /// The <c>x</c> a flat index came from -- half the inverse of
+    /// <see cref="Index(int, int)"/>. Unchecked: an index off the map returns a
+    /// number rather than a complaint.
+    /// </summary>
     public int ColumnOf(int index) => index % Width;
 
+    /// <summary>
+    /// The <c>y</c> a flat index came from -- the other half of the inverse of
+    /// <see cref="Index(int, int)"/>, and unchecked for the same reason.
+    /// </summary>
     public int RowOf(int index) => index / Width;
 
     /// <summary>False for anything off the map, so callers need no separate bounds test.</summary>
@@ -56,12 +78,23 @@ public sealed class Grid
     /// <summary>False for anything off the map, so callers need no separate bounds test.</summary>
     public bool IsPassable(int index) => (uint)index < (uint)_passable.Length && _passable[index];
 
+    /// <summary>
+    /// Reads and parses a map file, carrying <paramref name="path"/> into any
+    /// <see cref="MapFormatException"/> so a failure names the file it came from.
+    /// </summary>
+    /// <param name="path">The map file. Neither null nor blank.</param>
     public static Grid FromMapFile(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         return Parse(File.ReadAllText(path), path);
     }
 
+    /// <summary>
+    /// Parses map text already in memory -- the same parser as
+    /// <see cref="FromMapFile(string)"/>, with no source path to report, so an
+    /// error locates itself as "map text, line N" instead.
+    /// </summary>
+    /// <param name="text">A whole map file's contents, header included.</param>
     public static Grid FromMapText(string text) => Parse(text, source: null);
 
     /// <summary>

@@ -27,15 +27,40 @@ public sealed class TerrainImage
         _pixels = pixels;
     }
 
+    /// <summary>Texels across, which is the grid's width in <em>cells</em> -- one texel per cell, never per pixel.</summary>
     public int Width { get; }
 
+    /// <summary>Texels down, likewise the grid's height in cells.</summary>
     public int Height { get; }
 
     /// <summary>Bytes per row. RGBA8, so four per texel.</summary>
     public int Stride => Width * 4;
 
+    /// <summary>
+    /// The rows top to bottom, <see cref="Stride"/> bytes each: RGBA8, row-major,
+    /// and always exactly <c>Width * Height * 4</c> bytes long.
+    /// </summary>
+    /// <remarks>
+    /// A span rather than an array, so a renderer can walk it straight into a
+    /// texture with no copy and no way to write back. It stays valid for the
+    /// lifetime of this instance, which is what lets a renderer whose device was
+    /// reset re-upload from an image it still holds instead of asking the app for
+    /// a new one.
+    /// </remarks>
     public ReadOnlySpan<byte> Pixels => _pixels;
 
+    /// <summary>
+    /// Paints every cell once in row-major index order: <paramref name="passable"/>
+    /// wherever <see cref="Grid.IsPassable(int)"/> is true and
+    /// <paramref name="blocked"/> everywhere else, alpha included.
+    /// </summary>
+    /// <remarks>
+    /// Always a new instance, and that matters: both real renderers key their
+    /// single-slot upload cache on <em>reference</em> identity, so handing back a
+    /// fresh object is how the app says "the map changed, re-upload". Calling this
+    /// once per frame would therefore rebuild the texture once per frame; the app
+    /// calls it only when a load bumps the session's version.
+    /// </remarks>
     public static TerrainImage FromGrid(Grid grid, RgbaColor passable, RgbaColor blocked)
     {
         ArgumentNullException.ThrowIfNull(grid);

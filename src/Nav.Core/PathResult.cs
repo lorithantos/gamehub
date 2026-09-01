@@ -16,5 +16,11 @@ public sealed record PathResult(
     /// <summary>Moves along the path -- one fewer than the number of cells.</summary>
     public int StepCount => Cells.Count > 0 ? Cells.Count - 1 : 0;
 
+    /// <summary>
+    /// The answer when there is no path: no cells, no cost, and the work the
+    /// search still did to establish it. A result, not an error -- a blocked
+    /// endpoint and an unreachable goal both arrive here.
+    /// </summary>
+    /// <param name="expanded">Nodes closed before the search ran out of frontier.</param>
     public static PathResult NotFound(int expanded) => new([], 0.0, expanded, false);
 }

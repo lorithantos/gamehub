@@ -101,10 +101,20 @@ public sealed class Walker
         UpdatePosition();
     }
 
+    /// <summary>
+    /// Column in CELLS, fractional between two path nodes -- a drawing position, not
+    /// a cell index, and rounding it back to one loses the whole point. Recomputed
+    /// from <see cref="Elapsed"/> rather than accumulated into.
+    /// </summary>
     public float X { get; private set; }
 
+    /// <summary>Row, in the same fractional cell units as <see cref="X"/>.</summary>
     public float Y { get; private set; }
 
+    /// <summary>
+    /// True once the walk has reached the final cell, where the position clamps. A
+    /// long frame therefore ends the walk rather than carrying the unit past its goal.
+    /// </summary>
     public bool Arrived { get; private set; }
 
     /// <summary>Total arc length of the path, in cells.</summary>

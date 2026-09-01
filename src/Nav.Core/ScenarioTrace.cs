@@ -29,6 +29,16 @@ namespace Nav.Core;
 /// </remarks>
 public static class ScenarioTrace
 {
+    /// <summary>
+    /// The format stamp written into the header line's <c>version</c> field.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Summarize"/> refuses any other value outright rather than
+    /// reading a trace it may not understand -- a digest computed from
+    /// misinterpreted fields is worse than no digest, because it looks like an
+    /// answer. A consumer that hits the mismatch should regenerate the trace with
+    /// <see cref="Write"/>, not try to salvage the old file.
+    /// </remarks>
     public const int Version = 1;
 
     private static readonly JsonSerializerOptions Options = new()

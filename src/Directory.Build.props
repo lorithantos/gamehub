@@ -1,0 +1,24 @@
+<Project>
+
+  <!--
+    Documentation is a compiler-checked property of this tree, not a review
+    convention. GenerateDocumentationFile turns on CS1591 (a publicly visible
+    type or member with no XML comment) and CS1573 (a parameter with no
+    matching param tag), so "every public member is documented, and every
+    parameter is covered" becomes a build result rather than something someone
+    has to re-audit by reading.
+
+    Scoped to src/ deliberately. Tests live under tests/ and are exempt: a
+    [Fact] named NobodyRetreatsFromASettledBlob already is the sentence a
+    summary would restate, and the same holds for the benchmark harness.
+
+    Where a member really is self-describing, suppress CS1591 with a narrow
+    pragma at the declaration and say why. A blanket NoWarn here would turn the
+    whole question back into an unenforced convention, which is the state this
+    file exists to leave.
+  -->
+  <PropertyGroup>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+</Project>

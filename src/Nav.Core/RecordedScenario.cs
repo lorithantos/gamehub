@@ -4,14 +4,28 @@ using System.Text;
 namespace Nav.Core;
 
 /// <param name="Id">Agent ids are consecutive from zero; the id is also the planning order.</param>
+/// <param name="X">
+/// Starting column. The format stores x/y pairs because they are what a human
+/// writes and reads; <see cref="Grid.Index"/> turns the pair into the flat cell
+/// index the engine actually runs on.
+/// </param>
+/// <param name="Y">Starting row. Placed on a wall or off the map, the scenario is refused rather than clamped.</param>
 public sealed record ScenarioAgent(int Id, int X, int Y);
 
 /// <param name="Tick">When the order is issued.</param>
 /// <param name="Agents">Everyone it applies to. A group order is one order, not several.</param>
+/// <param name="X">
+/// Destination column. Every agent named in <paramref name="Agents"/> is sent to
+/// this <em>one</em> cell -- spreading them onto cells of their own is the
+/// movement system's job, not something the format records.
+/// </param>
+/// <param name="Y">Destination row.</param>
 public sealed record ScenarioOrder(int Tick, IReadOnlyList<int> Agents, int X, int Y);
 
 /// <summary>
-/// A map, some starting placements, and a timeline of orders.
+/// A map, some starting placements, and a timeline of orders -- this project's
+/// own multi-agent replay format, not the Moving AI <c>.scen</c> benchmark
+/// format that <see cref="ScenarioFile"/> reads.
 /// </summary>
 /// <remarks>
 /// <b>Not a recording of where units went.</b> If the simulation is deterministic
@@ -33,12 +47,27 @@ public sealed record RecordedScenario(
 {
     private const double DefaultTickSeconds = 1.0 / 60.0;
 
+    /// <summary>
+    /// Reads a scenario off disk. <paramref name="path"/> travels into any
+    /// <see cref="MapFormatException"/>, so a bad line is reported as file
+    /// <em>and</em> line number -- which is the difference between a fixable
+    /// failure and one you have to go hunting for.
+    /// </summary>
+    /// <param name="path">The scenario file to read.</param>
+    /// <exception cref="MapFormatException">Any line does not parse; the message names the file and the line.</exception>
     public static RecordedScenario FromFile(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         return Parse(File.ReadAllText(path), path);
     }
 
+    /// <summary>
+    /// Reads a scenario already held as text -- the form tests and fixtures use.
+    /// Identical parsing to <see cref="FromFile"/>, except that errors carry only
+    /// a line number, since there is no file to name.
+    /// </summary>
+    /// <param name="text">The scenario text.</param>
+    /// <exception cref="MapFormatException">Any line does not parse.</exception>
     public static RecordedScenario FromText(string text) => Parse(text, source: null);
 
     /// <summary>

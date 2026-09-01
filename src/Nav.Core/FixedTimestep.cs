@@ -19,10 +19,20 @@ public sealed class FixedTimestep(double step = 1.0 / 60.0, int maxStepsPerFrame
 {
     private double _accumulated;
 
+    /// <summary>
+    /// Seconds of simulated time one step stands for. Fixed for the object's life:
+    /// a step that varied would make the run depend on the frame rate, which is the
+    /// whole thing this type exists to prevent.
+    /// </summary>
     public double Step { get; } = step > 0.0
         ? step
         : throw new ArgumentOutOfRangeException(nameof(step), step, "The step must be positive.");
 
+    /// <summary>
+    /// The most steps one <see cref="Accumulate"/> call will ever ask for. On the
+    /// frame that hits it the ENTIRE bank is discarded, not merely trimmed: the
+    /// simulation gives up that time for good rather than chasing it forever.
+    /// </summary>
     public int MaxStepsPerFrame { get; } = maxStepsPerFrame > 0
         ? maxStepsPerFrame
         : throw new ArgumentOutOfRangeException(nameof(maxStepsPerFrame), maxStepsPerFrame, "There must be at least one step.");
@@ -56,5 +66,9 @@ public sealed class FixedTimestep(double step = 1.0 / 60.0, int maxStepsPerFrame
         return steps;
     }
 
+    /// <summary>
+    /// Drops what was banked without ever emitting it, so a pause or a reload is not
+    /// paid back as a burst of steps on the frame that follows it.
+    /// </summary>
     public void Reset() => _accumulated = 0.0;
 }

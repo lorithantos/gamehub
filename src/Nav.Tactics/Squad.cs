@@ -72,6 +72,21 @@ public sealed class Squad
     public bool Remove(int id) => _members.Remove(id);
 
     /// <summary>
+    /// The player's group move: every member, detached ones included, is ordered
+    /// to <paramref name="destination"/> as one formation, and
+    /// <see cref="Anchor"/> becomes that cell so the doctrine holds the new place
+    /// rather than the old one. Selecting a squad and saying "move" is exactly
+    /// one input to the movement engine, and this is it.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">A member id this system does not have.</exception>
+    public void MoveAll(MovementSystem system, int destination)
+    {
+        ArgumentNullException.ThrowIfNull(system);
+        system.Order([.. _members], destination);
+        Anchor = destination;
+    }
+
+    /// <summary>
     /// Runs the doctrine once against <paramref name="system"/> in a quiet world:
     /// nobody hurt, nobody hostile. See the overload for the real thing.
     /// </summary>

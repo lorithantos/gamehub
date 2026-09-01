@@ -90,11 +90,7 @@ internal sealed class SquadOps : ISquadOps
     public int ErrandOf(int id) => Member(id).Errand;
 
     /// <inheritdoc/>
-    public void MoveAll(int destination)
-    {
-        _system.Order(Members, destination);
-        _squad.Anchor = destination;
-    }
+    public void MoveAll(int destination) => _squad.MoveAll(_system, destination);
 
     /// <inheritdoc/>
     public void Detach(int id, int destination)

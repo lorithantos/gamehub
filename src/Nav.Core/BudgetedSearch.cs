@@ -24,7 +24,7 @@ namespace Nav.Core;
 /// accordingly.
 /// </para>
 /// </remarks>
-public sealed class BudgetedSearch
+internal sealed class BudgetedSearch
 {
     private const byte Open = 1;
     private const byte Closed = 2;

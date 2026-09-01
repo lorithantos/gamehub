@@ -15,7 +15,7 @@ namespace Nav.Core;
 /// it. That is the standard trade and it is the cheaper one here.
 /// </para>
 /// </remarks>
-public sealed class BinaryHeap
+internal sealed class BinaryHeap
 {
     private readonly record struct Entry(int Cell, double F, double H);
 

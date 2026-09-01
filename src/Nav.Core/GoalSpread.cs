@@ -14,7 +14,7 @@ namespace Nav.Core;
 /// looking.
 /// </para>
 /// </remarks>
-public static class GoalSpread
+internal static class GoalSpread
 {
     /// <summary>
     /// The <paramref name="count"/> passable cells nearest <paramref name="target"/>,

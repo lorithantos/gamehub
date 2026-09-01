@@ -34,7 +34,7 @@ namespace Nav.Core;
 /// second code path for them to drift in.
 /// </para>
 /// </remarks>
-public static class CooperativePlanner
+internal static class CooperativePlanner
 {
     /// <summary>
     /// Plans a route through space and time, running the search to completion.

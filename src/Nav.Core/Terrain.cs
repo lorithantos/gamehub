@@ -23,7 +23,7 @@ namespace Nav.Core;
 /// and are exactly the kind of thing this table is shaped to accept.
 /// </para>
 /// </remarks>
-public static class Terrain
+internal static class Terrain
 {
     private const byte Unrecognised = 0;
     private const byte Blocked = 1;

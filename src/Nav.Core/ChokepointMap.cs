@@ -31,7 +31,7 @@ public sealed record Chokepoint(int Cell, int Width);
 /// metering; the search never sees them.
 /// </para>
 /// </remarks>
-public static class ChokepointMap
+internal static class ChokepointMap
 {
     /// <summary>A passage this wide or narrower can be forced.</summary>
     private const int NarrowWidth = 2;

@@ -26,7 +26,7 @@ namespace Nav.Core;
 /// diagonals.
 /// </para>
 /// </remarks>
-public sealed class Walker
+internal sealed class Walker
 {
     /// <summary>Indexed by "is this segment diagonal", so nothing branches to find a length.</summary>
     private static readonly double[] SegmentLength = [Movement.CardinalCost, Movement.DiagonalCost];

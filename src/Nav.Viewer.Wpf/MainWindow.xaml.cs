@@ -6,7 +6,7 @@ namespace Nav.Viewer.Wpf;
 /// Layout only. Every decision about what to draw and when lives in
 /// <see cref="WpfHost"/> and, above it, in the shared <c>ViewerApp</c>.
 /// </summary>
-public partial class MainWindow : Window
+internal partial class MainWindow : Window
 {
     /// <summary>
     /// Realises the two named elements the host drives: the nearest-neighbour

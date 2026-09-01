@@ -1,9 +1,29 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+
+  <!--
+    The test project sees internals, and that is a deliberate trade rather than a
+    convenience. The alternative to narrowing these types was leaving the search
+    engine, the reservation ring and the heap in the library's public API, where
+    every one of them is an implementation detail a consumer should never name.
+
+    It is worth being honest about what this costs. InternalsVisibleTo is
+    assembly-wide, so it widens access for production code inside Nav.Core too,
+    not only for tests. C# offers no narrower grant: there is no per-type
+    friendship, and nothing like the in-module test block other languages provide.
+
+    Where a seam is worth designing rather than merely reaching through, the
+    answer is an interface a test can implement instead. That is why IGroupOps,
+    IReservationView, IDistanceFieldSource and IChokepointSource exist, and why
+    the doctrine tests need no privileged access at all.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Nav.Core.Tests" />
+  </ItemGroup>
 
 </Project>

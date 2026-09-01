@@ -118,7 +118,7 @@ public sealed class DistanceField
 /// (strict LRU on <see cref="For"/> calls), so two identical runs hold identical
 /// caches — replay determinism must not depend on what happens to be cached.
 /// </remarks>
-public sealed class FieldCache : IDistanceFieldSource
+internal sealed class FieldCache : IDistanceFieldSource
 {
     private readonly Grid _grid;
     private readonly int _capacity;

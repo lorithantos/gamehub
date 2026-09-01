@@ -22,7 +22,7 @@ namespace Nav.Core;
 /// per tick rather than once per search.
 /// </para>
 /// </remarks>
-public sealed class ReservationTable : IReservationView
+internal sealed class ReservationTable : IReservationView
 {
     /// <summary>No agent. Agent ids are non-negative, so this cannot collide with one.</summary>
     private const int Free = -1;

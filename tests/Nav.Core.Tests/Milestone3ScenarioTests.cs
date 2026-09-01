@@ -159,6 +159,43 @@ public sealed class Milestone3ScenarioTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void ABlockedUnitBetweenProbesReadsAsWaitingNotJustStuck()
+    {
+        // The refused-order failure mode's data half: a unit gated between
+        // retries must be distinguishable from one actively failing, or the
+        // display cannot say "in the queue".
+        var grid = Grid.FromMapFile(Fixtures.Map("corridor.map"));
+        var system = new MovementSystem(grid);
+        system.AddAgent(grid.Index(1, 1));
+        system.AddAgent(grid.Index(9, 1));
+        system.Order([0], grid.Index(9, 1));
+        system.Order([1], grid.Index(1, 1));
+
+        for (var tick = 0; tick < 30; tick++)
+        {
+            system.Tick();
+        }
+
+        Assert.All(system.Agents, a => Assert.True(a.Stuck, $"agent {a.Id} is not stuck"));
+        Assert.All(system.Agents, a => Assert.True(a.Waiting, $"agent {a.Id} is not waiting"));
+    }
+
+    [Fact]
+    public void AGroupElectsItsNearestMemberAsLeader()
+    {
+        var grid = Grid.FromMapFile(Fixtures.Map("hall.map"));
+        var system = new MovementSystem(grid);
+        system.AddAgent(grid.Index(1, 1));    // far
+        system.AddAgent(grid.Index(8, 8));    // nearest the destination
+        system.AddAgent(grid.Index(4, 4));    // middling
+        system.Order([0, 1, 2], grid.Index(10, 10));
+        system.Tick();
+
+        var leader = Assert.Single(system.Leaders);
+        Assert.Equal(1, leader);
+    }
+
+    [Fact]
     public void StaggeredOrdersAllLandIncludingTheLateOnes()
     {
         var (scenario, grid) = Fixtures.Load("staggered");

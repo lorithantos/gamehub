@@ -310,8 +310,34 @@ public sealed class ViewerAppTests
         Assert.Contains("12x7", app.StatusText, StringComparison.Ordinal);
         Assert.Contains($"{Squad} units", app.StatusText, StringComparison.Ordinal);
         Assert.Contains("arrived", app.StatusText, StringComparison.Ordinal);
+        Assert.Contains("fields", app.StatusText, StringComparison.Ordinal);
         Assert.Contains("nodes/tick", app.StatusText, StringComparison.Ordinal);
         Assert.Contains("[running]", app.StatusText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheLeaderWearsTheDoubledDot()
+    {
+        // A group order elects a leader; the leader's mark is two extra
+        // concentric circles. With all four selected the last frame carries
+        // four unit circles, four selection dots, and the leader's pair.
+        var grid = Fixture();
+        var layout = LayoutFor(grid);
+        var app = new ViewerApp(grid, layout, Squad);
+
+        var frames = new List<ScriptedFrame>(
+            Drag(layout.CenterOf(1, 1) - new Vector2(10, 10), layout.CenterOf(4, 1) + new Vector2(10, 10)))
+        {
+            new(Mouse: layout.CenterOf(9, 5), ButtonsDown: MouseButtons.Right),
+            new(),
+        };
+
+        var renderer = new RecordingRenderer();
+        using var host = new ScriptedHost(frames, renderer);
+        host.Run(app);
+
+        Assert.Single(app.Session.Leaders);
+        Assert.Equal(Squad + 4 + 2, renderer.LastFrameOfKind<DrawCommand.Circle>().Count());
     }
 
     [Fact]

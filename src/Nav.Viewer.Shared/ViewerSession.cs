@@ -86,6 +86,12 @@ public sealed class ViewerSession
 
     public IReadOnlyList<AgentPlan> CurrentPlans() => _system.CurrentPlans();
 
+    /// <summary>Each live group's leader, for the viewer's mark.</summary>
+    public IReadOnlyList<int> Leaders => _system.Leaders;
+
+    /// <summary>Distance fields cached, of <see cref="MovementSystem.FieldCapacity"/>.</summary>
+    public int LiveFields => _system.LiveFields;
+
     public static ViewerSession FromMap(Grid grid, string mapName, int squad = DefaultSquad)
     {
         ArgumentNullException.ThrowIfNull(grid);

@@ -6,6 +6,12 @@ namespace Nav.Core;
 /// <param name="Arrived">Standing on its goal.</param>
 /// <param name="StalledTicks">Consecutive replans that got it no closer to its goal.</param>
 /// <param name="Thinking">A search is in flight for this agent; it holds position until it lands.</param>
+/// <param name="Waiting">
+/// Gated from planning until an event or its backstop: queued by a doctrine,
+/// backing off after a failed replan, or held short of a gate. WAITING IS NOT
+/// FAILING — a unit doing nothing visible reads as "I've refused the order"
+/// unless the display can say "I'm in the queue", which is what this flag is for.
+/// </param>
 /// <remarks>
 /// <see cref="Stuck"/> means NO PROGRESS, not "no plan". The distinction was worth
 /// a bug: an agent that can stand still always has a plan — the one-cell plan of
@@ -19,7 +25,8 @@ public readonly record struct AgentState(
     int Goal,
     bool Arrived,
     int StalledTicks,
-    bool Thinking)
+    bool Thinking,
+    bool Waiting)
 {
     /// <summary>Has an order it is making no progress on.</summary>
     public bool Stuck => !Arrived && StalledTicks > 0;
@@ -196,7 +203,7 @@ public sealed class MovementSystem
         _table = new ReservationTable(grid.CellCount, horizon);
         _nodeBudgetPerTick = nodeBudgetPerTick;
         _maxSearchesInFlight = maxSearchesInFlight;
-        _fields = new FieldCache(grid, capacity: 8);
+        _fields = new FieldCache(grid, FieldCapacity);
     }
 
     public int CurrentTick { get; private set; }
@@ -209,7 +216,17 @@ public sealed class MovementSystem
 
     public IReadOnlyList<AgentState> Agents =>
         [.. _agents.Select(a => new AgentState(
-            a.Id, a.Cell, a.Goal, a.Cell == a.Goal, a.StalledTicks, a.Search is not null))];
+            a.Id, a.Cell, a.Goal, a.Cell == a.Goal, a.StalledTicks, a.Search is not null,
+            Waiting: a.Cell != a.Goal && a.Search is null && a.RetryAfterTick > CurrentTick))];
+
+    /// <summary>Each live group's leader, for display and diagnostics.</summary>
+    public IReadOnlyList<int> Leaders =>
+        [.. _groups.Where(g => g.Leader >= 0).Select(g => g.Leader)];
+
+    /// <summary>Distance fields currently cached, of <see cref="FieldCapacity"/>.</summary>
+    public int LiveFields => _fields.Count;
+
+    public const int FieldCapacity = 8;
 
     public int AddAgent(int cell)
     {

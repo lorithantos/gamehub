@@ -277,6 +277,7 @@ public sealed class ViewerApp : IViewerApp
         }
 
         var radius = Math.Max(2.0f, Layout.CellSize * 0.34f);
+        var leaders = _session.Leaders;
         foreach (var agent in _session.Agents)
         {
             var from = CenterOfCell(_previousCells[agent.Id]);
@@ -285,11 +286,20 @@ public sealed class ViewerApp : IViewerApp
 
             renderer.DrawCircle(at, radius, ColourFor(agent));
 
+            if (leaders.Contains(agent.Id))
+            {
+                // The leader's mark: the selection dot, doubled — a bullseye of
+                // dot-in-dot in the unit's own colour. Still just circles;
+                // five verbs is five verbs.
+                renderer.DrawCircle(at, radius * 0.55f, RgbaColor.Black);
+                renderer.DrawCircle(at, radius * 0.28f, ColourFor(agent));
+            }
+
             if (selection.Contains(agent.Id))
             {
                 // A ring, drawn as a slightly larger circle underneath would be —
                 // but the seam has no stroke, so the selection is a second smaller
-                // dot on top. Five verbs is five verbs.
+                // dot on top.
                 renderer.DrawCircle(at, radius * 0.35f, RgbaColor.Black);
             }
         }
@@ -354,12 +364,25 @@ public sealed class ViewerApp : IViewerApp
     {
         if (agent.Stuck)
         {
-            return RgbaColor.Red;
+            // Blocked-and-waiting dims toward the terrain; blocked-and-probing
+            // burns bright. QUEUED MUST NOT LOOK LIKE REFUSED — a unit doing
+            // nothing visible reads as ignoring the order unless the display
+            // says "in the queue", which is the recorded failure mode this
+            // colour split exists to close.
+            return agent.Waiting ? RgbaColor.Rgb(190, 120, 120) : RgbaColor.Red;
         }
 
         if (agent.Arrived)
         {
             return RgbaColor.Rgb(130, 130, 130);
+        }
+
+        if (agent.Waiting)
+        {
+            // Held by a doctrine (a metered gate, a queue) without ever having
+            // failed: patient, not broken. Dim, desaturated, unmistakably
+            // "standing in line".
+            return RgbaColor.Rgb(150, 150, 170);
         }
 
         var hue = agent.Id * 137.508f % 360f;
@@ -461,7 +484,8 @@ public sealed class ViewerApp : IViewerApp
         return string.Create(
             CultureInfo.InvariantCulture,
             $"{_grid.Width}x{_grid.Height}  {agents.Count} units  {Fixed(arrived)} arrived  {Fixed(stuck)} stuck  " +
-            $"{Fixed(planning)} planning  {_session.LastTick.NodesSpent,6} nodes/tick  " +
+            $"{Fixed(planning)} planning  fields {_session.LiveFields}/{MovementSystem.FieldCapacity}  " +
+            $"{_session.LastTick.NodesSpent,6} nodes/tick  " +
             $"tick {_session.CurrentTick,6}  {(_session.Running ? "[running]" : "[paused]"),-9} " +
             $"sel {Fixed(_session.Selection.Count)}  LMB click/drag select  RMB order  SPACE pause  S step  " +
             $"{(_session.IsReplay ? "R restart" : "R regroup")}");

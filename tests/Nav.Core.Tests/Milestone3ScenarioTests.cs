@@ -76,14 +76,23 @@ public sealed class Milestone3ScenarioTests(ITestOutputHelper output)
         var metered = RunThrong(scenario, grid, new MeteredGatherDoctrine());
 
         output.WriteLine(
-            $"scrum (default): {scrum.Arrived} arrived by tick {scrum.SettledAt}, {scrum.Nodes:N0} nodes; " +
-            $"metered column: {metered.Arrived} arrived by tick {metered.SettledAt}, {metered.Nodes:N0} nodes");
+            $"scrum (default): {scrum.Arrived} arrived by tick {scrum.SettledAt}, {scrum.Nodes:N0} nodes, " +
+            $"{scrum.Inversions} overtakes; " +
+            $"metered column: {metered.Arrived} arrived by tick {metered.SettledAt}, {metered.Nodes:N0} nodes, " +
+            $"{metered.Inversions} overtakes");
 
         Assert.Equal(24, scrum.Arrived);
         Assert.Equal(24, metered.Arrived);
+
+        // The meter's actual product is ORDER: units emerge from the gate in
+        // something close to their queue rank, where the scrum scrambles them.
+        Assert.True(
+            metered.Inversions <= scrum.Inversions,
+            $"the metered column scrambled harder than the scrum " +
+            $"({metered.Inversions} vs {scrum.Inversions} overtakes)");
     }
 
-    private static (int Arrived, int SettledAt, long Nodes) RunThrong(
+    private static (int Arrived, int SettledAt, long Nodes, int Inversions) RunThrong(
         RecordedScenario scenario, Grid grid, GroupDoctrine? doctrine)
     {
         var system = new MovementSystem(grid);
@@ -95,10 +104,34 @@ public sealed class Milestone3ScenarioTests(ITestOutputHelper output)
         var order = scenario.Orders.Single();
         system.Order(order.Agents, grid.Index(order.X, order.Y), doctrine);
 
+        // Emergence order: the sequence in which units pass the gate, compared
+        // with their initial distance rank. An overtake is a pair the passage
+        // reversed.
+        var field = DistanceField.Build(grid, grid.Index(order.X, order.Y));
+        var gateCost = field.CostFrom(grid.Index(6, 4));
+        var initialRank = system.Agents
+            .OrderBy(a => field.CostFrom(a.Cell))
+            .ThenBy(a => a.Id)
+            .Select((a, rank) => (a.Id, Rank: rank))
+            .ToDictionary(pair => pair.Id, pair => pair.Rank);
+
+        var crossed = new HashSet<int>();
+        var crossingOrder = new List<int>();
+
         var settledAt = -1;
         for (var tick = 0; tick < scenario.EndTick; tick++)
         {
             system.Tick();
+
+            foreach (var agent in system.Agents)
+            {
+                if (!crossed.Contains(agent.Id) && field.CostFrom(agent.Cell) < gateCost)
+                {
+                    crossed.Add(agent.Id);
+                    crossingOrder.Add(agent.Id);
+                }
+            }
+
             if (settledAt < 0 && system.Agents.All(a => a.Arrived))
             {
                 settledAt = system.CurrentTick;
@@ -106,7 +139,23 @@ public sealed class Milestone3ScenarioTests(ITestOutputHelper output)
             }
         }
 
-        return (system.Agents.Count(a => a.Arrived), settledAt < 0 ? scenario.EndTick : settledAt, system.TotalExpanded);
+        var inversions = 0;
+        for (var i = 0; i < crossingOrder.Count; i++)
+        {
+            for (var j = i + 1; j < crossingOrder.Count; j++)
+            {
+                if (initialRank[crossingOrder[i]] > initialRank[crossingOrder[j]])
+                {
+                    inversions++;
+                }
+            }
+        }
+
+        return (
+            system.Agents.Count(a => a.Arrived),
+            settledAt < 0 ? scenario.EndTick : settledAt,
+            system.TotalExpanded,
+            inversions);
     }
 
     [Fact]

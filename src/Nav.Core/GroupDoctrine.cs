@@ -237,6 +237,9 @@ public sealed class MeteredGatherDoctrine : GroupDoctrine
         _gather.Advance(ops);
     }
 
+    /// <summary>How close to the gate somebody must be before the meter turns on.</summary>
+    private static readonly double ContactRange = 2.0 * Movement.DiagonalCost;
+
     /// <summary>
     /// A STATELESS pacing brake, deliberately. Two stateful versions preceded
     /// it and both stranded units: a released-set entry that neither passed nor
@@ -247,6 +250,17 @@ public sealed class MeteredGatherDoctrine : GroupDoctrine
     /// and the failure mode of a missed hold is a unit planning slightly early
     /// — the scrum — never a unit frozen.
     /// </summary>
+    /// <remarks>
+    /// AND IT TURNS ON AT CONTACT, NOT AT ORDER TIME. Metering is door
+    /// discipline, and door discipline starts at the door: until somebody has
+    /// actually reached the gate there is no queue to manage, and the march
+    /// across open ground is free. The first version engaged the moment the
+    /// order was issued and froze the tail half a chamber from the gate —
+    /// every batch then paid the full transit latency serially, which is where
+    /// its measured 4x slowdown lived. With contact activation the whole group
+    /// compresses to the doorway at scrum pace and the ordering applies to a
+    /// queue that exists.
+    /// </remarks>
     private static void Meter(MovementSystem.GroupOps ops)
     {
         // The chokepoint that stands between outsiders and the destination is
@@ -278,6 +292,14 @@ public sealed class MeteredGatherDoctrine : GroupDoctrine
             .OrderBy(id => ops.FieldCost(ops.CellOf(id)))
             .ThenBy(id => id)
             .ToArray();
+
+        // Dormant until contact: somebody has to be AT the door before there
+        // is a queue to discipline.
+        if (queue.Length == 0 ||
+            ops.FieldCost(ops.CellOf(queue[0])) > gateCost + PassedMargin + ContactRange)
+        {
+            return;
+        }
 
         for (var i = gate.Width * ConvoyDepth; i < queue.Length; i++)
         {

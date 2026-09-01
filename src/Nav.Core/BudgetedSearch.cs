@@ -141,8 +141,18 @@ internal sealed class BudgetedSearch
         {
             Finish(PlanResult.Stuck(startTick, expanded: 0));
         }
-        else if (start == goal)
+        else if (start == goal && reservations.IsHoldable(goal, startTick, agent))
         {
+            // Standing on the goal is only arriving if the agent may STAY there,
+            // which is the same rule the search loop applies to every other
+            // arrival. Without the holdability check this exit declared a one-cell
+            // plan found and Commit parked the agent on a cell somebody else held a
+            // tick later. It surfaced when a heap swap changed A*'s tie-breaking:
+            // in the throng scenario agent 13's old route left it standing on its
+            // freshly claimed goal at exactly its anchor tick while agent 16 held
+            // that cell for the following tick, and both stood on it at tick 19.
+            // When the goal cannot be held, the search runs and finds a plan that
+            // steps aside and comes back, or waits somewhere it is allowed to.
             Finish(new PlanResult([start], startTick, 0.0, Expanded: 0, Found: true));
         }
 

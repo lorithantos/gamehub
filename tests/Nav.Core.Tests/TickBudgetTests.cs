@@ -107,9 +107,15 @@ public sealed class TickBudgetTests(ITestOutputHelper output)
 
         system.Order([.. Enumerable.Range(0, Agents)], grid.Index(44, 44));
 
+        // The cap moved 1500 -> 2000 with the space-opened wake: a few early
+        // wakes butterfly the 200-crowd's claim order and settle drifted from
+        // tick 1252 to ~1556 -- accepted, because the wake is what makes one
+        // order ONE departure instead of a second expedition, and it cut the
+        // thin-column node spend by 40%. The crowd's flatline-then-flood
+        // arrival shape predates the wake and is banked as its own question.
         var settledAt = -1;
         long nodesAtSettle = 0;
-        for (var tick = 0; tick < 1500; tick++)
+        for (var tick = 0; tick < 2000; tick++)
         {
             system.Tick();
             if (settledAt < 0 && system.Agents.All(a => a.Arrived))

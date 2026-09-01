@@ -158,6 +158,47 @@ public sealed class Milestone3ScenarioTests(ITestOutputHelper output)
             inversions);
     }
 
+    /// <summary>
+    /// One order is ONE movement. The rear of a group used to fail its first
+    /// replans against its own front, nap on the sixty-four-tick backstop, and
+    /// depart as a visibly second expedition after the first had crossed and
+    /// assembled — Lori's crosscut screenshot, and an outcome nobody wants.
+    /// The space-opened wake closes it: each rank replans the moment the rank
+    /// ahead pulls away, so the column accordions out together.
+    /// </summary>
+    [Theory]
+    [InlineData("throng", 24)]
+    [InlineData("group", 20)]
+    [InlineData("reconcile", 12)]
+    public void OneOrderIsOneDeparture(string name, int spreadCeiling)
+    {
+        var (scenario, grid) = Fixtures.Load(name);
+
+        var firstMove = new Dictionary<int, int>();
+        var previous = new Dictionary<int, int>();
+        ScenarioPlayback.Play(scenario, grid, onTick: tick =>
+        {
+            foreach (var agent in tick.Agents)
+            {
+                if (previous.TryGetValue(agent.Id, out var was) && was != agent.Cell &&
+                    !firstMove.ContainsKey(agent.Id))
+                {
+                    firstMove[agent.Id] = tick.Tick;
+                }
+
+                previous[agent.Id] = agent.Cell;
+            }
+        });
+
+        var spread = firstMove.Values.Max() - firstMove.Values.Min();
+        output.WriteLine(
+            $"{name}: departures t{firstMove.Values.Min()}..t{firstMove.Values.Max()} (spread {spread})");
+
+        Assert.True(
+            spread <= spreadCeiling,
+            $"{name}: departure spread {spread} — the group left as more than one movement");
+    }
+
     [Fact]
     public void ABlockedUnitBetweenProbesReadsAsWaitingNotJustStuck()
     {

@@ -120,6 +120,9 @@ public sealed class MovementSystem
         /// <summary>When this agent last got a planning slot; -1 if never.</summary>
         public int LastPlanAttemptTick { get; set; } = -1;
 
+        /// <summary>When a nearby vacancy last woke this agent.</summary>
+        public int LastVacancyWakeTick { get; set; } = -1_000_000;
+
         public bool WantsPlan { get; set; }
 
         /// <summary>
@@ -381,29 +384,91 @@ public sealed class MovementSystem
         _table.Advance();
 
         var anyArrived = false;
+        var vacated = new HashSet<int>();
+        var entered = new HashSet<int>();
         foreach (var agent in _agents)
         {
             var at = agent.Plan?.CellAt(CurrentTick) ?? -1;
             if (at >= 0)
             {
+                if (at != agent.Cell)
+                {
+                    vacated.Add(agent.Cell);
+                    entered.Add(at);
+                }
+
                 var wasArrived = agent.Cell == agent.Goal;
                 agent.Cell = at;
                 anyArrived |= !wasArrived && agent.Cell == agent.Goal;
             }
         }
 
-        if (anyArrived)
+        // THE SPACE-OPENED WAKE — the release event the reservation-index note
+        // always promised, at last implemented precisely. A cell somebody moved
+        // off and nobody moved onto is genuinely free, and a stalled unit
+        // standing beside it should replan NOW, not when its backstop lapses.
+        // Without this the rear of a group failed its first replans against its
+        // own front, napped for sixty-four ticks, and departed as a visibly
+        // SECOND EXPEDITION after the first had crossed and assembled -- an
+        // outcome nobody wants from one order. Vacated-and-reentered cells
+        // (lane traffic streaming past) wake nobody, so a unit beside a busy
+        // lane does not burn a search per passing car.
+        vacated.ExceptWith(entered);
+
+        foreach (var agent in _agents)
         {
-            foreach (var agent in _agents)
+            if (agent.StalledTicks == 0 || agent.Cell == agent.Goal ||
+                agent.RetryAfterTick <= CurrentTick)
             {
-                // An arrival opens space, and not only for slot-holders: the
-                // rear of a marching column stalls against its own squad at
-                // tick one, sits outside the claim radius, and NOTHING else
-                // ever wakes it -- five of the group fixture's twelve froze
-                // exactly that way when this wake was gated to slot-holders.
-                if (agent.StalledTicks > 0 && agent.Cell != agent.Goal)
+                continue;
+            }
+
+            // An arrival is broadcast news (a slot freed somewhere, claims are
+            // about to move) and measurably earns its keep alongside the local
+            // wake: removing it doubled the throng's node spend, because
+            // distant queued units need the slot news even with no vacancy
+            // beside them.
+            if (anyArrived)
+            {
+                agent.RetryAfterTick = CurrentTick;
+                continue;
+            }
+
+            // Per-agent cooldown on vacancy wakes. Unthrottled, a 200-unit
+            // crowd's trailing edge vacates cells every tick, every stalled
+            // unit re-probes every tick, and the budget drowns in churn --
+            // measured as ONE arrival in a thousand ticks. Throttled, a rank
+            // still follows the rank ahead within eight ticks: one movement,
+            // bounded spend.
+            if (CurrentTick - agent.LastVacancyWakeTick < StallBackstopTicks / 8)
+            {
+                continue;
+            }
+
+            var x = _grid.ColumnOf(agent.Cell);
+            var y = _grid.RowOf(agent.Cell);
+            var here = Movement.OctileDistance(x, y, _grid.ColumnOf(agent.Goal), _grid.RowOf(agent.Goal));
+            foreach (var step in Movement.Steps)
+            {
+                var nextX = x + step.DeltaX;
+                var nextY = y + step.DeltaY;
+                if (!vacated.Contains((nextY * _grid.Width) + nextX))
+                {
+                    continue;
+                }
+
+                // Only an opening AHEAD is an opening. A marching crowd frees a
+                // rank of cells behind itself every tick, and waking interior
+                // units on rear vacancies measured as budget saturation and one
+                // arrival in a thousand ticks -- their blockage was in front all
+                // along. A vacancy no closer to the goal than the unit is just
+                // the crowd leaving.
+                if (Movement.OctileDistance(
+                        nextX, nextY, _grid.ColumnOf(agent.Goal), _grid.RowOf(agent.Goal)) < here)
                 {
                     agent.RetryAfterTick = CurrentTick;
+                    agent.LastVacancyWakeTick = CurrentTick;
+                    break;
                 }
             }
         }

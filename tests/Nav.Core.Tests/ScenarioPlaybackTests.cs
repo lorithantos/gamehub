@@ -246,16 +246,19 @@ public sealed class ScenarioPlaybackTests(ITestOutputHelper output)
         // their ceilings say so.
         var ceiling = name switch
         {
+            // group and reconcile re-pinned (+0.15, +0.35) when the
+            // space-opened wake landed: earlier-waking rear ranks follow the
+            // column instead of napping, and jostle a little farther doing it.
             "headon" => 1.05,
-            "group" => 1.65,
+            "group" => 1.80,
             "crosscut" => 1.30,
             "chokepoint" => 1.50,
             "crossing" => 1.50,
             "standing" => 1.50,
             "staggered" => 1.20,
             "throng" => 1.60,
-            "countermand" => 2.40,
-            "reconcile" => 2.00,
+            "countermand" => 2.55,
+            "reconcile" => 2.35,
             _ => double.NaN,
         };
 

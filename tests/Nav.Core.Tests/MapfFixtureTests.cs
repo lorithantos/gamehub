@@ -39,6 +39,60 @@ public sealed class MapfFixtureTests(ITestOutputHelper output)
         Assert.Equal(records.Count, records.Select(r => grid.Index(r.GoalX, r.GoalY)).Distinct().Count());
     }
 
+    /// <summary>
+    /// Milestone 3 criterion 9: the boundary is re-measured, not promised.
+    /// </summary>
+    /// <remarks>
+    /// Milestone 2 left 2 of 128 permanently stuck here — prioritized
+    /// planning's incompleteness, located empirically. These are INDIVIDUAL
+    /// orders, so goal reconciliation is exempt by design (this unit, THAT
+    /// cell); what milestone 3 adds for them is the event wake — every arrival
+    /// re-probes the stalled — and field guidance. The test reports where the
+    /// boundary sits now and pins it only loosely from below, so improvement
+    /// shows up as news and regression as a failure.
+    /// </remarks>
+    [Fact]
+    public void TheBoundaryIsReMeasuredNotPromised()
+    {
+        var grid = Grid.FromMapFile(Fixtures.Map("empty-16-16.map"));
+        var records = ScenarioFile.FromFile(Fixtures.Map("empty-16-16-even-1.scen"));
+        Assert.Equal(128, records.Count);
+
+        var system = new MovementSystem(grid, horizon: 32, nodeBudgetPerTick: NodeBudget);
+        foreach (var record in records)
+        {
+            system.AddAgent(grid.Index(record.StartX, record.StartY));
+        }
+
+        for (var agent = 0; agent < records.Count; agent++)
+        {
+            system.Order([agent], grid.Index(records[agent].GoalX, records[agent].GoalY));
+        }
+
+        // Run to a plateau: stop once arrivals have not changed for 300 ticks.
+        var arrived = 0;
+        var lastGrowth = 0;
+        for (var tick = 0; tick < 2000 && system.CurrentTick - lastGrowth < 300; tick++)
+        {
+            system.Tick();
+            var now = system.Agents.Count(a => a.Arrived);
+            if (now > arrived)
+            {
+                arrived = now;
+                lastGrowth = system.CurrentTick;
+            }
+        }
+
+        var stuck = system.Agents.Count(a => a.Stuck);
+        output.WriteLine(
+            $"BOUNDARY 128 agents on empty-16-16: {arrived} arrived (last at tick {lastGrowth}), " +
+            $"{stuck} stuck, {system.TotalExpanded:N0} nodes at plateau");
+
+        // The milestone-2 boundary was 126. Anything at or above it stands;
+        // below it is a regression, not a boundary.
+        Assert.True(arrived >= 126, $"the boundary regressed: {arrived} arrived against milestone 2's 126");
+    }
+
     [Fact]
     public void EveryAgentArrivesWithinFourTimesTheLongestOptimal()
     {

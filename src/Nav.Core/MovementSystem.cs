@@ -110,6 +110,9 @@ public sealed class MovementSystem
         /// <summary>Do not start another search before this tick.</summary>
         public int RetryAfterTick { get; set; }
 
+        /// <summary>When this agent last got a planning slot; -1 if never.</summary>
+        public int LastPlanAttemptTick { get; set; } = -1;
+
         public bool WantsPlan { get; set; }
     }
 
@@ -238,16 +241,40 @@ public sealed class MovementSystem
             Tally(Progress(agent, ref remaining), ref finished, ref abandoned);
         }
 
-        foreach (var agent in _agents)
+        // LONGEST-WAITING FIRST, not lowest id. Iterating agents in id order
+        // starves the tail: an agent whose search is abandoned wants another slot
+        // immediately, and being early in the list it takes one -- so under a
+        // budget too small to finish anything, the first two agents cycle forever
+        // and nobody else is ever tried. Measured at 50 nodes a tick: 26 searches
+        // started across 400 ticks, all of them belonging to agents 0 and 1, with
+        // 18 agents never planned at all and therefore reporting no trouble.
+        //
+        // Ties break on id, so this stays deterministic: the same tick with the
+        // same state always picks the same agent.
+        // Ties break on id, so this stays deterministic: the same tick with the
+        // same state always picks the same agent.
+        //
+        // The trade is real and was measured rather than assumed. Fair scheduling
+        // took 200-agent arrivals from 123 down to 80, because agents mid-journey
+        // now queue behind ones that just abandoned. It is still the right call:
+        // 123 arrivals came with agents that were NEVER PLANNED, and a unit that
+        // ignores an order reads as broken in a way that a slow unit does not.
+        //
+        // Prioritising plan-less agents ahead of plan-refreshing ones was tried as
+        // a way to recover the arrivals. It changed nothing measurable -- after
+        // the first round every agent holds some plan, so the discriminator is
+        // uniform -- and was removed rather than kept as plausible-looking
+        // decoration.
+        var waiting = _agents
+            .Where(ShouldStart)
+            .OrderBy(a => a.LastPlanAttemptTick)
+            .ThenBy(a => a.Id);
+
+        foreach (var agent in waiting)
         {
             if (remaining <= 0 || InFlight() >= _maxSearchesInFlight)
             {
                 break;
-            }
-
-            if (!ShouldStart(agent))
-            {
-                continue;
             }
 
             Begin(agent);
@@ -275,6 +302,7 @@ public sealed class MovementSystem
     private void Begin(Agent agent)
     {
         agent.WantsPlan = false;
+        agent.LastPlanAttemptTick = CurrentTick;
         agent.AnchorTick = CurrentTick + agent.Latency;
         agent.Workspace = _workspacePool.Count > 0 ? _workspacePool.Pop() : new SearchWorkspace();
 

@@ -219,6 +219,39 @@ public sealed class ViewerAppTests
     }
 
     [Fact]
+    public void TheStatusLineNeverChangesLength()
+    {
+        // A breathing status line shook the whole WPF window: the window was
+        // sized to content, and every counter that changed digit count -- nodes
+        // spent, planning, the tick -- re-measured it. Counters are padded now,
+        // and this samples every tick to hold them to it.
+        var grid = Fixture();
+        var layout = LayoutFor(grid);
+        var app = new ViewerApp(grid, layout, Squad);
+
+        var lengths = new HashSet<int> { app.StatusText.Length };
+        var input = new InputAccumulator();
+        const float Frame = 1.0f / 60.0f;
+
+        input.SetMousePosition(layout.CenterOf(10, 5));
+        input.SetMouseButtonState(MouseButtons.Right, down: true);
+        app.Update(input.Snapshot(), Frame);
+        input.SetMouseButtonState(MouseButtons.Right, down: false);
+
+        for (var frame = 0; frame < 120; frame++)
+        {
+            app.Update(input.Snapshot(), Frame);
+            lengths.Add(app.StatusText.Length);
+        }
+
+        input.SetKeyState(ViewerKeys.Space, down: true);
+        app.Update(input.Snapshot(), 0f);
+        lengths.Add(app.StatusText.Length);
+
+        Assert.Single(lengths);
+    }
+
+    [Fact]
     public void TheStatusLineFollowsTheRunState()
     {
         var (app, _, _) = Run(new ScriptedFrame(KeysDown: ViewerKeys.Space));

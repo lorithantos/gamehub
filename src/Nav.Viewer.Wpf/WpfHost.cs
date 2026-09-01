@@ -59,6 +59,10 @@ internal sealed class WpfHost(GridLayout layout, string title, int? maxFrames) :
         _window.MouseMove += OnMouseMove;
         _window.Closed += OnClosed;
 
+        // Auto-size exactly once, then lock: after the first layout, nothing --
+        // not chrome, not text -- may move the window again.
+        _window.ContentRendered += (_, _) => _window.SizeToContent = SizeToContent.Manual;
+
         var application = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
         application.Run(_window);
     }
@@ -88,6 +92,13 @@ internal sealed class WpfHost(GridLayout layout, string title, int? maxFrames) :
         _dpiScale = VisualTreeHelper.GetDpi(_window!).DpiScaleX;
         _window!.Surface.Width = layout.PixelWidth / _dpiScale;
         _window.Surface.Height = layout.PixelHeight / _dpiScale;
+
+        // The surface, not the status text, decides the window's width. Without
+        // this the squad status line was the widest element on small maps, and
+        // SizeToContent re-measured the WHOLE WINDOW every time a counter
+        // changed digit count -- the window visibly shook while a stalled agent
+        // replanned. The text trims instead.
+        _window.StatusBar.Width = layout.PixelWidth / _dpiScale;
 
         CreateDevice();
         _surface = new SharedSurface(_device!, handle, layout.PixelWidth, layout.PixelHeight);

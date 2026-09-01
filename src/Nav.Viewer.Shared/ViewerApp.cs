@@ -260,11 +260,18 @@ public sealed class ViewerApp : IViewerApp
         var arrived = agents.Count(a => a.Arrived);
         var stuck = agents.Count(a => a.Stuck);
 
+        // Every counter is padded to a width it cannot outgrow, so the line
+        // never changes length while the numbers change. A breathing status
+        // line jitters in place -- and in a window sized to content it shook
+        // the whole window.
+        var pad = agents.Count.ToString(CultureInfo.InvariantCulture).Length;
+        string Fixed(int value) => value.ToString(CultureInfo.InvariantCulture).PadLeft(pad);
+
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"{_grid.Width}x{_grid.Height}  {agents.Count} units  {arrived} arrived  {stuck} stuck  " +
-            $"{planning} planning  {_system.LastTick.NodesSpent} nodes/tick  " +
-            $"tick {_system.CurrentTick}  [{(_running ? "running" : "paused")}]  " +
-            $"sel {Selected}  LMB select  RMB order  SPACE pause  R regroup");
+            $"{_grid.Width}x{_grid.Height}  {agents.Count} units  {Fixed(arrived)} arrived  {Fixed(stuck)} stuck  " +
+            $"{Fixed(planning)} planning  {_system.LastTick.NodesSpent,6} nodes/tick  " +
+            $"tick {_system.CurrentTick,6}  {(_running ? "[running]" : "[paused]"),-9} " +
+            $"sel {Fixed(Selected)}  LMB select  RMB order  SPACE pause  R regroup");
     }
 }

@@ -29,11 +29,12 @@
             That decision is why IRenderer has no DrawText, and why raw Direct3D
             11, which cannot draw a glyph at all, needed no font machinery here.
         -->
-        <Border Grid.Row="1" Background="Black" Padding="6,5">
+        <Border x:Name="StatusBar" Grid.Row="1" Background="Black" Padding="6,5">
             <TextBlock x:Name="Status"
                        Foreground="#F5F5F5"
                        FontFamily="Consolas"
                        FontSize="12"
+                       TextTrimming="CharacterEllipsis"
                        Text="starting..." />
         </Border>
     </Grid>

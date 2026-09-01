@@ -401,6 +401,13 @@ public sealed class ViewerSession
 
         if (scenario is not null)
         {
+            // Every path that builds a world passes through here -- startup,
+            // mid-session load, and restart -- which is why the check lives here
+            // and not at the three call sites. It used to sit on FromScenario,
+            // where only startup reached it, so a dropped file was accepted on a
+            // map the recording had never seen.
+            scenario.EnsureMatches(grid);
+
             foreach (var agent in scenario.Agents)
             {
                 system.AddAgent(grid.Index(agent.X, agent.Y));

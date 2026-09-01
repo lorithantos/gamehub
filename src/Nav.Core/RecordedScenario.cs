@@ -75,8 +75,9 @@ public sealed record RecordedScenario(
     private const double DefaultTickSeconds = 1.0 / 60.0;
 
     /// <summary>
-    /// Throws unless <paramref name="grid"/> is the size this scenario was
-    /// recorded against.
+    /// Throws unless <paramref name="grid"/> is a map this scenario can actually
+    /// run on: the size it was recorded against, every placement in bounds and
+    /// passable, and every order aimed inside the map.
     /// </summary>
     /// <remarks>
     /// The replay twin of <see cref="ScenarioRecord.EnsureMatches"/>, and it
@@ -100,6 +101,9 @@ public sealed record RecordedScenario(
     /// rather than only the mismatch.
     /// </param>
     /// <exception cref="MapFormatException"><paramref name="grid"/> is a different size.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// A placement is off the map or on a wall, or an order is aimed off the map.
+    /// </exception>
     public void EnsureMatches(Grid grid, string? source = null)
     {
         ArgumentNullException.ThrowIfNull(grid);
@@ -110,6 +114,38 @@ public sealed record RecordedScenario(
                 source,
                 1,
                 $"the scenario expects a {MapWidth}x{MapHeight} map but '{MapName}' loaded as {grid.Width}x{grid.Height}");
+        }
+
+        foreach (var placement in Agents)
+        {
+            if (!grid.InBounds(placement.X, placement.Y))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(grid),
+                    $"agent {placement.Id} is placed at ({placement.X},{placement.Y}), off a {grid.Width}x{grid.Height} map.");
+            }
+
+            if (!grid.IsPassable(grid.Index(placement.X, placement.Y)))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(grid),
+                    $"agent {placement.Id} is placed at ({placement.X},{placement.Y}), which is not passable.");
+            }
+        }
+
+        // Every order is checked HERE, before anything runs, rather than as each
+        // one fires. Playback used to validate them in the tick loop, so a bad
+        // order at tick 400 was found after simulating 399 good ticks -- and the
+        // viewer, which queues the same orders and issues them from its own Tick,
+        // never validated them at all.
+        foreach (var order in Orders)
+        {
+            if (!grid.InBounds(order.X, order.Y))
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(grid),
+                    $"the order at tick {order.Tick} sends agents to ({order.X},{order.Y}), off a {grid.Width}x{grid.Height} map.");
+            }
         }
     }
 

@@ -170,6 +170,61 @@ public sealed class ViewerSessionTests
     }
 
     [Fact]
+    public void AMidSessionLoadRefusesAScenarioRecordedOnADifferentlySizedMap()
+    {
+        // The gap this closes: EnsureMatches used to sit on FromScenario, which
+        // only the STARTUP path reaches. Dropping a file on the window went
+        // TryLoadFile -> BuildWorld and skipped it, so the same scenario was
+        // refused at launch and accepted by drag-and-drop. The check now lives in
+        // BuildWorld, which every path -- startup, drop, restart -- goes through.
+        var session = ViewerSession.FromMap(Grid.FromMapText(SampleMaps.CornerCutTrap), "m.map", squad: 4);
+        var root = TempRoot();
+        try
+        {
+            File.WriteAllText(Path.Combine(root.FullName, "m.map"), SampleMaps.CornerCutTrap);
+            var scenarioPath = Path.Combine(root.FullName, "wrong.scenario");
+            File.WriteAllText(scenarioPath, "version 1\nmap m.map\nsize 40 40\nagent 0 1 1\nend 30\n");
+
+            Assert.False(session.TryLoadFile(scenarioPath, out var error));
+
+            Assert.Contains("40x40", error, StringComparison.Ordinal);
+            Assert.Contains("12x7", error, StringComparison.Ordinal);
+            Assert.False(session.IsReplay);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void AMidSessionLoadRefusesAnOrderAimedOffTheMap()
+    {
+        // Order destinations were validated in ScenarioPlayback and nowhere else,
+        // so the viewer issued them through Grid.Index -- unchecked, y * Width + x
+        // -- and an off-map order became a plausible cell on another row. The
+        // whole timeline is now checked once, before the world is built, rather
+        // than as each order fires.
+        var session = ViewerSession.FromMap(Grid.FromMapText(SampleMaps.CornerCutTrap), "m.map", squad: 4);
+        var root = TempRoot();
+        try
+        {
+            File.WriteAllText(Path.Combine(root.FullName, "m.map"), SampleMaps.CornerCutTrap);
+            var scenarioPath = Path.Combine(root.FullName, "wrong.scenario");
+            File.WriteAllText(scenarioPath, "version 1\nmap m.map\nsize 12 7\nagent 0 1 1\norder 0 0 99 3\nend 30\n");
+
+            Assert.False(session.TryLoadFile(scenarioPath, out var error));
+
+            Assert.Contains("(99,3)", error, StringComparison.Ordinal);
+            Assert.False(session.IsReplay);
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public void ARefusedMidSessionLoadChangesAbsolutelyNothing()
     {
         var session = ViewerSession.FromMap(Grid.FromMapText(SampleMaps.CornerCutTrap), "m.map", squad: 4);

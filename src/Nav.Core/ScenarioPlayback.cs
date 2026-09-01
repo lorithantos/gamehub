@@ -123,9 +123,9 @@ public static class ScenarioPlayback
         ArgumentNullException.ThrowIfNull(scenario);
         ArgumentNullException.ThrowIfNull(grid);
 
-        // Shape first, coordinates second. Checking placements against a map of
-        // the wrong size answers a question nobody asked -- every one of them can
-        // be perfectly in bounds on a map the scenario was never recorded on.
+        // One call, and it is the only validation here: size, placements and
+        // order destinations all live on the scenario, so playback and the viewer
+        // cannot drift apart by one of them forgetting a check the other makes.
         scenario.EnsureMatches(grid);
 
         var system = new MovementSystem(grid, horizon);
@@ -133,22 +133,7 @@ public static class ScenarioPlayback
 
         foreach (var placement in scenario.Agents)
         {
-            if (!grid.InBounds(placement.X, placement.Y))
-            {
-                throw new ArgumentOutOfRangeException(
-                    nameof(scenario),
-                    $"agent {placement.Id} is placed at ({placement.X},{placement.Y}), off a {grid.Width}x{grid.Height} map.");
-            }
-
-            var cell = grid.Index(placement.X, placement.Y);
-            if (!grid.IsPassable(cell))
-            {
-                throw new ArgumentOutOfRangeException(
-                    nameof(scenario),
-                    $"agent {placement.Id} is placed at ({placement.X},{placement.Y}), which is not passable.");
-            }
-
-            var id = system.AddAgent(cell);
+            var id = system.AddAgent(grid.Index(placement.X, placement.Y));
             trails[id] = [];
         }
 
@@ -158,18 +143,6 @@ public static class ScenarioPlayback
             while (pending < scenario.Orders.Count && scenario.Orders[pending].Tick == tick)
             {
                 var order = scenario.Orders[pending++];
-
-                // Checked for the same reason placements are. Grid.Index is
-                // y * Width + x with no bounds test, so an off-map destination
-                // does not fail -- it silently becomes a plausible cell on some
-                // other row, and the run then tests a journey nobody wrote.
-                if (!grid.InBounds(order.X, order.Y))
-                {
-                    throw new ArgumentOutOfRangeException(
-                        nameof(scenario),
-                        $"the order at tick {order.Tick} sends agents to ({order.X},{order.Y}), off a {grid.Width}x{grid.Height} map.");
-                }
-
                 system.Order(order.Agents, grid.Index(order.X, order.Y));
             }
 

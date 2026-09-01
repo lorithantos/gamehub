@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    Membership is not a movement property, and this project boundary is what
+    makes that a fact rather than a convention. Nav.Core knows formations, which
+    are orders; it cannot reference a squad, because the squad lives here and
+    this project depends on Nav.Core, never the reverse. A squad reaches the
+    movement layer through its public surface alone.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Nav.Core\Nav.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Nav.Core" />
+    <Using Include="Nav.Core.Models" />
+    <Using Include="Nav.Tactics.Interfaces" />
+  </ItemGroup>
+
+</Project>

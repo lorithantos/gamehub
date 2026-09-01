@@ -80,6 +80,57 @@ public sealed class TickBudgetTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void TheFullOrderOutcomeIsTheMilestone3Baseline()
+    {
+        // Milestone 3 criterion 3 gates against this measurement. Writing it
+        // surfaced a finding the 400-tick criterion-9 runs could not see: the
+        // 200-agent order NEVER COMPLETES. Exactly 126 arrive and 74 are
+        // permanently stuck -- the static goal assignment at terminal scale,
+        // with the outer agents' goals frozen inside the settled pile. The
+        // numbers below are pinned as a characterization: milestone 3's
+        // reconciliation is expected to break this test by raising arrivals
+        // to 200, and updating the pin is the point.
+        var grid = Grid.FromMapFile(Fixtures.Map("arena.map"));
+        var system = new MovementSystem(grid, horizon: 32, nodeBudgetPerTick: NodeBudget);
+
+        var placed = 0;
+        for (var cell = 0; cell < grid.CellCount && placed < Agents; cell++)
+        {
+            if (!grid.IsPassable(cell))
+            {
+                continue;
+            }
+
+            system.AddAgent(cell);
+            placed++;
+        }
+
+        system.Order([.. Enumerable.Range(0, Agents)], grid.Index(44, 44));
+
+        // Run to a plateau: stop once arrivals have not changed for 500 ticks.
+        var lastArrivalTick = 0;
+        var arrived = 0;
+        for (var tick = 0; tick < 5000 && system.CurrentTick - lastArrivalTick < 500; tick++)
+        {
+            system.Tick();
+            var now = system.Agents.Count(a => a.Arrived);
+            if (now > arrived)
+            {
+                arrived = now;
+                lastArrivalTick = system.CurrentTick;
+            }
+        }
+
+        var stuck = system.Agents.Count(a => a.Stuck);
+        output.WriteLine(
+            $"BASELINE 200-agent arena order: {arrived} arrived (last at tick {lastArrivalTick}), " +
+            $"{stuck} stuck, {system.TotalExpanded:N0} total nodes at plateau");
+
+        Assert.Equal(126, arrived);
+        Assert.Equal(74, stuck);
+    }
+
+    [Fact]
     public void NoTickEverExceedsItsNodeBudget()
     {
         var run = Swarm();

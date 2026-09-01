@@ -204,7 +204,7 @@ public sealed class ReservationTable
             return;
         }
 
-        foreach (var (cell, park) in _parked.Where(p => p.Value.Agent == agent).ToArray())
+        foreach (var (cell, _) in _parked.Where(p => p.Value.Agent == agent).ToArray())
         {
             _parked.Remove(cell);
         }

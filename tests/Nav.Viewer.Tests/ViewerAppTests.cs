@@ -41,6 +41,29 @@ public sealed class ViewerAppTests
     }
 
     [Fact]
+    public void TheAppOpensAndClosesTheFrameExactlyOncePerFrame()
+    {
+        // Frame ownership is the app's, and this pins it. The WPF host used to
+        // bracket Render a second time, which cost an extra full-target clear and
+        // -- because EndFrame flushed the batch without emptying it -- submitted
+        // every line and circle twice. Nothing caught it, because a host is not
+        // otherwise observable and opaque geometry drawn twice looks identical.
+        var (_, renderer, _) = Run(new ScriptedFrame(), new ScriptedFrame(), new ScriptedFrame());
+
+        Assert.Equal(3, renderer.OfKind<DrawCommand.BeginFrame>().Count());
+        Assert.Equal(3, renderer.OfKind<DrawCommand.EndFrame>().Count());
+
+        // And in the right order: every frame opens before it draws and closes
+        // after, so a Begin is never adjacent to another Begin.
+        var brackets = renderer.Commands
+            .Where(c => c is DrawCommand.BeginFrame or DrawCommand.EndFrame)
+            .Select(c => c is DrawCommand.BeginFrame)
+            .ToArray();
+
+        Assert.Equal([true, false, true, false, true, false], brackets);
+    }
+
+    [Fact]
     public void TheTerrainFillsTheMapAreaAndNotTheStatusStrip()
     {
         var (app, renderer, _) = Run(new ScriptedFrame());

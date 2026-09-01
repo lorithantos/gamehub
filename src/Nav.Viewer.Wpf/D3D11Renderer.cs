@@ -232,6 +232,12 @@ internal sealed unsafe class D3D11Renderer : IRenderer, IDisposable
         {
             SetConstants(useTexture: 0f);
             UploadAndDraw(CollectionsMarshal.AsSpan(_solid));
+
+            // Emptied here as well as in BeginFrame, so submitting is idempotent.
+            // Flushing without clearing meant a second EndFrame redrew the whole
+            // batch, which is invisible while every colour is opaque and stops
+            // being invisible the moment anything is not.
+            _solid.Clear();
         }
 
         // Mandatory before WPF composites the shared surface. Without it the

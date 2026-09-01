@@ -17,8 +17,12 @@ namespace Nav.Viewer;
 /// <item><description><see cref="Run"/> opens a window and returns only when the
 /// user closes it.</description></item>
 /// <item><description>Per frame, exactly once, in this order: snapshot input →
-/// <see cref="IViewerApp.Update"/> → <see cref="IViewerApp.Render"/>, with
-/// Render bracketed by the renderer's begin and end frame.</description></item>
+/// <see cref="IViewerApp.Update"/> → <see cref="IViewerApp.Render"/>. The
+/// <em>app</em> owns the renderer's frame: <see cref="IViewerApp.Render"/> calls
+/// <see cref="IRenderer.BeginFrame"/> and <see cref="IRenderer.EndFrame"/> itself,
+/// so a host must <b>not</b> bracket it again. A host brackets only its own
+/// presentation — raylib's <c>BeginDrawing</c>/<c>EndDrawing</c>, WPF's surface
+/// lock — which is a different pair of verbs.</description></item>
 /// <item><description><c>deltaSeconds</c> is <b>raw</b> wall-clock time since the
 /// previous Update, and never negative. Hosts must not clamp, smooth or filter
 /// it: <c>FixedTimestep.MaxStepsPerFrame</c> is already the circuit breaker, and

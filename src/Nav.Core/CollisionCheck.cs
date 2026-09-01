@@ -195,6 +195,10 @@ public static class CollisionCheck
     {
         into.Clear();
 
+        // Allocated only once some cell actually holds a third agent, which on a
+        // run that passes never happens at all.
+        Dictionary<int, List<int>>? crowded = null;
+
         foreach (var (agent, plan) in plans)
         {
             var cell = plan.CellAt(tick);
@@ -205,13 +209,45 @@ public static class CollisionCheck
 
             agentTicks++;
 
-            if (into.TryGetValue(cell, out var other))
+            if (!into.TryGetValue(cell, out var first))
             {
-                conflicts.Add(new Conflict(ConflictKind.Vertex, tick, other, agent, cell, cell));
+                into[cell] = agent;
                 continue;
             }
 
-            into[cell] = agent;
+            // Pair the arrival with EVERYONE already standing here, not just the
+            // first one seen. Three agents on one cell is three colliding pairs;
+            // reporting two of them would make CountOf a count of reports rather
+            // than of collisions, and a test asserting the exact number would be
+            // asserting the wrong one. `into` deliberately keeps the first
+            // occupant, because that is the one the edge check reads.
+            crowded ??= [];
+            if (!crowded.TryGetValue(cell, out var standing))
+            {
+                standing = [first];
+                crowded[cell] = standing;
+            }
+
+            foreach (var other in standing)
+            {
+                conflicts.Add(Vertex(tick, other, agent, cell));
+            }
+
+            standing.Add(agent);
         }
     }
+
+    /// <summary>
+    /// A vertex conflict with its pair in ascending id order, so
+    /// <see cref="Conflict.AgentA"/> means the same thing here as it does for an
+    /// edge conflict.
+    /// </summary>
+    /// <remarks>
+    /// Without this the vertex pair came out in <em>plan list</em> order, so the
+    /// same collision reported different ids depending on how the caller happened
+    /// to sort its agents -- and the edge path, which has always ordered its pair,
+    /// quietly disagreed with it.
+    /// </remarks>
+    private static Conflict Vertex(int tick, int one, int another, int cell) =>
+        new(ConflictKind.Vertex, tick, Math.Min(one, another), Math.Max(one, another), cell, cell);
 }

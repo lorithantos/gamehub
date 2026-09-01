@@ -210,9 +210,11 @@ internal sealed class WpfHost(GridLayout layout, int? maxFrames) : IViewerHost
             _window.Title = _app.WindowTitle;
         }
 
-        _renderer.BeginFrame(RgbaColor.Black);
+        // The app opens and closes the frame, not the host -- see the contract on
+        // IViewerHost. This used to bracket the call again, which cost a second
+        // full-target clear and, because EndFrame flushes the batch without
+        // emptying it, submitted every line and circle twice.
         _app.Render(_renderer);
-        _renderer.EndFrame();
 
         _image.Lock();
         _image.AddDirtyRect(new Int32Rect(0, 0, _surface!.Width, _surface.Height));

@@ -65,10 +65,17 @@ public static class ScenarioPlayback
     /// happened.
     /// </summary>
     /// <remarks>
-    /// Placements are validated before anything runs: an agent off the map or on
-    /// a wall throws rather than being clamped onto the nearest legal cell. A
-    /// scenario paired with the wrong map is a broken test, not a harder one, and
-    /// quietly moving the units would turn it into a plausible-looking pass.
+    /// Coordinates are validated before anything runs: an agent off the map or on
+    /// a wall throws rather than being clamped onto the nearest legal cell, and so
+    /// does an order aimed off the map. A scenario paired with the wrong map is a
+    /// broken test, not a harder one, and quietly moving the units would turn it
+    /// into a plausible-looking pass.
+    /// <para>
+    /// An order aimed at a wall is <em>not</em> an error, and that asymmetry is
+    /// deliberate: <see cref="MovementSystem.Order(IReadOnlyList{int}, int)"/> snaps an impassable
+    /// destination to the nearest passable cell, because a click on a wall means
+    /// the ground beside it. Off the map has no such reading.
+    /// </para>
     /// <para>
     /// The whole run is deterministic, so playing one scenario twice must produce
     /// an identical <see cref="ScenarioOutcome"/> -- that equality is itself a
@@ -76,9 +83,18 @@ public static class ScenarioPlayback
     /// </para>
     /// </remarks>
     /// <param name="scenario">
-    /// Placements and the order timeline. Its <see cref="RecordedScenario.MapName"/>
-    /// is <em>not</em> checked against <paramref name="grid"/>; pairing the two is
-    /// the caller's job.
+    /// Placements and the order timeline. Every coordinate it names is checked
+    /// against <paramref name="grid"/> before the run starts -- placements must be
+    /// in bounds and passable, order destinations in bounds.
+    /// <para>
+    /// What is <em>not</em> checked is <see cref="RecordedScenario.MapName"/>,
+    /// because the format records a name and no dimensions -- unlike
+    /// <see cref="ScenarioRecord"/>, which carries both and can therefore offer
+    /// <see cref="ScenarioRecord.EnsureMatches"/>. A wrong map of a different size
+    /// will almost always fail one of the coordinate checks above; a wrong map of
+    /// the <em>same</em> size cannot be detected here at all, and pairing the two
+    /// files correctly remains the caller's job.
+    /// </para>
     /// </param>
     /// <param name="grid">The map to run on.</param>
     /// <param name="horizon">
@@ -95,7 +111,8 @@ public static class ScenarioPlayback
     /// counters that separate a finished run from a deadlocked one.
     /// </returns>
     /// <exception cref="ArgumentOutOfRangeException">
-    /// An agent is placed off the map or on an impassable cell.
+    /// An agent is placed off the map or on an impassable cell, or an order sends
+    /// agents to a cell off the map.
     /// </exception>
     public static ScenarioOutcome Play(
         RecordedScenario scenario, Grid grid, int horizon = 32, Action<TraceTick>? onTick = null)
@@ -133,6 +150,18 @@ public static class ScenarioPlayback
             while (pending < scenario.Orders.Count && scenario.Orders[pending].Tick == tick)
             {
                 var order = scenario.Orders[pending++];
+
+                // Checked for the same reason placements are. Grid.Index is
+                // y * Width + x with no bounds test, so an off-map destination
+                // does not fail -- it silently becomes a plausible cell on some
+                // other row, and the run then tests a journey nobody wrote.
+                if (!grid.InBounds(order.X, order.Y))
+                {
+                    throw new ArgumentOutOfRangeException(
+                        nameof(scenario),
+                        $"the order at tick {order.Tick} sends agents to ({order.X},{order.Y}), off a {grid.Width}x{grid.Height} map.");
+                }
+
                 system.Order(order.Agents, grid.Index(order.X, order.Y));
             }
 

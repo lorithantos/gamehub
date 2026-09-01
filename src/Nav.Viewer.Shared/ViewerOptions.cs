@@ -93,7 +93,10 @@ public sealed record ViewerOptions(string? MapPath, int? MaxFrames, bool ShowHel
     /// null</b> and puts the reason in <paramref name="error"/>; both hosts then
     /// print that reason followed by <see cref="UsageText"/> and exit 2.
     /// </returns>
-    public static bool TryParse(string[] args, [NotNullWhen(true)] out ViewerOptions? options, out string? error)
+    public static bool TryParse(
+        string[] args,
+        [NotNullWhen(true)] out ViewerOptions? options,
+        [NotNullWhen(false)] out string? error)
     {
         ArgumentNullException.ThrowIfNull(args);
 
@@ -183,7 +186,7 @@ public sealed record ViewerOptions(string? MapPath, int? MaxFrames, bool ShowHel
         return true;
     }
 
-    private static bool TryFrames(string value, ref int? frames, out string? error)
+    private static bool TryFrames(string value, ref int? frames, [NotNullWhen(false)] out string? error)
     {
         if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) || parsed <= 0)
         {

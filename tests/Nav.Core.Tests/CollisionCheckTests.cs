@@ -123,6 +123,53 @@ public sealed class CollisionCheckTests
         Assert.Equal(0, report.AgentTicksChecked);
     }
 
+    [Fact]
+    public void ThreeAgentsOnOneCellIsThreeCollidingPairs()
+    {
+        // Pairing every arrival with the FIRST occupant alone would report two
+        // conflicts here -- 0 with 1, 0 with 2 -- and never that 1 and 2 are also
+        // standing on each other. CountOf would then be a count of reports rather
+        // than of collisions, which is not a number worth asserting on.
+        var report = CollisionCheck.Inspect(
+        [
+            new AgentPlan(0, Handmade(0, 9, 10)),
+            new AgentPlan(1, Handmade(0, 11, 10)),
+            new AgentPlan(2, Handmade(0, 17, 10)),
+        ]);
+
+        Assert.Equal(3, report.CountOf(ConflictKind.Vertex));
+        Assert.All(report.Conflicts, c => Assert.Equal(10, c.Cell));
+
+        var pairs = report.Conflicts.Select(c => (c.AgentA, c.AgentB)).ToHashSet();
+        Assert.Equal([(0, 1), (0, 2), (1, 2)], pairs);
+    }
+
+    [Fact]
+    public void AVertexPairIsOrderedByIdRegardlessOfPlanOrder()
+    {
+        // The edge check has always ordered its pair with an `agent < mover`
+        // guard. The vertex check used to emit whichever agent appeared earlier in
+        // the list, so the SAME collision reported (0,1) or (1,0) depending on how
+        // the caller happened to sort its plans -- and AgentA meant two different
+        // things depending on the kind.
+        var ascending = CollisionCheck.Inspect(
+        [
+            new AgentPlan(0, Handmade(0, 9, 10)),
+            new AgentPlan(1, Handmade(0, 11, 10)),
+        ]);
+
+        var descending = CollisionCheck.Inspect(
+        [
+            new AgentPlan(1, Handmade(0, 11, 10)),
+            new AgentPlan(0, Handmade(0, 9, 10)),
+        ]);
+
+        Assert.Equal(0, ascending.Conflicts[0].AgentA);
+        Assert.Equal(1, ascending.Conflicts[0].AgentB);
+        Assert.Equal(0, descending.Conflicts[0].AgentA);
+        Assert.Equal(1, descending.Conflicts[0].AgentB);
+    }
+
     // --- the gate ------------------------------------------------------------
 
     [Fact]

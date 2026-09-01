@@ -74,6 +74,37 @@ public sealed class ScenarioPlaybackTests(ITestOutputHelper output)
         Assert.Contains("not passable", error.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void AnOrderAimedOffTheMapIsRefused()
+    {
+        // Placements were validated and destinations were not, which is the more
+        // dangerous half: Grid.Index is y * Width + x with no bounds test, so an
+        // off-map order does not fail -- it lands on a plausible cell in some
+        // other row and the run quietly tests a journey nobody wrote.
+        var scenario = RecordedScenario.FromText(
+            "version 1\nmap hall.map\nagent 0 1 1\norder 0 0 900 900\nend 5\n");
+        var grid = Grid.FromMapFile(Fixtures.Map("hall.map"));
+
+        var error = Assert.Throws<ArgumentOutOfRangeException>(() => ScenarioPlayback.Play(scenario, grid));
+
+        Assert.Contains("(900,900)", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnOrderAimedAtAWallIsHonouredRatherThanRefused()
+    {
+        // The asymmetry with the test above is deliberate. A click on a wall means
+        // the ground beside it, so Order snaps to the nearest passable cell; off
+        // the map has no such reading and is refused.
+        var scenario = RecordedScenario.FromText(
+            "version 1\nmap hall.map\nagent 0 1 1\norder 0 0 0 0\nend 5\n");
+        var grid = Grid.FromMapFile(Fixtures.Map("hall.map"));
+
+        var outcome = ScenarioPlayback.Play(scenario, grid);
+
+        Assert.True(outcome.Conflicts.Clean);
+    }
+
     // --- criteria 1 and 2, over every committed scenario ---------------------
 
     [Theory]

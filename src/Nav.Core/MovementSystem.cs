@@ -181,10 +181,18 @@ public sealed class MovementSystem
     private readonly HashSet<int> _settledCells = [];
     private readonly HashSet<int> _occupiedCells = [];
 
+    private readonly IChokepointSource _chokepointSource;
     private IReadOnlyList<Chokepoint>? _chokepoints;
 
-    /// <summary>The map's chokepoints, detected once and cached for the system's life.</summary>
-    internal IReadOnlyList<Chokepoint> MapChokepoints => _chokepoints ??= ChokepointMap.Find(_grid);
+    /// <summary>
+    /// The map's chokepoints, asked for once and held for the system's life.
+    /// </summary>
+    /// <remarks>
+    /// Cached HERE rather than in the source, so a source stays a pure answer and
+    /// an expensive one is never asked twice. The grid is taken to be static, which
+    /// is the same assumption the distance fields rest on.
+    /// </remarks>
+    internal IReadOnlyList<Chokepoint> MapChokepoints => _chokepoints ??= _chokepointSource.For(_grid);
 
     /// <param name="grid">
     /// The map every agent moves over. Held, not copied, and taken to be static --
@@ -215,12 +223,19 @@ public sealed class MovementSystem
     /// <see cref="IDistanceFieldSource"/> describes, or replay stops being a test.
     /// </para>
     /// </param>
+    /// <param name="chokepoints">
+    /// Where the map's gates come from. Defaults to <see cref="ChokepointScan"/>,
+    /// which finds them by sampling. Supply <see cref="NoChokepoints"/> to switch
+    /// metering off structurally, or a precomputed list for a shipped map whose
+    /// gates never change.
+    /// </param>
     public MovementSystem(
         Grid grid,
         int horizon = 32,
         int nodeBudgetPerTick = 4000,
         int maxSearchesInFlight = 8,
-        IDistanceFieldSource? fields = null)
+        IDistanceFieldSource? fields = null,
+        IChokepointSource? chokepoints = null)
     {
         ArgumentNullException.ThrowIfNull(grid);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(nodeBudgetPerTick);
@@ -231,6 +246,7 @@ public sealed class MovementSystem
         _nodeBudgetPerTick = nodeBudgetPerTick;
         _maxSearchesInFlight = maxSearchesInFlight;
         _fields = fields ?? new FieldCache(grid, FieldCapacity);
+        _chokepointSource = chokepoints ?? new ChokepointScan();
     }
 
     /// <summary>

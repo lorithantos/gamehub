@@ -3,12 +3,41 @@ using Xunit.Abstractions;
 namespace Nav.Core.Tests;
 
 /// <summary>
-/// SPIKE HARNESS, spike/cooperative-ring. Prints in one table every number the
-/// corpus binds the parking ring against, so a change to how the ring is chosen
-/// can be judged before it is committed rather than by which tests it breaks.
-/// Delete with the spike.
+/// Every number the corpus binds settling behaviour against, in one table.
 /// </summary>
-public sealed class RingMetricsScratch(ITestOutputHelper output)
+/// <remarks>
+/// A REPORT, not a gate. The assertions live in the tests these figures mirror;
+/// this exists so a change to how a group picks and fills its parking ring can be
+/// judged BEFORE it is committed, instead of by reading which tests it broke.
+/// <para>
+/// It was written mid-spike, after two plausible changes to the claim pass were
+/// each reverted: the first showed up as units retreating from a settled blob,
+/// the second as a throng packing loosely, and in both cases the failing test
+/// named a symptom rather than the trade. Seeing arena settle time, packing
+/// tightness, ten route ratios and the benchmark boundary move together turns
+/// that into a decision.
+/// </para>
+/// <para>
+/// Run it alone with
+/// <c>dotnet test tests/Nav.Core.Tests --filter FullyQualifiedName~SettlingReport</c>,
+/// once before a change and once after. It takes a few seconds and passes
+/// whatever it prints, except where a figure crosses a ceiling the corpus pins,
+/// which it marks BROKEN so the table can be skimmed.
+/// </para>
+/// <para>
+/// <b>As of the ring sweep and the good-enough rule</b>, on this machine:
+/// arena-200 settles at 608 ticks for 5.45M nodes; the throng packs to 5.00
+/// against an ideal 3.41; route ratios run headon 1.000, group 1.465,
+/// crosscut 1.101, chokepoint 1.286, crossing 1.297, standing 1.261,
+/// staggered 1.063, throng 1.275, countermand 2.380, reconcile 1.537; blob
+/// retreats are 0, 0 and 1; the benchmark lands 126 of 128; and the patrol
+/// approach settles at 17 ticks over 20 steps with no unit crossing the post.
+/// Treat these as the last known good reading, not as a target: they are a
+/// machine and a moment, and the ceilings are what actually bind.
+/// </para>
+/// </remarks>
+[Trait("kind", "report")]
+public sealed class SettlingReport(ITestOutputHelper output)
 {
     private const string PatrolMap =
         """
@@ -34,9 +63,9 @@ public sealed class RingMetricsScratch(ITestOutputHelper output)
         """;
 
     [Fact]
-    public void Measure()
+    public void Report()
     {
-        output.WriteLine("=== ring metrics ===");
+        output.WriteLine("=== settling report ===");
         Arena();
         ThrongPacking();
         MovementRatios();

@@ -40,7 +40,28 @@ public static class DemoTrace
         double Leash,
         int Ticks);
 
-    private sealed record UnitLine(int Id, int X, int Y, double Health, int ErrandX, int ErrandY, bool Arrived);
+    /// <remarks>
+    /// Carries what the unit is DOING as well as where it is, because a replay
+    /// that shows only position makes correct behaviour look broken: a unit
+    /// waiting for somebody else's reserved cell stands still for no visible
+    /// reason. The live viewer learned this and colours queued units apart from
+    /// stuck ones; a demo page cannot do the same without these three flags.
+    /// The goal travels for the same reason -- it is why the unit is walking
+    /// where it is walking.
+    /// </remarks>
+    private sealed record UnitLine(
+        int Id,
+        int X,
+        int Y,
+        int GoalX,
+        int GoalY,
+        double Health,
+        int ErrandX,
+        int ErrandY,
+        bool Arrived,
+        bool Thinking,
+        bool Waiting,
+        int Stalled);
 
     private sealed record TickLine(
         int Tick,
@@ -118,10 +139,11 @@ public static class DemoTrace
             .Select(a => new UnitLine(
                 a.Id,
                 grid.ColumnOf(a.Cell), grid.RowOf(a.Cell),
+                grid.ColumnOf(a.Goal), grid.RowOf(a.Goal),
                 Math.Round(world.HealthOf(a.Id), 3),
                 a.Away ? grid.ColumnOf(a.Errand) : -1,
                 a.Away ? grid.RowOf(a.Errand) : -1,
-                a.Arrived))
+                a.Arrived, a.Thinking, a.Waiting, a.StalledTicks))
             .ToArray();
 
         writer.WriteLine(JsonSerializer.Serialize(

@@ -36,11 +36,12 @@ namespace Nav.Demos;
 /// <b>And then the reserve, which inverts it.</b> At 240 three more are hurt at
 /// once and only two may go, because four of six must stay standing. Now the
 /// veteran is the one that STAYS -- at 0.30, far under its own 0.70 -- while
-/// the two rookies take the places. Sixty ticks earlier the same veteran left
-/// over a scratch. Nothing about it changed; what changed is that places became
-/// scarce, and a place spent on a veteran buys nothing while the same place
-/// buys a rookie that comes back and goes on earning. The squad spends its
-/// repair capacity on the units that still have somewhere to climb.
+/// the two rookies take the places. Sixty ticks earlier the same rank left over
+/// a scratch. Nothing about the unit changed; what changed is that places
+/// became scarce, and a veteran's place is the line. It earns faster where the
+/// enemy is, it is meant to heal itself once it is at full rank, and its
+/// standing there is what makes the position survivable for the rookies beside
+/// it. Leaving it holding is not spending it.
 /// </para>
 /// <para>
 /// So the demo shows the same unit pulled at a scratch and held at a third of
@@ -180,9 +181,10 @@ internal sealed class GuardRetreatDemo : Demo
             // THE RESERVE, and it inverts the pair above. Hurt most of the line
             // at once: four must stay standing, so only two places exist, and
             // they go to the LOWEST ranks. The veteran at 0.30 -- far under its
-            // own 0.70 -- holds the line while the two rookies rotate through
-            // the pads, because a place spent on the veteran buys nothing and
-            // the same place buys a rookie that comes back and goes on earning.
+            // own 0.70 -- holds while the two rookies rotate through the pads,
+            // because a veteran's place is the line: it is the unit that will
+            // least need a pad and the one whose standing there makes the
+            // position survivable for the rookies beside it.
             else if (tick == 240)
             {
                 world.SetHealth(0, 0.3);

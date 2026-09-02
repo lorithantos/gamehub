@@ -49,12 +49,27 @@ namespace Nav.Tactics;
 /// from the thresholds, and deliberately. The two rules answer different
 /// questions. The threshold asks who is worth pulling when there is room, and
 /// the answer is the veteran, because it cannot be replaced. The reserve asks
-/// who is worth pulling when there is NOT room, and the answer is the rookie,
-/// because a place spent on a veteran buys nothing -- the veteran is already
-/// everything it is going to be -- while the same place buys a rookie that
-/// comes back and goes on earning. Rank is produced by standing exposed and
-/// able to keep standing; rationing repair away from the units that still have
-/// somewhere to climb would ration the squad's own advancement.
+/// who is worth pulling when there is NOT room, and the answer is the rookie --
+/// but the reason is about the veteran, not the rookie.
+/// </para>
+/// <para>
+/// <b>A veteran's place is the line.</b> It earns faster where the enemy is,
+/// and at full rank it is meant to heal itself and want no pad at all, so a
+/// scarce pad handed to a veteran is handed to the unit that will least need
+/// one. More than that, its standing there is what makes the position
+/// survivable for the rookies beside it: they are safer in its company and they
+/// earn more slowly for the same reason, which is the trade a player is
+/// actually making when deciding who to post where. Rotating rookies through
+/// the pads and leaving the veteran holding is not spending the veteran. It is
+/// putting each unit where it does the most.
+/// </para>
+/// <para>
+/// <b>Neither the self-healing nor the shielding is built.</b> Nothing here
+/// heals by rank, and a rookie beside a veteran earns exposure at exactly the
+/// rate it would alone -- see <see cref="DemoWorld"/>, where exposure is
+/// proximity to a hostile and nothing else. The ordering is right ahead of
+/// them and this comment says why, so that when they arrive they land on a rule
+/// that was already shaped for them rather than one that has to be reversed.
 /// </para>
 /// <para>
 /// So a stretched squad shows the veteran holding the line badly hurt while the
@@ -173,12 +188,12 @@ public sealed class RepairPolicy
         // ascending so between equals the hurt one goes, then id so a demo plays
         // the same way twice.
         //
-        // Rank ascending because a scarce repair place spent on a veteran buys
-        // nothing -- the veteran is already everything it is going to be -- and
-        // the same place spent on a rookie buys a unit that comes back and keeps
-        // earning. Rank is PRODUCED by standing exposed and able to go on
-        // standing, so the reserve is spent to keep the units that still have
-        // somewhere to climb able to climb it.
+        // Rank ascending because a veteran's place is the line: it earns faster
+        // where the enemy is, at full rank it is meant to heal itself and want
+        // no pad at all, and its standing there is what makes the position
+        // survivable for the rookies beside it. A scarce pad given to a veteran
+        // goes to the unit that will least need one. Neither the self-healing
+        // nor the shielding exists yet; the ordering is shaped for them.
         var leaving = ops.Members
             .Where(id => !ops.Away.Contains(id) && ops.HealthOf(id) < RetreatBelowFor(ops.RankOf(id)))
             .OrderBy(ops.RankOf)

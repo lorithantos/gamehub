@@ -209,11 +209,12 @@ public sealed class RepairPolicyTests
     public void AScarcePlaceGoesToTheRookieAndTheVeteranStandsHurt()
     {
         // The other way round from the thresholds, and on purpose. Four equally
-        // hurt units and room for one to go: the VETERAN stays. A place spent on
-        // it buys nothing, because it is already everything it is going to be,
-        // while the same place buys a rookie that comes back and goes on
-        // earning. Unit 0 is the rookie that leaves; unit 3 is the veteran that
-        // holds the line at 0.3, well under its own 0.7.
+        // hurt units and room for one to go: the VETERAN stays, because a
+        // veteran's place is the line. It earns faster where the enemy is, at
+        // full rank it is meant to heal itself and want no pad at all, and its
+        // standing there is what makes the position survivable for the rookies
+        // beside it. Unit 0 is the rookie that leaves; unit 3 is the veteran
+        // holding the line at 0.3, well under its own 0.7.
         var (system, grid) = Scene(agents: 4);
         var world = new ScriptedWorld
         {

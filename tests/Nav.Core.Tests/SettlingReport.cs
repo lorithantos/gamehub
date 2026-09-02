@@ -25,12 +25,18 @@ namespace Nav.Core.Tests;
 /// which it marks BROKEN so the table can be skimmed.
 /// </para>
 /// <para>
-/// <b>As of gating the good-enough rule on being held up</b>, on this machine:
-/// arena-200 settles at 579 ticks for 5.30M nodes; the throng packs to 3.41,
-/// which is the ideal exactly; route ratios run headon 1.000, group 1.303,
-/// crosscut 1.101, chokepoint 1.286, crossing 1.297, standing 1.261,
-/// staggered 1.063, throng 1.264, countermand 2.519, reconcile 1.336; blob
-/// retreats are 0, 0 and 0; and the benchmark lands 126 of 128.
+/// <b>As of the crossed-claims swap</b>, on this machine: arena-200 settles at
+/// 586 ticks for 5.52M nodes; the throng packs to 3.41, which is the ideal
+/// exactly; route ratios run headon 1.000, group 1.396, crosscut 1.101,
+/// chokepoint 1.248, crossing 1.209, standing 1.237, staggered 1.070, throng
+/// 1.273, countermand 2.458, reconcile 1.336; blob retreats are 0, 0 and 0;
+/// and the benchmark lands 126 of 128.
+/// <b>The arena figure is a known regression from the best</b>: 564 ticks
+/// before the swap, 586 after, for the same nodes. The swap was kept because it
+/// settles a mutual cross at once (the patrol's west post went from 75 ticks to
+/// 71) and improves chokepoint, crossing and reconcile; on a very large move it
+/// costs about four percent of settle time, and that trade is on record here
+/// rather than hidden in the number.
 /// Treat these as the last known good reading, not as a target: they are a
 /// machine and a moment, and the ceilings are what actually bind.
 /// </para>

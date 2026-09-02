@@ -74,8 +74,68 @@ public class GatherDoctrine : GroupDoctrine
     {
         ArgumentNullException.ThrowIfNull(ops);
         SettleWhereYouStand(ops, ops);
+        SwapCrossedClaims(ops, ops);
         ClaimPass(ops, ops);
         ReconcilePass(ops, ops);
+    }
+
+    /// <summary>
+    /// Two members standing on each other's slots swap them, now. Both are
+    /// where the other was going; after the swap both are where they are going,
+    /// and the sum of distances is zero. No stall is needed to see it.
+    /// </summary>
+    /// <remarks>
+    /// The squatter's swap in the reconcile pass covers the general case -- a
+    /// unit on somebody's claim with nowhere better -- and is gated on two
+    /// failed replans and a cooldown, because a single blocked replan is
+    /// usually traffic. A MUTUAL cross is not ambiguous: the patrol showed two
+    /// units each on the other's slot for three ticks, then a back-step and two
+    /// moves, six ticks in all, for what one swap settles at once.
+    /// <para>
+    /// The parks are attempted twice because each one's committed plan runs
+    /// through the other's cell: the first park is refused, the second
+    /// releases that route, and the first then succeeds on retry. A park still
+    /// refused after that -- a third unit's plan through the cell -- falls
+    /// back to a claim, and the plan plays out.
+    /// </para>
+    /// </remarks>
+    private static void SwapCrossedClaims(IGroupView ops, IGroupClaiming claiming)
+    {
+        foreach (var id in ops.Members)
+        {
+            var here = ops.CellOf(id);
+            if (!ops.HasSlot(id) || here == ops.GoalOf(id))
+            {
+                continue;
+            }
+
+            var other = ops.ClaimantOf(here);
+            if (other < 0 || other <= id || !ops.Members.Contains(other) ||
+                !ops.HasSlot(other) || ops.CellOf(other) != ops.GoalOf(id))
+            {
+                continue;
+            }
+
+            claiming.ReleaseSlot(id);
+            claiming.ReleaseSlot(other);
+
+            var parkedThis = claiming.Park(id);
+            var parkedOther = claiming.Park(other);
+            if (!parkedThis)
+            {
+                parkedThis = claiming.Park(id);
+            }
+
+            if (!parkedThis)
+            {
+                claiming.ClaimSlot(id, here);
+            }
+
+            if (!parkedOther)
+            {
+                claiming.ClaimSlot(other, ops.CellOf(other));
+            }
+        }
     }
 
     /// <summary>

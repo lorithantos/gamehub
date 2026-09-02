@@ -80,11 +80,28 @@ public class GatherDoctrine : GroupDoctrine
     }
 
     /// <summary>
-    /// Two members standing on each other's slots swap them, now. Both are
-    /// where the other was going; after the swap both are where they are going,
-    /// and the sum of distances is zero. No stall is needed to see it.
+    /// Members standing on each other's slots take the ones they are standing
+    /// on, now. Nobody moves: after it, everyone in the cycle is where they are
+    /// going, and the sum of distances travelled is zero.
     /// </summary>
     /// <remarks>
+    /// IT IS A CYCLE, NOT A PAIR, and reading it as a pair cost three units.
+    /// The first version matched a MUTUAL cross only -- A on B's slot and B on
+    /// A's. On 2 September 2026 a probe found three members of a twenty-four
+    /// permanently stalled in a sealed column: 3 stood on 8's slot, 8 on 5's,
+    /// and 5 on 3's. No pair of them crosses, so this pass saw nothing;
+    /// <see cref="SettleWhereYouStand"/> refused because every cell underfoot
+    /// was claimed; and the reconcile pass had no reachable vacated cell to
+    /// offer. The rotation was stable and permanent.
+    /// <para>
+    /// <b>The reading that fixes it is that this was never a failure.</b> Every
+    /// one of the three had found an acceptable place -- the cells they occupied
+    /// were exactly the cells they wanted, only labelled to the wrong members.
+    /// So the answer is not to rotate them through each other, which would make
+    /// three settled units walk for nothing, but to rotate the CLAIMS and leave
+    /// the units alone. A cycle of any length resolves this way for free, and
+    /// the mutual pair is just the case where the cycle is two long.
+    /// </para>
     /// The squatter's swap in the reconcile pass covers the general case -- a
     /// unit on somebody's claim with nowhere better -- and is gated on two
     /// failed replans and a cooldown, because a single blocked replan is
@@ -101,39 +118,92 @@ public class GatherDoctrine : GroupDoctrine
     /// </remarks>
     private static void SwapCrossedClaims(IGroupView ops, IGroupClaiming claiming)
     {
+        var resolved = new HashSet<int>();
+
         foreach (var id in ops.Members)
         {
-            var here = ops.CellOf(id);
-            if (!ops.HasSlot(id) || here == ops.GoalOf(id))
+            if (resolved.Contains(id))
             {
                 continue;
             }
 
-            var other = ops.ClaimantOf(here);
-            if (other < 0 || other <= id || !ops.Members.Contains(other) ||
-                !ops.HasSlot(other) || ops.CellOf(other) != ops.GoalOf(id))
+            var cycle = CycleThrough(ops, id);
+            if (cycle is null)
             {
                 continue;
             }
 
-            claiming.ReleaseSlot(id);
-            claiming.ReleaseSlot(other);
-
-            var parkedThis = claiming.Park(id);
-            var parkedOther = claiming.Park(other);
-            if (!parkedThis)
+            foreach (var member in cycle)
             {
-                parkedThis = claiming.Park(id);
+                resolved.Add(member);
+                claiming.ReleaseSlot(member);
             }
 
-            if (!parkedThis)
+            // Release everyone BEFORE claiming anyone: mid-rotation every cell
+            // in the cycle is wanted by one member and held by another, so a
+            // claim issued before the releases would be refused as taken.
+            foreach (var member in cycle)
             {
-                claiming.ClaimSlot(id, here);
+                if (!claiming.Park(member))
+                {
+                    // Retried once for the same reason the pair version retries:
+                    // a fellow's committed plan runs through this cell, and the
+                    // release above only takes effect when that fellow is
+                    // reached. A park still refused falls back to a claim and
+                    // the plan plays out.
+                    if (!claiming.Park(member))
+                    {
+                        claiming.ClaimSlot(member, ops.CellOf(member));
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// The cycle of claims running through this member, lowest id first, or
+    /// null if there is not one.
+    /// </summary>
+    /// <remarks>
+    /// Follows one edge: from a member to whoever claims the cell it is standing
+    /// on. A walk that returns to where it began is a set of members who
+    /// collectively occupy exactly the cells they collectively want, which is
+    /// why <see cref="SwapCrossedClaims"/> can settle every one of them without
+    /// anybody taking a step. A walk that runs into a member already on the walk
+    /// without closing is a lasso, not a cycle, and is left alone -- the tail is
+    /// somebody else's problem and rotating a lasso would move units for nothing.
+    /// </remarks>
+    private static IReadOnlyList<int>? CycleThrough(IGroupView ops, int start)
+    {
+        var walk = new List<int>();
+        var onWalk = new HashSet<int>();
+        var id = start;
+
+        while (true)
+        {
+            if (!ops.HasSlot(id) || ops.CellOf(id) == ops.GoalOf(id))
+            {
+                return null;
             }
 
-            if (!parkedOther)
+            var holder = ops.ClaimantOf(ops.CellOf(id));
+            if (holder < 0 || holder == id || !ops.Members.Contains(holder) || !ops.HasSlot(holder))
             {
-                claiming.ClaimSlot(other, ops.CellOf(other));
+                return null;
+            }
+
+            walk.Add(id);
+            onWalk.Add(id);
+            id = holder;
+
+            if (id == start)
+            {
+                return walk;
+            }
+
+            if (onWalk.Contains(id))
+            {
+                return null;
             }
         }
     }

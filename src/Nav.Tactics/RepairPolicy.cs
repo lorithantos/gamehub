@@ -25,36 +25,99 @@ namespace Nav.Tactics;
 /// worth it</em> -- frequent short trips, so the line is never long without
 /// the unit. The defaults here still say retreat late and return full; they
 /// are what the recorded replays were made with, and the demos set their own.
-/// Rank-aware thresholds and a reserve count belong here too, and arrive with
-/// rank.
+/// </para>
+/// <para>
+/// <b>Rank moves the retreat threshold UP.</b> A veteran is pulled EARLIER
+/// than a rookie -- <see cref="RetreatByRank"/> ascends -- because the reason
+/// to have ranks at all is that the good unit is the one you cannot replace.
+/// It reads wrong for a moment on screen: the rookie stands in the line at half
+/// health while the veteran, barely scratched, walks off to a pad. That is the
+/// doctrine, not a bug in it. The opposite table expresses the opposite
+/// doctrine and is not rejected here; nothing checks the direction, because the
+/// table is data and a squad that wants its veterans to hold the ground should
+/// be able to say so.
+/// </para>
+/// <para>
+/// <b>The reserve is what stops the line emptying.</b> With
+/// <see cref="Reserve"/> members it will not go below, a squad whose whole
+/// strength is hurt keeps that many standing, and the ones it does send are
+/// taken in rank order -- highest first, for the same reason the thresholds
+/// ascend. So a reserve does not merely cap the exodus; it decides who is worth
+/// the trip.
 /// </para>
 /// </remarks>
 public sealed class RepairPolicy
 {
+    private readonly double[] _retreatByRank;
+
     /// <param name="retreatBelow">Health fraction below which a member on station is sent to repair.</param>
     /// <param name="returnAbove">Health fraction at or above which a member away is brought back.</param>
     /// <exception cref="ArgumentOutOfRangeException">
     /// A threshold is outside 0..1, or the return threshold is not above the retreat one.
     /// </exception>
     public RepairPolicy(double retreatBelow = 0.4, double returnAbove = 0.9)
+        : this([retreatBelow], returnAbove)
     {
-        ArgumentOutOfRangeException.ThrowIfNegative(retreatBelow);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(returnAbove, 1.0);
-        if (returnAbove <= retreatBelow)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(returnAbove), returnAbove, "The return threshold must be above the retreat threshold, or a unit flaps.");
-        }
-
-        RetreatBelow = retreatBelow;
-        ReturnAbove = returnAbove;
     }
 
-    /// <summary>Health fraction below which a member on station is sent to repair.</summary>
-    public double RetreatBelow { get; }
+    /// <param name="retreatByRank">
+    /// Health fraction below which a member is sent to repair, indexed by rank.
+    /// A rank past the end of the table uses the last entry, so a two-entry
+    /// table is a complete answer for every rank a world can invent. At least
+    /// one entry.
+    /// </param>
+    /// <param name="returnAbove">Health fraction at or above which a member away is brought back.</param>
+    /// <param name="reserve">How many members must stay on station however hurt the squad is.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="retreatByRank"/> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// The table is empty, a threshold is outside 0..1, the return threshold is
+    /// not above every retreat threshold, or the reserve is negative.
+    /// </exception>
+    public RepairPolicy(IReadOnlyList<double> retreatByRank, double returnAbove, int reserve = 0)
+    {
+        ArgumentNullException.ThrowIfNull(retreatByRank);
+        ArgumentOutOfRangeException.ThrowIfZero(retreatByRank.Count);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(returnAbove, 1.0);
+        ArgumentOutOfRangeException.ThrowIfNegative(reserve);
+
+        foreach (var threshold in retreatByRank)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(threshold);
+            if (returnAbove <= threshold)
+            {
+                // Checked against EVERY entry, not just the first: a table whose
+                // veteran threshold overtakes the return would flap that rank
+                // and only that rank, which is the kind of defect that reaches a
+                // replay before anyone notices.
+                throw new ArgumentOutOfRangeException(
+                    nameof(returnAbove), returnAbove, "The return threshold must be above every retreat threshold, or a unit flaps.");
+            }
+        }
+
+        _retreatByRank = [.. retreatByRank];
+        ReturnAbove = returnAbove;
+        Reserve = reserve;
+    }
+
+    /// <summary>Health fraction below which a rank-0 member on station is sent to repair.</summary>
+    public double RetreatBelow => _retreatByRank[0];
+
+    /// <summary>Retreat thresholds by rank; the last entry covers every rank above it.</summary>
+    public IReadOnlyList<double> RetreatByRank => _retreatByRank;
 
     /// <summary>Health fraction at or above which a member away is brought back.</summary>
     public double ReturnAbove { get; }
+
+    /// <summary>How many members must stay on station however hurt the squad is.</summary>
+    public int Reserve { get; }
+
+    /// <summary>The retreat threshold for a member of this rank.</summary>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="rank"/> is negative.</exception>
+    public double RetreatBelowFor(int rank)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(rank);
+        return _retreatByRank[Math.Min(rank, _retreatByRank.Length - 1)];
+    }
 
     /// <summary>
     /// One pass: bring back the repaired, then send off the damaged. Nothing
@@ -89,16 +152,34 @@ public sealed class RepairPolicy
         // sends more, so two casualties in one pass spread too.
         var taken = new HashSet<int>(ops.Away.Select(ops.ErrandOf));
 
-        foreach (var id in ops.Members)
+        // Everyone on station who is under their OWN rank's threshold, worst
+        // first in the order the reserve will spend: rank descending, because a
+        // veteran is what the reserve exists to get out; then health ascending,
+        // so between equals the hurt one goes; then id, so a demo plays the same
+        // way twice.
+        var leaving = ops.Members
+            .Where(id => !ops.Away.Contains(id) && ops.HealthOf(id) < RetreatBelowFor(ops.RankOf(id)))
+            .OrderByDescending(ops.RankOf)
+            .ThenBy(ops.HealthOf)
+            .ThenBy(id => id)
+            .ToList();
+
+        // Away is the snapshot this pass began with, so a member rejoined above
+        // still counts against the line here. That errs toward keeping people
+        // standing for one tick, which is the safe direction for a reserve.
+        var onStation = ops.Members.Count - ops.Away.Count;
+
+        foreach (var id in leaving)
         {
-            if (ops.Away.Contains(id) || ops.HealthOf(id) >= RetreatBelow)
+            if (onStation <= Reserve)
             {
-                continue;
+                break;
             }
 
             var pad = NearestPad(ops, ops.CellOf(id), taken);
             taken.Add(pad);
             ops.Detach(id, pad);
+            onStation--;
         }
     }
 

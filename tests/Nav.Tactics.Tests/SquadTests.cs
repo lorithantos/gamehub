@@ -270,10 +270,12 @@ public sealed class SquadTests
     private sealed class ScriptedPerception : IPerception
     {
         public Dictionary<int, double> Health { get; } = [];
+        public Dictionary<int, int> Rank { get; } = [];
         public List<int> HostileCells { get; } = [];
         public List<int> RepairCells { get; } = [];
 
         public double HealthOf(int agent) => Health.TryGetValue(agent, out var h) ? h : 1.0;
+        public int RankOf(int agent) => Rank.GetValueOrDefault(agent);
         public IReadOnlyList<int> Hostiles => HostileCells;
         public IReadOnlyList<int> RepairPoints => RepairCells;
     }

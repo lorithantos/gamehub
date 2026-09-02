@@ -37,6 +37,13 @@ internal sealed class SquadOps : ISquadOps
     }
 
     /// <inheritdoc/>
+    public int RankOf(int id)
+    {
+        RequireMember(id);
+        return _perception.RankOf(id);
+    }
+
+    /// <inheritdoc/>
     public IReadOnlyList<int> Hostiles { get; }
 
     /// <inheritdoc/>

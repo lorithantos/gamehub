@@ -47,6 +47,12 @@ public interface ISquadView
     /// <summary>A member's health as a fraction, from the perception this pass was given.</summary>
     double HealthOf(int id);
 
+    /// <summary>
+    /// A member's rank, from the perception this pass was given. 0 for a unit
+    /// that has proved nothing.
+    /// </summary>
+    int RankOf(int id);
+
     /// <summary>Cells hostile units occupy this tick, ascending. Empty on a quiet map.</summary>
     IReadOnlyList<int> Hostiles { get; }
 

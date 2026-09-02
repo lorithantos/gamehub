@@ -22,6 +22,10 @@ public sealed class NoPerception : IPerception
     public double HealthOf(int agent) => 1.0;
 
     /// <inheritdoc/>
+    /// <remarks>Nobody has been under fire, so nobody outranks anybody.</remarks>
+    public int RankOf(int agent) => 0;
+
+    /// <inheritdoc/>
     public IReadOnlyList<int> Hostiles => [];
 
     /// <inheritdoc/>

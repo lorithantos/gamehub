@@ -54,7 +54,7 @@ internal sealed class PatrolBaitDemo : Demo
         int[] route = [west, east];
         const double leash = 5.0;
 
-        var world = new DemoWorld();
+        var world = new DemoWorld(grid);
 
         int[] starts = [grid.Index(1, 12), grid.Index(2, 13), grid.Index(1, 14)];
         foreach (var cell in starts)

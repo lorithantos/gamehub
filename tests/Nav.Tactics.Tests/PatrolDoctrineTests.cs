@@ -64,7 +64,7 @@ public sealed class PatrolDoctrineTests
         var east = grid.Index(24, 6);
         var doctrine = new PatrolDoctrine([west, east]);
         var squad = new Squad("patrol", [0, 1, 2], doctrine);
-        var world = new DemoWorld();
+        var world = new DemoWorld(grid);
 
         var visited = new List<int>();
         Run(squad, system, world, ticks: 260, between: _ =>
@@ -88,7 +88,7 @@ public sealed class PatrolDoctrineTests
         var bait = grid.Index(9, 10);
         var doctrine = new PatrolDoctrine([west, east], leash: 8.0);
         var squad = new Squad("patrol", [0, 1, 2], doctrine);
-        var world = new DemoWorld();
+        var world = new DemoWorld(grid);
 
         Run(squad, system, world, ticks: 60);
         world.HostileCells.Add(bait);
@@ -109,7 +109,7 @@ public sealed class PatrolDoctrineTests
         var east = grid.Index(24, 6);
         var doctrine = new PatrolDoctrine([west, east], leash: 5.0);
         var squad = new Squad("patrol", [0, 1, 2], doctrine);
-        var world = new DemoWorld();
+        var world = new DemoWorld(grid);
 
         // Far off the route, and it stays there.
         world.HostileCells.Add(grid.Index(27, 12));
@@ -130,7 +130,7 @@ public sealed class PatrolDoctrineTests
         var east = grid.Index(24, 6);
         var doctrine = new PatrolDoctrine([west, east], leash: 5.0);
         var squad = new Squad("patrol", [0, 1, 2], doctrine);
-        var world = new DemoWorld();
+        var world = new DemoWorld(grid);
 
         var lure = grid.Index(9, 9);
         world.HostileCells.Add(lure);
@@ -196,7 +196,7 @@ public sealed class PatrolDoctrineTests
         var pad = grid.Index(1, 12);
         var doctrine = new PatrolDoctrine([west, east], leash: 8.0);
         var squad = new Squad("patrol", [0, 1, 2, 3], doctrine);
-        var world = new DemoWorld();
+        var world = new DemoWorld(grid);
         world.RepairCells.Add(pad);
 
         Run(squad, system, world, ticks: 40);

@@ -24,6 +24,22 @@ public interface IPerception
     /// </summary>
     double HealthOf(int agent);
 
+    /// <summary>
+    /// An agent's rank: 0 for one that has not proved anything, rising with
+    /// what it has survived. An agent the perception knows nothing about is 0.
+    /// </summary>
+    /// <remarks>
+    /// It sits beside health because it is the same kind of fact -- a property
+    /// of the unit that the world keeps and a doctrine only reads. WHERE rank
+    /// comes from is the world's business: <see cref="DemoWorld"/> earns it from
+    /// time spent within reach of <see cref="Hostiles"/>, a game would have its
+    /// own rule, and a world with no notion of veterancy answers 0 for
+    /// everybody, which every doctrine here treats as the ordinary case.
+    /// Deliberately NOT a default implementation: a world that models damage and
+    /// forgets rank should have to say so rather than inherit a silent zero.
+    /// </remarks>
+    int RankOf(int agent);
+
     /// <summary>Cells hostile units currently occupy, ascending. Empty for a quiet map.</summary>
     IReadOnlyList<int> Hostiles { get; }
 

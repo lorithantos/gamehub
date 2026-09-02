@@ -64,7 +64,7 @@ internal sealed class GuardRetreatDemo : Demo
         var padNorth = grid.Index(2, 1);
         var padSouth = grid.Index(22, 15);
 
-        var world = new DemoWorld(repairPerTick: 0.03);
+        var world = new DemoWorld(grid, repairPerTick: 0.03);
         world.RepairCells.Add(padNorth);
         world.RepairCells.Add(padSouth);
 

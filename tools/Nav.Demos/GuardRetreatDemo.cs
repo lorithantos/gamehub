@@ -77,18 +77,19 @@ internal sealed class GuardRetreatDemo : Demo
         {
             string? note = null;
 
-            // Two casualties, at moments far enough apart to be told from each
-            // other: the first once the line has formed, the second while the
-            // first is still away.
+            // Two casualties, and the second lands while the first is still at
+            // its pad. That overlap is the point: with one pad already spoken
+            // for, the doctrine has to send the second unit to the other one
+            // rather than queueing both at the nearest.
             if (tick == 70)
             {
                 world.SetHealth(2, 0.25);
                 note = "unit 2 takes fire";
             }
-            else if (tick == 150)
+            else if (tick == 88)
             {
                 world.SetHealth(0, 0.2);
-                note = "unit 0 takes fire";
+                note = "unit 0 takes fire, with unit 2 still at the pad";
             }
 
             squad.Advance(system, world);

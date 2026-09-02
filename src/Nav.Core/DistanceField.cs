@@ -10,10 +10,19 @@ namespace Nav.Core;
 /// unit count N is not, so K of these — shared by every unit heading there —
 /// replace N searches rediscovering the same ground.
 /// <para>
-/// <b>This is a heuristic, not a motion model.</b> Units still move by the
-/// space-time search against the reservation table; a field only replaces the
-/// octile estimate with the true remaining distance, which collapses expansions
-/// toward the path length while leaving every collision guarantee untouched.
+/// <b>It is now both a heuristic and a motion model</b>, and it was only the
+/// first until 2 September 2026. As a heuristic it replaces the octile estimate
+/// inside the space-time search with the true remaining distance, which
+/// collapses expansions toward the path length. As a motion model it is what a
+/// member of a moving group actually steers by: <c>MovementSystem.Follow</c>
+/// descends this surface one step per tick and emits a two-cell plan, and the
+/// search is reserved for single units, errands, and a slotted member that has
+/// stood blocked long enough to need reasoning about time.
+/// </para>
+/// <para>
+/// Neither role can reach a collision guarantee. A follower's step is reserved
+/// through the same table as any other plan and is checked again at the move, so
+/// what this surface decides is DIRECTION, never permission.
 /// </para>
 /// <para>
 /// Built by one backward Dijkstra over the exact movement rules the search uses

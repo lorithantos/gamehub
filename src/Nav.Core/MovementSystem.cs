@@ -982,11 +982,30 @@ public sealed class MovementSystem
 
     private int InFlight() => _agents.Count(a => a.Search is not null);
 
+    /// <summary>
+    /// Whether this agent wants a planning slot now.
+    /// </summary>
+    /// <remarks>
+    /// A PLAN IS ASKED FOR BEFORE THE OLD ONE RUNS OUT, by exactly the run-up the
+    /// next search will be given. Waiting for the plan to expire and only then
+    /// starting a search means the agent stands for the whole anchor while a
+    /// finished plan waits to be allowed to begin: measured on the patrol's
+    /// approach, three units a single step from their places at tick 11, the last
+    /// of them not taking that step until tick 16. Asking a latency early means
+    /// the new plan is anchored to start where the old one ends, and the walk is
+    /// continuous.
+    /// <para>
+    /// It does not make an agent replan more often in steady state -- a plan is
+    /// still replaced once per plan -- only earlier, and <see cref="Commit"/>
+    /// already splices the old plan's remaining cells ahead of the new one, which
+    /// is what makes an anchor inside a live plan safe.
+    /// </para>
+    /// </remarks>
     private bool ShouldStart(Agent agent) =>
         agent.Search is null &&
         agent.Cell != agent.Goal &&
         CurrentTick >= agent.RetryAfterTick &&
-        (agent.WantsPlan || agent.Plan is null || agent.Plan.LastTick <= CurrentTick);
+        (agent.WantsPlan || agent.Plan is null || agent.Plan.LastTick <= CurrentTick + agent.Latency);
 
     private void Begin(Agent agent)
     {

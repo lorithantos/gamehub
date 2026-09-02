@@ -206,11 +206,14 @@ public sealed class RepairPolicyTests
     }
 
     [Fact]
-    public void TheReserveSpendsItselfOnRankFirst()
+    public void AScarcePlaceGoesToTheRookieAndTheVeteranStandsHurt()
     {
-        // Four equally hurt units, room for one to go. Rank decides, not id and
-        // not position: unit 3 is the veteran and the only one that leaves,
-        // even though unit 0 would win every other tie-break here.
+        // The other way round from the thresholds, and on purpose. Four equally
+        // hurt units and room for one to go: the VETERAN stays. A place spent on
+        // it buys nothing, because it is already everything it is going to be,
+        // while the same place buys a rookie that comes back and goes on
+        // earning. Unit 0 is the rookie that leaves; unit 3 is the veteran that
+        // holds the line at 0.3, well under its own 0.7.
         var (system, grid) = Scene(agents: 4);
         var world = new ScriptedWorld
         {
@@ -220,6 +223,31 @@ public sealed class RepairPolicyTests
         };
 
         var squad = HoldingSquad(new RepairPolicy(ByRank, returnAbove: 0.9, reserve: 3), grid, 0, 1, 2, 3);
+        Run(squad, system, world, ticks: 60);
+
+        var away = system.Agents.Where(a => a.Away).Select(a => a.Id).ToArray();
+        Assert.Single(away);
+        Assert.Equal(0, away[0]);
+        Assert.False(system.Agents[3].Away, "the veteran took a place a rookie still had use for");
+    }
+
+    [Fact]
+    public void WithRoomTheVeteranIsStillPulledFirst()
+    {
+        // The pair to the test above, so the two rules cannot be confused for a
+        // contradiction. Same squad, no reserve: now everybody under their own
+        // threshold goes, and the veteran is under a threshold the rookies are
+        // not. Rank raises the bar for LEAVING; it lowers the priority for a
+        // scarce PLACE. Different questions, opposite answers, both intended.
+        var (system, grid) = Scene(agents: 4);
+        var world = new ScriptedWorld
+        {
+            RepairCells = { grid.Index(0, 10), grid.Index(10, 10) },
+            Health = { [0] = 0.5, [1] = 0.5, [2] = 0.5, [3] = 0.5 },
+            Rank = { [3] = 2 },
+        };
+
+        var squad = HoldingSquad(new RepairPolicy(ByRank, returnAbove: 0.9), grid, 0, 1, 2, 3);
         Run(squad, system, world, ticks: 60);
 
         var away = system.Agents.Where(a => a.Away).Select(a => a.Id).ToArray();

@@ -40,10 +40,26 @@ namespace Nav.Tactics;
 /// <para>
 /// <b>The reserve is what stops the line emptying.</b> With
 /// <see cref="Reserve"/> members it will not go below, a squad whose whole
-/// strength is hurt keeps that many standing, and the ones it does send are
-/// taken in rank order -- highest first, for the same reason the thresholds
-/// ascend. So a reserve does not merely cap the exodus; it decides who is worth
-/// the trip.
+/// strength is hurt keeps that many standing. So a reserve does not merely cap
+/// the exodus; it makes repair places scarce, and scarcity has to be spent on
+/// something.
+/// </para>
+/// <para>
+/// <b>It is spent on the LOWEST rank first</b>, which is the opposite way round
+/// from the thresholds, and deliberately. The two rules answer different
+/// questions. The threshold asks who is worth pulling when there is room, and
+/// the answer is the veteran, because it cannot be replaced. The reserve asks
+/// who is worth pulling when there is NOT room, and the answer is the rookie,
+/// because a place spent on a veteran buys nothing -- the veteran is already
+/// everything it is going to be -- while the same place buys a rookie that
+/// comes back and goes on earning. Rank is produced by standing exposed and
+/// able to keep standing; rationing repair away from the units that still have
+/// somewhere to climb would ration the squad's own advancement.
+/// </para>
+/// <para>
+/// So a stretched squad shows the veteran holding the line badly hurt while the
+/// rookies rotate through the pads, and an unstretched one shows the veteran
+/// pulled at a scratch. Both are the same doctrine seen at different pressures.
 /// </para>
 /// </remarks>
 public sealed class RepairPolicy
@@ -152,14 +168,20 @@ public sealed class RepairPolicy
         // sends more, so two casualties in one pass spread too.
         var taken = new HashSet<int>(ops.Away.Select(ops.ErrandOf));
 
-        // Everyone on station who is under their OWN rank's threshold, worst
-        // first in the order the reserve will spend: rank descending, because a
-        // veteran is what the reserve exists to get out; then health ascending,
-        // so between equals the hurt one goes; then id, so a demo plays the same
-        // way twice.
+        // Everyone on station who is under their OWN rank's threshold, in the
+        // order the reserve will spend itself: rank ASCENDING, then health
+        // ascending so between equals the hurt one goes, then id so a demo plays
+        // the same way twice.
+        //
+        // Rank ascending because a scarce repair place spent on a veteran buys
+        // nothing -- the veteran is already everything it is going to be -- and
+        // the same place spent on a rookie buys a unit that comes back and keeps
+        // earning. Rank is PRODUCED by standing exposed and able to go on
+        // standing, so the reserve is spent to keep the units that still have
+        // somewhere to climb able to climb it.
         var leaving = ops.Members
             .Where(id => !ops.Away.Contains(id) && ops.HealthOf(id) < RetreatBelowFor(ops.RankOf(id)))
-            .OrderByDescending(ops.RankOf)
+            .OrderBy(ops.RankOf)
             .ThenBy(ops.HealthOf)
             .ThenBy(id => id)
             .ToList();

@@ -33,12 +33,20 @@ namespace Nav.Demos;
 /// reason to have ranks is that the good unit is the one you cannot replace.
 /// </para>
 /// <para>
-/// <b>And then the reserve.</b> At 240 three more are hurt at once and only two
-/// may go, because four of six must stay standing. The two that go are taken by
-/// rank -- the veteran at 0.30 before either rookie at 0.25 -- so unit 5 waits
-/// 36 ticks at a quarter health for a place to come free. A line that emptied
-/// itself to the repair pads would be the original failure arrived at from the
-/// other direction, and this is what stops it.
+/// <b>And then the reserve, which inverts it.</b> At 240 three more are hurt at
+/// once and only two may go, because four of six must stay standing. Now the
+/// veteran is the one that STAYS -- at 0.30, far under its own 0.70 -- while
+/// the two rookies take the places. Sixty ticks earlier the same veteran left
+/// over a scratch. Nothing about it changed; what changed is that places became
+/// scarce, and a place spent on a veteran buys nothing while the same place
+/// buys a rookie that comes back and goes on earning. The squad spends its
+/// repair capacity on the units that still have somewhere to climb.
+/// </para>
+/// <para>
+/// So the demo shows the same unit pulled at a scratch and held at a third of
+/// its health, sixty ticks apart, and both are right. That is the pair worth
+/// watching for -- and underneath it, a line that never went below four, which
+/// is the original failure prevented from the other direction.
 /// </para>
 /// </remarks>
 internal sealed class GuardRetreatDemo : Demo
@@ -169,10 +177,12 @@ internal sealed class GuardRetreatDemo : Demo
                 events.Add("unit 4 -- a rookie -- is hurt worse, to 0.5, and holds anyway");
             }
 
-            // THE RESERVE. Now hurt most of the line at once. Four must stay
-            // standing whatever happens, so the squad cannot empty; and the
-            // places it does have go by rank, so the veteran at 0.3 leaves while
-            // the rookies at 0.25 -- hurt worse -- keep the position.
+            // THE RESERVE, and it inverts the pair above. Hurt most of the line
+            // at once: four must stay standing, so only two places exist, and
+            // they go to the LOWEST ranks. The veteran at 0.30 -- far under its
+            // own 0.70 -- holds the line while the two rookies rotate through
+            // the pads, because a place spent on the veteran buys nothing and
+            // the same place buys a rookie that comes back and goes on earning.
             else if (tick == 240)
             {
                 world.SetHealth(0, 0.3);

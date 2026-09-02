@@ -1,53 +1,54 @@
 namespace Nav.Demos;
 
 /// <summary>
-/// The guard that does not die beside the cannon: six units hold a position in
-/// sight of an enemy, earn rank for standing on the near side of it, and fall
-/// back to repair in the order their rank says -- without ever leaving the
-/// position unheld.
+/// The guard that does not die beside the cannon: six units hold a position an
+/// enemy is wearing down, earn rank for standing in it, and rotate through
+/// repair in the order their rank says -- without ever leaving it unheld.
 /// </summary>
 /// <remarks>
-/// The C&amp;C behaviour this project was started over. Watch for five things,
-/// in the order they happen.
+/// The C&amp;C behaviour this project was started over.
 /// <para>
-/// <b>The guard takes its station and stops.</b> Then nothing happens to
-/// anybody for half the demo, and that is not dead time: three of the six are
-/// parked within reach of the enemy in the north corridor and the other three
-/// are not, so at ticks 57 and 59 the near side becomes regulars and at 147 and
-/// 149 it becomes veterans. Rank is not handed out here. It is earned by
-/// standing somewhere, and a viewer can watch it being earned.
+/// <b>Nothing here is scripted.</b> There is no <c>SetHealth</c> in this demo.
+/// Standing within the enemy's reach costs 0.004 a tick and earns rank at the
+/// same time, so every casualty is a consequence of where a unit stood and how
+/// long it stayed, and every decision below is the doctrine meeting a situation
+/// nobody arranged for it. The one scripted thing is the enemy, and it does one
+/// thing once: at tick 100 it advances a single cell, from a position whose
+/// reach covered the ring's front arc to one that covers all six. It hurts
+/// nobody by moving. The line simply stops having a sheltered half.
 /// </para>
 /// <para>
-/// <b>The damage is middling on purpose.</b> Every casualty is hurt to around
-/// half, which is above the threshold this demo used to run with -- under the
-/// old numbers none of them would have moved, because the guard only left when
-/// it was nearly dead and the retreat was never a decision. The played doctrine
-/// is <em>retreat at middling damage, return as soon as it is worth it</em>.
-/// Unit 2 is away for 21 ticks and comes back at 0.80.
+/// <b>Being good at the job is what gets you sent to the rear.</b> Units 0, 2
+/// and 3 are in reach from the start, so they are the ones who bleed AND the
+/// ones who are promoted, and at ticks 57 and 59 their retreat threshold rises
+/// from 0.40 to 0.55 along with the rank. They fall back at 0.54. As rookies
+/// they would have stood there for another fourteen hundredths of health first.
+/// The promotion is what pulled them out.
 /// </para>
 /// <para>
-/// <b>Then the pair, and it looks wrong.</b> At tick 180 a veteran is scratched
-/// to 0.65 and leaves at once. At 184 a rookie is hurt WORSE, to 0.5, and
-/// stands there. The healthier unit walks off the line while the hurt one holds
-/// it. That is the doctrine: rank raises the retreat threshold, because the
-/// reason to have ranks is that the good unit is the one you cannot replace.
+/// <b>The reserve has a price, and the demo now puts a number on it.</b> A unit
+/// is meant to leave the moment it falls under its own threshold; it actually
+/// leaves when a place comes free, and the gap is health spent standing in the
+/// line waiting for one. Unit 3 goes at 0.44, eleven hundredths past its
+/// threshold, because two were already away. Then the real one: <b>unit 5 goes
+/// at 0.42 against a threshold of 0.70 -- 0.28 past it</b> -- because by then it
+/// was the highest-ranked unit in the queue, and the reserve spends its places
+/// on the LOWEST rank first. Two rookies at 0.51 and 0.50 went ahead of it.
 /// </para>
 /// <para>
-/// <b>And then the reserve, which inverts it.</b> At 240 three more are hurt at
-/// once and only two may go, because four of six must stay standing. Now the
-/// veteran is the one that STAYS -- at 0.30, far under its own 0.70 -- while
-/// the two rookies take the places. Sixty ticks earlier the same rank left over
-/// a scratch. Nothing about the unit changed; what changed is that places
-/// became scarce, and a veteran's place is the line. It earns faster where the
-/// enemy is, it is meant to heal itself once it is at full rank, and its
-/// standing there is what makes the position survivable for the rookies beside
-/// it. Leaving it holding is not spending it.
+/// That is the doctrine arriving on its own rather than being staged. A
+/// veteran's place is the line: it earns faster where the enemy is, at full
+/// rank it mends itself and needs a pad least, and its standing there is what
+/// makes the position survivable for the rookies beside it. Here that rule
+/// costs one specific veteran 0.28 of health, and the demo neither arranged it
+/// nor hid it.
 /// </para>
 /// <para>
-/// So the demo shows the same unit pulled at a scratch and held at a third of
-/// its health, sixty ticks apart, and both are right. That is the pair worth
-/// watching for -- and underneath it, a line that never went below four, which
-/// is the original failure prevented from the other direction.
+/// <b>Then it settles into a rotation, which is the whole point.</b> Veterans
+/// cycle at their 0.70 threshold on trips of about twenty ticks -- out, mend,
+/// back -- while the line goes on holding. All six finish as veterans, all six
+/// earned it under fire, and the position was never held by fewer than four.
+/// That last number is the original failure prevented from the other direction.
 /// </para>
 /// </remarks>
 internal sealed class GuardRetreatDemo : Demo
@@ -80,8 +81,8 @@ internal sealed class GuardRetreatDemo : Demo
     public override string Name => "guard-retreat";
 
     public override string Description =>
-        "Six guards hold a position under an enemy's eye; rank is earned on the near side, "
-            + "and decides who falls back to repair and who holds the line.";
+        "Six guards hold a position an enemy is wearing down. Nothing is scripted: exposure both "
+            + "earns rank and costs health, and rank decides who rotates through repair and who holds.";
 
     public override int Ticks => 320;
 
@@ -112,7 +113,13 @@ internal sealed class GuardRetreatDemo : Demo
         // back -- the three nearest the corridor earn, the three behind them do
         // not. Ranks at 50 and 140 exposed ticks, so the promotions land inside
         // this demo's 320 rather than being asserted in a footnote.
-        var world = new DemoWorld(grid, repairPerTick: 0.03, exposureRadius: 5.0, rankAt: [50, 140]);
+        var world = new DemoWorld(
+            grid,
+            repairPerTick: 0.03,
+            exposureRadius: 5.0,
+            rankAt: [50, 140],
+            damagePerTick: 0.004,
+            selfHealPerTick: 0.002);
         world.RepairCells.Add(padNorth);
         world.RepairCells.Add(padSouth);
         world.HostileCells.Add(enemy);
@@ -147,6 +154,7 @@ internal sealed class GuardRetreatDemo : Demo
         var ticksAway = new int[6];
         var wasRank = new int[6];
         var mostAwayAtOnce = 0;
+        var worstOverrun = 0.0;
 
         // A LIST, not a string. Two units are promoted within a tick of each
         // other and two are detached in the same pass, and a single slot loses
@@ -158,40 +166,23 @@ internal sealed class GuardRetreatDemo : Demo
         {
             events.Clear();
 
-            // Nothing happens to anybody for the first half. That is not dead
-            // time: the front arc is standing in reach of the corridor earning
-            // rank, and the promotions are the setup for every decision below.
+            // NOTHING IS SCRIPTED. There is no SetHealth in this demo any more.
+            // The enemy's reach costs 0.004 a tick to whoever is standing in it
+            // and earns them rank at the same time, so every casualty below is a
+            // consequence of where a unit chose to stand and how long it stayed.
+            // Whatever the doctrine does with that, it is doing to a situation
+            // nobody arranged for it.
             //
-            // THE PAIR. A veteran hurt LESS than a rookie, four ticks apart, and
-            // the veteran is the one that goes. 0.65 is a scratch and it is
-            // under the veteran's 0.7; 0.5 is worse and it is over the rookie's
-            // 0.4. On screen the healthier unit walks away from the line while
-            // the hurt one stands in it, which is the doctrine and not a bug in
-            // it: the veteran is the one that cannot be replaced.
-            if (tick == 180)
+            // The one thing that IS scripted is the enemy, and it is scripted to
+            // do one thing once: advance a single cell. From (12,3) its reach
+            // covered the ring's front arc and not its back; from (12,4) it
+            // covers all six. Nobody is hurt by the move and nothing is done to
+            // any unit -- the line simply stops having a sheltered half, and
+            // every consequence of that is the doctrine's.
+            if (tick == 100)
             {
-                world.SetHealth(2, 0.65);
-                events.Add("unit 2 -- a veteran -- is scratched to 0.65");
-            }
-            else if (tick == 184)
-            {
-                world.SetHealth(4, 0.5);
-                events.Add("unit 4 -- a rookie -- is hurt worse, to 0.5, and holds anyway");
-            }
-
-            // THE RESERVE, and it inverts the pair above. Hurt most of the line
-            // at once: four must stay standing, so only two places exist, and
-            // they go to the LOWEST ranks. The veteran at 0.30 -- far under its
-            // own 0.70 -- holds while the two rookies rotate through the pads,
-            // because a veteran's place is the line: it is the unit that will
-            // least need a pad and the one whose standing there makes the
-            // position survivable for the rookies beside it.
-            else if (tick == 240)
-            {
-                world.SetHealth(0, 0.3);
-                world.SetHealth(1, 0.25);
-                world.SetHealth(5, 0.25);
-                events.Add("the line takes fire: three more hurt at once");
+                world.HostileCells[0] = grid.Index(12, 4);
+                events.Add("the enemy advances a cell -- the whole line is in reach now");
             }
 
             squad.Advance(system, world);
@@ -219,8 +210,18 @@ internal sealed class GuardRetreatDemo : Demo
                 {
                     // Rank and health together, because this is the line a
                     // viewer stops on to ask why THIS unit and not that one.
-                    events.Add(
-                        $"unit {agent.Id} falls back to repair at {world.HealthOf(agent.Id):F2}, rank {rank}");
+                    //
+                    // And the OVERRUN, which is the price of the reserve stated
+                    // as a number. A unit is meant to leave the moment it falls
+                    // under its own rank's threshold; it actually leaves when a
+                    // place comes free, and the gap is health it spent standing
+                    // in the line waiting for one. Nothing chose that gap.
+                    var health = world.HealthOf(agent.Id);
+                    var overrun = RetreatByRank[Math.Min(rank, RetreatByRank.Length - 1)] - health;
+                    worstOverrun = Math.Max(worstOverrun, overrun);
+                    events.Add(overrun > 0.02
+                        ? $"unit {agent.Id} falls back at {health:F2}, rank {rank} -- {overrun:F2} past its threshold, waiting for a place"
+                        : $"unit {agent.Id} falls back to repair at {health:F2}, rank {rank}");
                 }
                 else if (!agent.Away && wasAway[agent.Id])
                 {
@@ -252,11 +253,11 @@ internal sealed class GuardRetreatDemo : Demo
             DemoTrace.WriteTick(trace, grid, tick, agents, world, squad.Anchor, note);
         }
 
-        // Time off the line is the number this doctrine is judged on, not final
-        // health: a unit that comes back at 0.8 having been gone thirty ticks is
-        // the intended outcome, and counting units "at full health" would score
-        // that as a failure. The rank split is the other half -- it is what
-        // every retreat decision above was made against.
+        // What this doctrine is judged on, and none of it is final health: a unit
+        // that comes back at 0.8 is the intended outcome, and counting units "at
+        // full health" would score that as a failure. Time off the line, the rank
+        // the line earned, and the overrun -- the last being the reserve's price,
+        // health spent standing past a threshold because no place was free.
         var final = system.Agents;
         var veterans = final.Count(a => world.RankOf(a.Id) >= 2);
         var everLeft = ticksAway.Count(t => t > 0);
@@ -268,8 +269,8 @@ internal sealed class GuardRetreatDemo : Demo
 
         return new Run(
             Ticks, final, world,
-            $"{veterans}/{final.Count} earned veteran on the near side; {everLeft} went to repair, "
-                + $"{mostAwayAtOnce} away at the worst moment against a reserve of {Reserve}; "
-                + $"worst unit still standing at {worstStanding:F2}");
+            $"{veterans}/{final.Count} veterans, all earned under fire; {everLeft} rotated through repair, "
+                + $"never more than {mostAwayAtOnce} away against a reserve of {Reserve}; "
+                + $"worst overrun {worstOverrun:F2} past a threshold, worst unit standing at {worstStanding:F2}");
     }
 }

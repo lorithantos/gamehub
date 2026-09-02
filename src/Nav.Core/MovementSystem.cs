@@ -328,10 +328,18 @@ public sealed class MovementSystem
     public void Order(IReadOnlyList<int> agents, int goalCell) => Order(agents, goalCell, doctrine: null);
 
     /// <summary>
-    /// The parking ring for <paramref name="count"/> units at <paramref name="destination"/>:
-    /// the nearest passable cells, innermost first. Empty if the destination is
-    /// impassable. Shared by an order and by a unit joining a formation later,
-    /// so a ring is always sized to the membership it serves.
+    /// How many candidate cells beyond the member count a ring is chosen from.
+    /// Without slack the ring is whatever the flood happened to reach first and
+    /// there is nothing to choose between; with it, the ordering below has real
+    /// alternatives to rank.
+    /// </summary>
+    private const int RingSlack = 8;
+
+    /// <summary>
+    /// The parking ring for <paramref name="count"/> units at <paramref name="destination"/>,
+    /// ordered so the far side of the destination fills first. Empty if the
+    /// destination is impassable. Shared by an order and by a unit joining a
+    /// formation later, so a ring is always sized to the membership it serves.
     /// </summary>
     /// <remarks>
     /// A GROUP's ring keeps doorways clear: no slot on or beside a chokepoint.
@@ -339,8 +347,25 @@ public sealed class MovementSystem
     /// inner mouth, an early claimer parked in the doorway, and the chamber
     /// sealed with the rest of the group outside. A single unit is exempt:
     /// ordering one unit ONTO a doorway is intent.
+    /// <para>
+    /// <b>Ordered against the approach, and it used to be ordered by the
+    /// compass.</b> The flood discovers neighbours in the step table's order --
+    /// north, east, south, west -- so a three-unit ring was always the
+    /// destination plus the cells north and east of it, whatever direction the
+    /// group was walking in from. A patrol arriving from the west had its
+    /// trailing unit sent past the destination to the cell beyond, where it
+    /// waited for its two parked fellows and then walked around them. Ranking
+    /// equally-close cells by distance from the group, furthest first, is what
+    /// the claim pass always said it wanted: the far side fills while the near
+    /// ground is still empty road, so latecomers stop where they arrive instead
+    /// of pushing through.
+    /// </para>
     /// </remarks>
-    private IReadOnlyList<int> RingFor(int destination, int count)
+    /// <param name="destination">The cell the order was aimed at.</param>
+    /// <param name="count">How many units the ring must seat.</param>
+    /// <param name="fromX">Where the group is coming from, in columns; the mean of its members.</param>
+    /// <param name="fromY">Where the group is coming from, in rows.</param>
+    private IReadOnlyList<int> RingFor(int destination, int count, double fromX, double fromY)
     {
         Func<int, bool>? keepDoorwaysClear = null;
         if (count > 1 && MapChokepoints.Count > 0)
@@ -363,7 +388,35 @@ public sealed class MovementSystem
             keepDoorwaysClear = doorways.Contains;
         }
 
-        return GoalSpread.Nearest(_grid, destination, count, keepDoorwaysClear);
+        // Ask for more than the ring needs, so there is something to choose
+        // between, then keep the best `count`.
+        var candidates = GoalSpread.Nearest(_grid, destination, count + RingSlack, keepDoorwaysClear);
+        if (candidates.Count <= 1)
+        {
+            return candidates;
+        }
+
+        var destinationX = _grid.ColumnOf(destination);
+        var destinationY = _grid.RowOf(destination);
+
+        var ranked = candidates
+            .Select(cell =>
+            {
+                var x = _grid.ColumnOf(cell);
+                var y = _grid.RowOf(cell);
+                return (
+                    Cell: cell,
+                    Inner: Movement.OctileDistance(x, y, destinationX, destinationY),
+                    FromGroup: Movement.OctileDistance(x, y, (int)Math.Round(fromX), (int)Math.Round(fromY)));
+            })
+            .OrderBy(c => c.Inner)              // innermost first, as ever
+            .ThenByDescending(c => c.FromGroup) // then the far side of it
+            .ThenBy(c => c.Cell)                // and a fixed order for the rest
+            .Take(count)
+            .Select(c => c.Cell)
+            .ToArray();
+
+        return ranked;
     }
 
     /// <param name="agents">
@@ -421,27 +474,6 @@ public sealed class MovementSystem
             goalCell = best;
         }
 
-        // The parking ring doubles as the passability check: an impassable
-        // destination yields no ring and the order is refused as before.
-        var slots = RingFor(goalCell, agents.Count);
-        if (slots.Count == 0)
-        {
-            return;
-        }
-
-        // The default is the SCRUM, by measurement, not the meter: on the gap
-        // fixture the pacing brake cost 4x the arrival time and more nodes
-        // than free contention -- reservation contention through a doorway,
-        // with event-driven stalls and fill-like-water claiming, already IS a
-        // well-behaved queue. MeteredGatherDoctrine remains available for
-        // callers that want a visibly ordered column and will pay for it.
-        var group = new Group
-        {
-            Destination = goalCell,
-            Members = [],
-            Slots = slots,
-            Doctrine = doctrine ?? new GatherDoctrine(),
-        };
         // EVERY ID IS RESOLVED BEFORE ANYTHING IS TOUCHED, and that ordering is the
         // whole of this guard. Resolving inside the loop meant a bad id threw
         // halfway: the agents before it had already been re-goaled and moved onto
@@ -462,6 +494,31 @@ public sealed class MovementSystem
             members[at++] = _agents[id];
         }
 
+        // Where the group is coming from, which is what orders the ring.
+        var fromX = members.Length == 0 ? 0.0 : members.Average(m => (double)_grid.ColumnOf(m.Cell));
+        var fromY = members.Length == 0 ? 0.0 : members.Average(m => (double)_grid.RowOf(m.Cell));
+
+        // The parking ring doubles as the passability check: an impassable
+        // destination yields no ring and the order is refused as before.
+        var slots = RingFor(goalCell, agents.Count, fromX, fromY);
+        if (slots.Count == 0)
+        {
+            return;
+        }
+
+        // The default is the SCRUM, by measurement, not the meter: on the gap
+        // fixture the pacing brake cost 4x the arrival time and more nodes
+        // than free contention -- reservation contention through a doorway,
+        // with event-driven stalls and fill-like-water claiming, already IS a
+        // well-behaved queue. MeteredGatherDoctrine remains available for
+        // callers that want a visibly ordered column and will pay for it.
+        var group = new Group
+        {
+            Destination = goalCell,
+            Members = [],
+            Slots = slots,
+            Doctrine = doctrine ?? new GatherDoctrine(),
+        };
         foreach (var agent in members)
         {
             // A group member is NOT handed a parking slot here. It walks toward
@@ -604,7 +661,11 @@ public sealed class MovementSystem
             _groups.RemoveAll(g => g.Members.Count == 0);
             host.Group.Members.Add(unit);
             unit.Group = host.Group;
-            host.Group.Slots = RingFor(host.Group.Destination, host.Group.Members.Count);
+            host.Group.Slots = RingFor(
+                host.Group.Destination,
+                host.Group.Members.Count,
+                _grid.ColumnOf(unit.Cell),
+                _grid.RowOf(unit.Cell));
         }
 
         var ring = host.Group.Slots[0];

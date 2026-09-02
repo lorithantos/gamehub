@@ -68,6 +68,13 @@ public sealed class GatherDoctrineTests
         // after a squatter's swap, most often -- offered the innermost REMAINING
         // slot can be offered one BEHIND itself, and it walks away from the crowd
         // to reach it. Standing put is always better.
+        //
+        // Standing put is now a CLAIM rather than a non-decision, and that is the
+        // stronger form of the same rule. Refusing every slot used to leave the
+        // member aimed at the destination, which here means still walking out
+        // toward the cost-7 slot it was never allowed to take. Claiming the ground
+        // it is on stops it where it already stands -- closer to the destination
+        // than any slot on offer.
         var ops = new FakeGroupOps { Destination = 0, Slots = [1, 2, 3] }
             .With(id: 0, cell: 5, goal: 1, stalledReplans: 0)
             .Cost(5, 2.0)     // the member is already closer than any free slot
@@ -77,7 +84,7 @@ public sealed class GatherDoctrineTests
 
         new GatherDoctrine().Advance(ops);
 
-        Assert.Empty(ops.Claims);
+        Assert.Equal([(0, 5)], ops.Claims);
     }
 
     [Fact]

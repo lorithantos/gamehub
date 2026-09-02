@@ -153,6 +153,10 @@ public class GatherDoctrine : GroupDoctrine
             // it burns the near-face slots first and forces every latecomer
             // through the pack. Innermost-global fills the far side while the
             // near ground is still empty road.
+            var here = ops.CellOf(id);
+            var hereCost = ops.FieldCost(here);
+
+            var offer = -1;
             foreach (var slot in ops.Slots)
             {
                 if (ops.IsClaimed(slot) || ops.IsSettled(slot))
@@ -166,17 +170,48 @@ public class GatherDoctrine : GroupDoctrine
                 // and it walks away from the crowd to reach it. Standing put
                 // and waiting for an interior slot is always better; the
                 // reconcile pass is the safety net if none ever opens.
-                if (ops.FieldCost(slot) > ops.FieldCost(ops.CellOf(id)))
+                if (ops.FieldCost(slot) > hereCost)
                 {
                     continue;
                 }
 
-                claiming.ClaimSlot(id, slot);
+                offer = slot;
                 break;
             }
 
-            // Every slot taken: stay aimed at the destination; the hard-stall
-            // reconciliation is the safety net for that.
+            // WHERE IT STANDS BEATS AN EQUAL WALK, and a ring slot is a
+            // candidate rather than an obligation. A member beside the
+            // destination was being sent to another cell beside the
+            // destination -- no closer, just on the other side -- so it walked
+            // around whoever had already arrived, crossed a third member's
+            // slot on the way, and left the perfectly good cell it started on
+            // empty. Measured on the patrol: unit 1 stood one step south of
+            // the post at tick 8 and reached its assigned cell at tick 13,
+            // having gone the long way round, while nobody ever used the
+            // south cell.
+            //
+            // The rule holds when nothing is offered at all, and that is the
+            // other half: with every slot taken, a member used to keep walking
+            // into the pack until it had failed twice and the reconcile pass
+            // caught it. If it is already at the rim, standing still is the
+            // better answer -- so it settles where it is rather than being
+            // pressed on toward a destination with no room left.
+            var rimCost = ops.FieldCost(ops.Slots[^1]);
+
+            if (!ops.IsClaimed(here) && hereCost <= rimCost &&
+                (offer < 0 || hereCost <= ops.FieldCost(offer)))
+            {
+                ClaimDisplacing(ops, claiming, id, here);
+                continue;
+            }
+
+            if (offer >= 0)
+            {
+                claiming.ClaimSlot(id, offer);
+            }
+
+            // Every slot taken and not yet at the rim: stay aimed at the
+            // destination; the hard-stall reconciliation is the safety net.
         }
     }
 

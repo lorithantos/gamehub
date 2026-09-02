@@ -93,6 +93,7 @@ public sealed class FakeGroupOps : IGroupOps
     /// <inheritdoc/>
     public double FieldCost(int cell) => _cost.TryGetValue(cell, out var c) ? c : double.PositiveInfinity;
 
+
     /// <inheritdoc/>
     public int CellOf(int id) => _cell[id];
 

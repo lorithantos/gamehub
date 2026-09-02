@@ -10,6 +10,16 @@ namespace Nav.Demos;
 /// the guard takes its station and stops; a damaged unit LEAVES while the rest
 /// hold, so the line never abandons the position; and it comes back to the
 /// formation rather than standing at the pad forever.
+/// <para>
+/// <b>The damage here is middling on purpose.</b> Both casualties are hurt to
+/// around half, which is above the threshold this demo used to run with, so
+/// under the old numbers neither would have moved -- the guard only left when
+/// it was nearly dead, and the retreat was never a decision, just a last
+/// resort. The played doctrine is <em>retreat at middling damage, return as
+/// soon as it is worth it</em>: leave early, take the short trip, be back on
+/// the line quickly. A unit here is away for a fraction of the time it used
+/// to be, and that is the whole behaviour.
+/// </para>
 /// </remarks>
 internal sealed class GuardRetreatDemo : Demo
 {
@@ -66,12 +76,13 @@ internal sealed class GuardRetreatDemo : Demo
             system.AddAgent(cell);
         }
 
-        var squad = new Squad("guard", [0, 1, 2, 3], new GuardDoctrine(station, retreatBelow: 0.4, returnAbove: 0.95));
+        var squad = new Squad("guard", [0, 1, 2, 3], new GuardDoctrine(station, retreatBelow: 0.55, returnAbove: 0.8));
 
         DemoTrace.WriteHeader(trace, Name, Description, grid, world.RepairPoints, Ticks);
 
         var wasAway = new bool[4];
         var wasArrived = new bool[4];
+        var ticksAway = new int[4];
 
         for (var tick = 0; tick < Ticks; tick++)
         {
@@ -80,15 +91,18 @@ internal sealed class GuardRetreatDemo : Demo
             // Two casualties, and the second lands while the first is still at
             // its pad. That overlap is the point: with one pad already spoken
             // for, the doctrine has to send the second unit to the other one
-            // rather than queueing both at the nearest.
+            // rather than queueing both at the nearest. Neither is anywhere
+            // near dead -- half health and a little under -- so what sends them
+            // is the doctrine's judgement that a hurt unit is worth pulling,
+            // not the arithmetic of a unit about to be lost.
             if (tick == 70)
             {
-                world.SetHealth(2, 0.25);
-                note = "unit 2 takes fire";
+                world.SetHealth(2, 0.5);
+                note = "unit 2 takes fire, down to half";
             }
             else if (tick == 88)
             {
-                world.SetHealth(0, 0.2);
+                world.SetHealth(0, 0.45);
                 note = "unit 0 takes fire, with unit 2 still at the pad";
             }
 
@@ -114,6 +128,11 @@ internal sealed class GuardRetreatDemo : Demo
                     note = $"unit {agent.Id} reaches the pad";
                 }
 
+                if (agent.Away)
+                {
+                    ticksAway[agent.Id]++;
+                }
+
                 wasAway[agent.Id] = agent.Away;
                 wasArrived[agent.Id] = agent.Arrived;
             }
@@ -126,10 +145,15 @@ internal sealed class GuardRetreatDemo : Demo
             DemoTrace.WriteTick(trace, grid, tick, agents, world, squad.Anchor, note);
         }
 
+        // Time off the line is the number this doctrine is judged on, not final
+        // health: a unit that comes back at 0.8 having been gone thirty ticks is
+        // the intended outcome, and counting units "at full health" would score
+        // that as a failure.
         var final = system.Agents;
-        var repaired = final.Count(a => world.HealthOf(a.Id) >= 0.99);
+        var away = ticksAway.Where(t => t > 0).ToArray();
         return new Run(
             Ticks, final, world,
-            $"2 casualties, both repaired and back on the line; {final.Count(a => a.Arrived)}/{final.Count} in place, {repaired}/{final.Count} at full health");
+            $"2 casualties at middling damage, both back on the line; {final.Count(a => a.Arrived)}/{final.Count} in place, "
+                + $"off the line {string.Join(" and ", away)} ticks of {Ticks}");
     }
 }

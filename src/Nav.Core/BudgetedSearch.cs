@@ -192,6 +192,40 @@ internal sealed class BudgetedSearch
     public int Expanded => _expanded;
 
     /// <summary>
+    /// Has this search reached <paramref name="cell"/> at any tick in its window
+    /// -- opened or closed? If so, its answer may run through that cell on the
+    /// strength of a table that has since changed.
+    /// </summary>
+    /// <remarks>
+    /// The question a park has to ask. A search reads the table as it expands,
+    /// so anything it has NOT yet reached will see a cell parked on and route
+    /// around it; but a state already in its frontier was priced when the cell
+    /// was free, and a popped state is not re-checked against the table. A
+    /// suspended search that has touched the cell can therefore commit a plan
+    /// straight through a unit that stopped there after it looked, and the
+    /// table's own assertion is what catches it -- as it did, at arena scale,
+    /// the first time a doctrine parked a whole crust at once. Stamps are per
+    /// state, so this is one comparison per tick of the window.
+    /// </remarks>
+    internal bool Touches(int cell)
+    {
+        if (Finished)
+        {
+            return Result.Cells.Contains(cell);
+        }
+
+        for (var tick = _baseTick; tick <= _lastTick; tick++)
+        {
+            if (_stamp[((tick - _baseTick) * _cellCount) + cell] == _generation)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Expands at most <paramref name="nodeBudget"/> nodes.
     /// </summary>
     /// <returns>True when the search is over, false when there is more to do.</returns>

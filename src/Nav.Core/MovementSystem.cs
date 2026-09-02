@@ -1195,6 +1195,35 @@ public sealed class MovementSystem
         Release(agent);
     }
 
+    /// <summary>
+    /// A cell was just parked on outside any search. Every other search still in
+    /// flight that has reached that cell is discarded and asked for again, because
+    /// what it has priced so far assumed the cell was free.
+    /// </summary>
+    /// <remarks>
+    /// The table only ever changes at a commit, and a commit reserves a path --
+    /// one cell per tick -- so a suspended search that had already reached one
+    /// of those exact states was rare enough that the tie-break fuzz never
+    /// produced it. A park reserves one cell at EVERY tick of the window, and a
+    /// settling crust parks many at once, so the same race became the first
+    /// thing the arena did: "agent 58 reserved cell 1804 at tick 234, which
+    /// agent 196 already holds". Searches that have not reached the cell need
+    /// nothing; they read the table as they go and will route around.
+    /// </remarks>
+    private void ForgetSearchesThrough(int cell, Agent parked)
+    {
+        foreach (var other in _agents)
+        {
+            if (ReferenceEquals(other, parked) || other.Search is null || !other.Search.Touches(cell))
+            {
+                continue;
+            }
+
+            Abandon(other);
+            other.WantsPlan = true;
+        }
+    }
+
     private void Release(Agent agent)
     {
         if (agent.Workspace is not null)
@@ -1429,6 +1458,7 @@ public sealed class MovementSystem
                 return false;
             }
 
+            _system.ForgetSearchesThrough(here, agent);
             ClaimSlot(id, here);
             _system.Abandon(agent);
 

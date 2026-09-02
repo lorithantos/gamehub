@@ -99,7 +99,7 @@ public class GatherDoctrine : GroupDoctrine
             var cell = ops.CellOf(id);
             if (!ops.IsClaimed(cell) && ops.FieldCost(cell) <= ops.FieldCost(ops.GoalOf(id)))
             {
-                claiming.ClaimSlot(id, cell);
+                ParkDisplacing(ops, claiming, id);
             }
         }
     }
@@ -227,7 +227,7 @@ public class GatherDoctrine : GroupDoctrine
             if (!ops.IsClaimed(here) && hereCost <= rimCost &&
                 (offer < 0 || (!ops.IsMoving(id) && hereCost <= ops.FieldCost(offer) + GoodEnough)))
             {
-                ClaimDisplacing(ops, claiming, id, here);
+                ParkDisplacing(ops, claiming, id);
                 continue;
             }
 
@@ -336,15 +336,50 @@ public class GatherDoctrine : GroupDoctrine
                     var claimant = ops.ClaimantOf(cell);
                     if (claimant >= 0 && claimant != id && ops.Members.Contains(claimant))
                     {
-                        claiming.ReleaseSlot(claimant);
-                        claiming.ClaimSlot(id, cell);
+                        ParkDisplacing(ops, claiming, id);
                     }
 
                     continue;
                 }
             }
 
-            ClaimDisplacing(ops, claiming, id, pick);
+            if (pick == cell)
+            {
+                ParkDisplacing(ops, claiming, id);
+            }
+            else
+            {
+                ClaimDisplacing(ops, claiming, id, pick);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Stops a member where it stands, first releasing the fellow member who
+    /// claimed that cell from afar, if any. If the table refuses the park -- a
+    /// plan is due through the cell -- the cell is claimed the old way and the
+    /// member's plan plays out.
+    /// </summary>
+    /// <remarks>
+    /// Every "take the ground underfoot" in this doctrine goes through here,
+    /// and the park is what makes it a stop rather than a change of goal. A
+    /// claim alone left the committed plan alone, so a unit that had settled
+    /// walked off along it and came back -- a ten-tick round trip, forever, on
+    /// the guard fixture. Measured against the claim on every figure the
+    /// settling report carries: identical, to the node. The stop is free.
+    /// </remarks>
+    private static void ParkDisplacing(IGroupView ops, IGroupClaiming claiming, int id)
+    {
+        var here = ops.CellOf(id);
+        var holder = ops.ClaimantOf(here);
+        if (holder >= 0 && holder != id && ops.Members.Contains(holder))
+        {
+            claiming.ReleaseSlot(holder);
+        }
+
+        if (!claiming.Park(id))
+        {
+            claiming.ClaimSlot(id, here);
         }
     }
 

@@ -46,6 +46,29 @@ public sealed class BudgetedSearchTests
     private static BudgetedSearch New(Grid grid, ReservationTable table) =>
         new(grid, table, agent: 0, grid.Index(1, 1), grid.Index(10, 10), 0, new SearchWorkspace());
 
+    [Fact]
+    public void ASuspendedSearchKnowsWhichCellsItHasReached()
+    {
+        // What a park asks before it may stand on a cell: has any search in
+        // flight already priced a way through it? Reached means opened OR
+        // closed -- a state still in the frontier was costed when the cell was
+        // free and is not re-checked when it pops.
+        var (grid, table) = Scene();
+        var search = New(grid, table);
+
+        Assert.True(search.Touches(grid.Index(1, 1)), "the start is reached before anything is expanded");
+        Assert.False(search.Touches(grid.Index(10, 10)));
+
+        Assert.False(search.Advance(3));
+
+        Assert.True(search.Touches(grid.Index(2, 2)), "a neighbour of the start is in the frontier after three expansions");
+        Assert.False(search.Touches(grid.Index(10, 10)), "the far corner is not reached by three expansions");
+
+        search.RunToCompletion();
+        Assert.True(search.Touches(grid.Index(10, 10)), "a finished search touches every cell of its answer");
+        Assert.False(search.Touches(grid.Index(1, 10)), "and none it does not walk");
+    }
+
     [Theory]
     [InlineData(1)]
     [InlineData(2)]

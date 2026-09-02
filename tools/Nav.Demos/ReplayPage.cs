@@ -46,22 +46,50 @@ internal static class ReplayPage
     private const string Marker = "id=\"trace-data\"";
 
     /// <summary>
+    /// The shape of the run a page was just given: what its hand-written prose
+    /// has to be describing for the page to be telling the truth.
+    /// </summary>
+    /// <remarks>
+    /// Reported because the packer owns the data and NOT the words, and the
+    /// words are what a reader reads. The guard demo went from four units to
+    /// six and gained an enemy; the data followed in the same pass and the
+    /// standfirst went on saying "Four guards hold a position in the middle of
+    /// the map" until somebody looked at it. Nothing can check prose. What can
+    /// be done is put the run's shape on screen at the moment the page is
+    /// rewritten, so a change in it is in front of whoever ran the demos rather
+    /// than discovered later by a reader.
+    /// </remarks>
+    /// <param name="Units">Units in every frame.</param>
+    /// <param name="Ticks">Frames written.</param>
+    /// <param name="Hostiles">Hostile cells in the first frame.</param>
+    /// <param name="TopRank">The highest rank any unit reached.</param>
+    internal readonly record struct Shape(int Units, int Ticks, int Hostiles, int TopRank)
+    {
+        /// <summary>One line for the console.</summary>
+        public override string ToString() =>
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"{Units} units, {Ticks} ticks, {Hostiles} hostile, top rank {TopRank}");
+    }
+
+    /// <summary>
     /// Rewrites <paramref name="pagePath"/>'s trace-data block from
-    /// <paramref name="tracePath"/>. Returns false if there is no page to
-    /// refresh, which is not an error -- a demo may simply have no replay yet.
+    /// <paramref name="tracePath"/>, and reports the shape of what it wrote.
+    /// Returns null if there is no page to refresh, which is not an error --
+    /// a demo may simply have no replay yet.
     /// </summary>
     /// <exception cref="InvalidOperationException">
     /// The page has no trace-data block, or the trace is a version this packer
     /// does not lay out.
     /// </exception>
-    public static bool Refresh(string pagePath, string tracePath)
+    public static Shape? Refresh(string pagePath, string tracePath)
     {
         ArgumentNullException.ThrowIfNull(pagePath);
         ArgumentNullException.ThrowIfNull(tracePath);
 
         if (!File.Exists(pagePath))
         {
-            return false;
+            return null;
         }
 
         var page = File.ReadAllText(pagePath);
@@ -78,11 +106,12 @@ internal static class ReplayPage
             throw new InvalidOperationException($"{pagePath} has an unterminated {Marker} block.");
         }
 
-        File.WriteAllText(pagePath, string.Concat(page.AsSpan(0, start), Pack(tracePath), page.AsSpan(end)));
-        return true;
+        var (packed, shape) = Pack(tracePath);
+        File.WriteAllText(pagePath, string.Concat(page.AsSpan(0, start), packed, page.AsSpan(end)));
+        return shape;
     }
 
-    private static string Pack(string tracePath)
+    private static (string Json, Shape Shape) Pack(string tracePath)
     {
         using var reader = File.OpenText(tracePath);
 
@@ -112,6 +141,10 @@ internal static class ReplayPage
         json.Append(",\"frames\":[");
 
         var frames = 0;
+        var units = 0;
+        var hostiles = 0;
+        var topRank = 0;
+
         while (reader.ReadLine() is { } line)
         {
             if (line.Length == 0)
@@ -124,11 +157,14 @@ internal static class ReplayPage
                 json.Append(',');
             }
 
-            AppendFrame(json, line);
+            var frame = AppendFrame(json, line);
+            units = Math.Max(units, frame.Units);
+            hostiles = Math.Max(hostiles, frame.Hostiles);
+            topRank = Math.Max(topRank, frame.TopRank);
         }
 
         json.Append("]}");
-        return json.ToString();
+        return (json.ToString(), new Shape(units, frames, hostiles, topRank));
     }
 
     /// <summary>
@@ -141,7 +177,7 @@ internal static class ReplayPage
     /// weight for no information. The reader walks it by <see cref="Stride"/>,
     /// so the two constants have to agree; there is no other coupling.
     /// </remarks>
-    private static void AppendFrame(StringBuilder json, string line)
+    private static (int Units, int Hostiles, int TopRank) AppendFrame(StringBuilder json, string line)
     {
         using var tick = JsonDocument.Parse(line);
         var root = tick.RootElement;
@@ -149,12 +185,15 @@ internal static class ReplayPage
         json.Append('[').Append(root.GetProperty("tick").GetInt32()).Append(",[");
 
         var units = 0;
+        var topRank = 0;
         foreach (var unit in root.GetProperty("units").EnumerateArray())
         {
             if (units++ > 0)
             {
                 json.Append(',');
             }
+
+            topRank = Math.Max(topRank, unit.GetProperty("rank").GetInt32());
 
             json.Append(unit.GetProperty("id").GetInt32()).Append(',');
             json.Append(unit.GetProperty("x").GetInt32()).Append(',');
@@ -179,8 +218,11 @@ internal static class ReplayPage
         json.Append(',').Append(root.GetProperty("anchorX").GetInt32());
         json.Append(',').Append(root.GetProperty("anchorY").GetInt32());
         json.Append(',');
-        AppendInts(json, root.GetProperty("hostiles"));
+        var hostiles = root.GetProperty("hostiles");
+        AppendInts(json, hostiles);
         json.Append(']');
+
+        return (units, hostiles.GetArrayLength(), topRank);
     }
 
     private static void AppendInts(StringBuilder json, JsonElement array)

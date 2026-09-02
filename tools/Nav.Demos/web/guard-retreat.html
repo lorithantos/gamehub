@@ -433,15 +433,15 @@
     <p class="eyebrow">Nav.Tactics &middot; recorded run</p>
     <h1>Guard Retreat Replay</h1>
     <p class="standfirst">
-      Four guards hold a position in the middle of the map. Two of them take fire, the second while
-      the first is still at the pad. Each falls back on its own, heals, and returns to the line
-      &mdash; while the others never leave their posts.
+      Six guards hold a position under an enemy&rsquo;s eye. Three of them stand inside its reach and
+      earn rank for it; the three behind them do not. Then the shooting starts, and rank decides
+      who falls back and who holds &mdash; twice, in opposite directions.
     </p>
   </header>
 
   <dl class="readout" id="readout">
     <div><dt>Tick</dt><dd id="r-tick">0<small id="r-of"> / 319</small></dd></div>
-    <div><dt>Holding</dt><dd id="r-hold">4<small> of 4</small></dd></div>
+    <div><dt>Holding</dt><dd id="r-hold">6<small> of 6</small></dd></div>
     <div><dt>Falling back</dt><dd id="r-away">0</dd></div>
     <div><dt>Weakest unit</dt><dd id="r-health">100<small>%</small></dd></div>
   </dl>
@@ -486,22 +486,33 @@
   </div>
 
   <section class="watch">
-    <h2>Three things to watch</h2>
+    <h2>Four things to watch</h2>
     <p>
-      <strong>The line never empties.</strong>
-      Only the damaged unit leaves. The other three keep their cells, so the position is held the
-      whole time one of them is away.
+      <strong>Nothing happens for the first half, and that is the setup.</strong>
+      Three of the six park inside the enemy&rsquo;s reach and three do not, so at ticks 57 and 147
+      the near side becomes regulars and then veterans. Rank is not handed out here &mdash; there is
+      no way to hand it out. It is earned by standing somewhere, and you can watch it being earned.
     </p>
     <p>
-      <strong>It comes back.</strong>
-      A unit at the pad is still a member of the squad. Once it is repaired the doctrine recalls it
-      and it takes a place in the formation again.
+      <strong>Then the pair, and it looks wrong.</strong>
+      At 180 a veteran is scratched to 0.65 and leaves at once. At 184 a rookie is hurt
+      <em>worse</em>, to 0.50, and stands there. The healthier unit walks off the line while the hurt
+      one holds it, because rank raises the retreat threshold: the good unit is the one you cannot
+      replace.
     </p>
     <p>
-      <strong>Two casualties, two pads.</strong>
-      Unit 0 is hurt at tick 88, while unit 2 is still repairing at the south pad. It is sent to the
-      north one instead: the doctrine passes over a pad a fellow is already heading to, so two
-      casualties never queue at the same one.
+      <strong>Then the reserve inverts it.</strong>
+      At 240 three more are hurt at once and only two may go, because four of six must stay standing.
+      Now the veteran is the one that <em>stays</em> &mdash; at 0.30, far under its own 0.70 &mdash;
+      while both rookies take the places, to different pads. A veteran&rsquo;s place is the line: it
+      earns faster where the enemy is, and its standing there is what makes the position survivable
+      for the rookies beside it. Unit 5 waits 36 ticks at a quarter health for a place to come free.
+    </p>
+    <p>
+      <strong>The line never empties, and everyone comes back.</strong>
+      A unit at a pad is still a member of the squad; once repaired the doctrine recalls it and it
+      takes a place in the formation again. Across the whole run the position is never held by fewer
+      than four.
     </p>
   </section>
 

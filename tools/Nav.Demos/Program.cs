@@ -36,9 +36,14 @@ internal static class Program
             // It used to be possible to change a demo and have the page go on
             // playing the previous one with nothing saying so.
             var page = ReplayPageFor(demo.Name);
-            if (ReplayPage.Refresh(page, path))
+            if (ReplayPage.Refresh(page, path) is { } shape)
             {
-                Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {page}  (replay refreshed)"));
+                // The shape is printed because the packer owns the data and not
+                // the words. A page whose prose still describes four units is
+                // something only a reader catches; putting the run's shape here
+                // at least puts it in front of whoever changed the demo.
+                Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {page}"));
+                Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  replay refreshed: {shape} -- check the page's prose still says this"));
             }
         }
 

@@ -112,6 +112,13 @@ public class GatherDoctrine : GroupDoctrine
     /// different hat — measured at 91 sealed holes against the 28 it was meant
     /// to fix; this rule measured 2, with the blob at the ideal pack exactly.
     /// </summary>
+    /// <summary>
+    /// How much closer a cell must be before it is worth walking to, in step
+    /// costs. One diagonal: the smallest move this model can make, so anything
+    /// under it is an improvement smaller than the step that would buy it.
+    /// </summary>
+    private static readonly double GoodEnough = Movement.DiagonalCost;
+
     private static void ClaimPass(IGroupView ops, IGroupClaiming claiming)
     {
         if (ops.Members.All(ops.HasSlot))
@@ -201,8 +208,16 @@ public class GatherDoctrine : GroupDoctrine
             // became the centre when the ring learned to fill rim first.
             var rimCost = ops.Slots.Max(ops.FieldCost);
 
+            // IS MY SPOT GOOD ENOUGH? The question every rule here used to ask
+            // was "is there a better cell", and a walk that gains a fraction of
+            // a step still answers yes. Asking whether the ground underfoot is
+            // good enough instead means a member only moves for an improvement
+            // worth the walking -- one diagonal, the smallest step this model
+            // has -- and small gains stop generating movement at all. That is
+            // what a late outward step is: a unit trading its place for a
+            // marginally better one and walking the wrong way to get there.
             if (!ops.IsClaimed(here) && hereCost <= rimCost &&
-                (offer < 0 || hereCost <= ops.FieldCost(offer)))
+                (offer < 0 || hereCost <= ops.FieldCost(offer) + GoodEnough))
             {
                 ClaimDisplacing(ops, claiming, id, here);
                 continue;

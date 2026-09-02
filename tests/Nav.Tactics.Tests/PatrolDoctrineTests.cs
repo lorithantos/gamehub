@@ -137,9 +137,22 @@ public sealed class PatrolDoctrineTests
 
         var engaged = false;
         var backOnRoute = false;
+        var corner = grid.Index(27, 0);
+        var closestToCorner = double.PositiveInfinity;
+
         Run(squad, system, world, ticks: 240, between: tick =>
         {
             engaged |= doctrine.Target >= 0;
+
+            // Checked every tick, not at the end. Where the patrol happens to
+            // stand on its last tick says nothing: the east post is 7.2 from
+            // the corner, so a patrol correctly walking its route is sometimes
+            // closer to the lure than one that chased it. Being drawn off
+            // means going THERE, and that is what this watches for.
+            foreach (var agent in system.Agents.Where(a => !a.Away))
+            {
+                closestToCorner = Math.Min(closestToCorner, Distance(grid, agent.Cell, corner));
+            }
 
             // Once they have committed, the lure withdraws to the far corner.
             if (tick == 90)
@@ -162,9 +175,11 @@ public sealed class PatrolDoctrineTests
         Assert.Equal(-1, doctrine.Target);
         Assert.True(backOnRoute, "the patrol never got back to its route");
 
-        // And it never went to the corner the lure ran to.
-        var corner = grid.Index(27, 0);
-        Assert.True(Spread(system, grid, corner) > 10.0, "the patrol was walked off after the bait");
+        // And no unit ever went to the corner the lure ran to. Four cells is
+        // comfortably outside the route's own closest approach to it.
+        Assert.True(
+            closestToCorner > 4.0,
+            $"the patrol was walked off after the bait: a unit came within {closestToCorner:F1} of the corner");
     }
 
     [Fact]

@@ -44,16 +44,10 @@ public sealed class ParkTests
         @@@@@@@@@@@@
         """;
 
-    /// <remarks>
-    /// Metering is off. A one-wide corridor is chokepoints end to end, and a
-    /// group's ring keeps clear of every one of them -- so with metering on the
-    /// ring is empty and the order is refused. That is its own finding; here the
-    /// corridor is wanted for what it forces, one unit through another's cell.
-    /// </remarks>
     private static (MovementSystem System, Grid Grid) Scene(string map, params (int X, int Y)[] at)
     {
         var grid = Grid.FromMapText(map);
-        var system = new MovementSystem(grid, chokepoints: new NoChokepoints());
+        var system = new MovementSystem(grid);
         foreach (var (x, y) in at)
         {
             system.AddAgent(grid.Index(x, y));

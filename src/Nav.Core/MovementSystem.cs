@@ -386,6 +386,22 @@ public sealed class MovementSystem
         }
 
         var candidates = GoalSpread.Nearest(_grid, destination, count, keepDoorwaysClear);
+
+        // THE DOORWAY RULE YIELDS TO THE ORDER. Two cases, and both refused the
+        // order silently before this: a destination that IS a doorway -- a
+        // squad sent to hold an entryway, which is the whole point of the
+        // order -- and a corridor, which is doorways end to end, where keeping
+        // clear of every one leaves nothing to seat anyone on. Either way the
+        // player clicked there and meant it; and the exclusion, left to run,
+        // would seat the group in the nearest room instead, turning "go here"
+        // into "go somewhere near here". A single unit was already exempt on
+        // the same reasoning.
+        if (keepDoorwaysClear is not null &&
+            (keepDoorwaysClear(destination) || candidates.Count < count))
+        {
+            candidates = GoalSpread.Nearest(_grid, destination, count);
+        }
+
         if (candidates.Count <= 1)
         {
             return candidates;

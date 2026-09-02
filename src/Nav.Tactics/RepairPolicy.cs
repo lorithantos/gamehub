@@ -54,9 +54,12 @@ namespace Nav.Tactics;
 /// </para>
 /// <para>
 /// <b>A veteran's place is the line.</b> It earns faster where the enemy is,
-/// and at full rank it is meant to heal itself and want no pad at all, so a
-/// scarce pad handed to a veteran is handed to the unit that will least need
-/// one. More than that, its standing there is what makes the position
+/// and at full rank it is meant to heal itself, so a scarce pad handed to a
+/// veteran is handed to the unit least likely to need one. LEAST LIKELY, not
+/// never: self-healing is a rate and a rate can be overwhelmed, so a veteran
+/// under enough fire still falls under its threshold and still goes. This
+/// ordering decides who gets a place when places are short; it does not exempt
+/// anybody from needing one. More than that, its standing there is what makes the position
 /// survivable for the rookies beside it: they are safer in its company and they
 /// earn more slowly for the same reason, which is the trade a player is
 /// actually making when deciding who to post where. Rotating rookies through
@@ -189,11 +192,12 @@ public sealed class RepairPolicy
         // the same way twice.
         //
         // Rank ascending because a veteran's place is the line: it earns faster
-        // where the enemy is, at full rank it is meant to heal itself and want
-        // no pad at all, and its standing there is what makes the position
-        // survivable for the rookies beside it. A scarce pad given to a veteran
-        // goes to the unit that will least need one. Neither the self-healing
-        // nor the shielding exists yet; the ordering is shaped for them.
+        // where the enemy is, at full rank it is meant to heal itself, and its
+        // standing there is what makes the position survivable for the rookies
+        // beside it. A scarce pad given to a veteran goes to the unit least
+        // likely to need one -- not one that never will, since self-healing is
+        // a rate and can be overwhelmed. Neither the self-healing nor the
+        // shielding exists yet; the ordering is shaped for them.
         var leaving = ops.Members
             .Where(id => !ops.Away.Contains(id) && ops.HealthOf(id) < RetreatBelowFor(ops.RankOf(id)))
             .OrderBy(ops.RankOf)

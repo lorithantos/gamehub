@@ -211,10 +211,12 @@ public sealed class RepairPolicyTests
         // The other way round from the thresholds, and on purpose. Four equally
         // hurt units and room for one to go: the VETERAN stays, because a
         // veteran's place is the line. It earns faster where the enemy is, at
-        // full rank it is meant to heal itself and want no pad at all, and its
-        // standing there is what makes the position survivable for the rookies
-        // beside it. Unit 0 is the rookie that leaves; unit 3 is the veteran
-        // holding the line at 0.3, well under its own 0.7.
+        // full rank it is meant to heal itself, and its standing there is what
+        // makes the position survivable for the rookies beside it. Unit 0 is
+        // the rookie that leaves; unit 3 is the veteran holding the line at 0.3,
+        // well under its own 0.7 -- which is the point: a veteran can be worn
+        // past its threshold like anybody else, and the ordering is about who
+        // gets a scarce place, not about who is exempt from needing one.
         var (system, grid) = Scene(agents: 4);
         var world = new ScriptedWorld
         {

@@ -21,7 +21,13 @@ namespace Nav.Tactics;
 public static class DemoTrace
 {
     /// <summary>Bumped when the shape changes, so a reader can refuse an old file.</summary>
-    public const int Version = 1;
+    /// <remarks>
+    /// 2 added <c>rank</c> to every unit. A version-1 reader shown one of these
+    /// would draw everything correctly and silently show no chevrons, which is
+    /// the reason the number exists: a replay that quietly omits the thing the
+    /// demo is about is worse than one that refuses to open.
+    /// </remarks>
+    public const int Version = 2;
 
     private static readonly JsonSerializerOptions Options = new()
     {
@@ -48,6 +54,12 @@ public static class DemoTrace
     /// stuck ones; a demo page cannot do the same without these three flags.
     /// The goal travels for the same reason -- it is why the unit is walking
     /// where it is walking.
+    /// <para>
+    /// Rank travels for a third reason: without it the replay shows a squad in
+    /// which one unit leaves at a scratch and another holds at half health, and
+    /// nothing on screen says why. It is the one field here that explains a
+    /// decision rather than reporting a state.
+    /// </para>
     /// </remarks>
     private sealed record UnitLine(
         int Id,
@@ -56,6 +68,7 @@ public static class DemoTrace
         int GoalX,
         int GoalY,
         double Health,
+        int Rank,
         int ErrandX,
         int ErrandY,
         bool Arrived,
@@ -141,6 +154,7 @@ public static class DemoTrace
                 grid.ColumnOf(a.Cell), grid.RowOf(a.Cell),
                 grid.ColumnOf(a.Goal), grid.RowOf(a.Goal),
                 Math.Round(world.HealthOf(a.Id), 3),
+                world.RankOf(a.Id),
                 a.Away ? grid.ColumnOf(a.Errand) : -1,
                 a.Away ? grid.RowOf(a.Errand) : -1,
                 a.Arrived, a.Thinking, a.Waiting, a.StalledTicks))

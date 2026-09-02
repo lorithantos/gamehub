@@ -259,6 +259,61 @@ public sealed class RepairPolicyTests
     }
 
     [Fact]
+    public void AUnitHealedOnTheWayTurnsRoundWithoutReachingThePad()
+    {
+        // The seam self-healing will need, pinned before it exists. Healing is
+        // meant to be FASTER at the armory rather than exclusive to it, so a
+        // veteran keeps mending on the walk and can cross its return threshold
+        // before it ever arrives -- at which point the right thing is to turn
+        // round and go back to the line, not to finish the errand out of
+        // politeness.
+        //
+        // The rejoin pass already does this: it tests health and the errand
+        // being a repair point, and says nothing about having arrived. So the
+        // doctrine is ready and only the healing model is missing. Here the
+        // healing is faked from outside, which is exactly what a self-heal rate
+        // in DemoWorld.Settle would do from inside.
+        var (system, grid) = Scene(agents: 1);
+        var pad = grid.Index(5, 10);
+        var world = new ScriptedWorld { RepairCells = { pad }, Health = { [0] = 0.2 } };
+        var squad = HoldingSquad(new RepairPolicy(retreatBelow: 0.4, returnAbove: 0.9), grid, 0);
+
+        var leftAt = -1;
+        var everArrivedAway = false;
+        var backAt = -1;
+
+        Run(squad, system, world, ticks: 120, between: tick =>
+        {
+            var unit = system.Agents[0];
+            if (unit.Away)
+            {
+                if (leftAt < 0)
+                {
+                    leftAt = tick;
+                }
+
+                everArrivedAway |= unit.Arrived;
+
+                // Mend it on the road, a few ticks after it sets off and well
+                // before it could have walked ten rows to the pad.
+                if (tick == leftAt + 4)
+                {
+                    world.Health[0] = 0.95;
+                }
+            }
+            else if (leftAt >= 0 && backAt < 0)
+            {
+                backAt = tick;
+            }
+        });
+
+        Assert.True(leftAt >= 0, "the casualty never set off");
+        Assert.True(backAt > leftAt, "the unit never rejoined");
+        Assert.False(everArrivedAway, "the unit walked all the way to the pad before turning round");
+        Assert.NotEqual(pad, system.Agents[0].Cell);
+    }
+
+    [Fact]
     public void ARankAboveTheTableUsesTheLastEntry()
     {
         // So a two-entry table is a complete answer, and a world that invents a

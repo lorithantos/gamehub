@@ -1305,6 +1305,25 @@ public sealed class MovementSystem
         public bool HasSlot(int id) => _system._agents[id].HasSlot;
 
         /// <inheritdoc/>
+        /// <remarks>
+        /// Read from the plan the tick is about to walk. Doctrines run before the
+        /// budget is spent and before the clock advances, so the cell this agent
+        /// moves onto is <c>CellAt(CurrentTick + 1)</c> -- the very expression
+        /// <see cref="Tick"/> uses a few lines later to move it.
+        /// </remarks>
+        public bool IsMoving(int id)
+        {
+            var agent = _system._agents[id];
+            if (agent.Plan is not { } plan)
+            {
+                return false;
+            }
+
+            var next = plan.CellAt(_system.CurrentTick + 1);
+            return next >= 0 && next != agent.Cell;
+        }
+
+        /// <inheritdoc/>
         public bool IsClaimed(int cell) => _system._claimedGoals.ContainsKey(cell);
 
         /// <inheritdoc/>

@@ -106,6 +106,22 @@ public sealed class FakeGroupOps : IGroupOps
     /// <inheritdoc/>
     public bool HasSlot(int id) => _hasSlot[id];
 
+    private readonly HashSet<int> _heldUp = [];
+
+    /// <summary>
+    /// Marks a member as unable to move this tick, whatever the reason. The
+    /// default is that everyone is moving, so a fixture only says this when the
+    /// rule under test is about being stopped.
+    /// </summary>
+    public FakeGroupOps HeldUp(int id)
+    {
+        _heldUp.Add(id);
+        return this;
+    }
+
+    /// <inheritdoc/>
+    public bool IsMoving(int id) => !_heldUp.Contains(id);
+
     /// <inheritdoc/>
     public bool IsClaimed(int cell) => Claimed.Contains(cell);
 

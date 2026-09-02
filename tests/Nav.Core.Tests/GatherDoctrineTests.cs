@@ -247,6 +247,43 @@ public sealed class GatherDoctrineTests
         Assert.Equal([(0, 5)], ops.Claims);
     }
 
+    /// <summary>
+    /// One geometry, two answers, and the only difference is whether the member
+    /// can move. It stands one step off the ring, on ground as close as the
+    /// ring's outer cell; the destination itself is open one step away. Taking
+    /// it is an improvement smaller than the step that buys it -- but a small
+    /// gain is not a reason to give up a place in the formation, only being
+    /// stuck is.
+    /// </summary>
+    private static FakeGroupOps BesideTheRing() =>
+        new FakeGroupOps { Destination = 5, Slots = [5, 6] }
+            .With(id: 0, cell: 4, goal: 5)
+            .Cost(5, 0.0)
+            .Cost(4, 1.0)
+            .Cost(6, 1.0);
+
+    [Fact]
+    public void AMemberThatCanStillMoveTakesTheSlotItWasOffered()
+    {
+        var ops = BesideTheRing();
+
+        new GatherDoctrine().Advance(ops);
+
+        Assert.Equal([(0, 5)], ops.Claims);
+    }
+
+    [Fact]
+    public void AMemberThatIsHeldUpKeepsTheGroundItStandsOn()
+    {
+        // Same cells, same costs. Something is stopping it, so a slot it cannot
+        // currently walk to is not worth holding out for.
+        var ops = BesideTheRing().HeldUp(0);
+
+        new GatherDoctrine().Advance(ops);
+
+        Assert.Equal([(0, 4)], ops.Claims);
+    }
+
     [Fact]
     public void ADispatchedMemberIsInvisibleToEveryPassUntilRecalled()
     {

@@ -25,13 +25,12 @@ namespace Nav.Core.Tests;
 /// which it marks BROKEN so the table can be skimmed.
 /// </para>
 /// <para>
-/// <b>As of the ring sweep and the good-enough rule</b>, on this machine:
-/// arena-200 settles at 608 ticks for 5.45M nodes; the throng packs to 5.00
-/// against an ideal 3.41; route ratios run headon 1.000, group 1.465,
+/// <b>As of gating the good-enough rule on being held up</b>, on this machine:
+/// arena-200 settles at 579 ticks for 5.30M nodes; the throng packs to 3.41,
+/// which is the ideal exactly; route ratios run headon 1.000, group 1.303,
 /// crosscut 1.101, chokepoint 1.286, crossing 1.297, standing 1.261,
-/// staggered 1.063, throng 1.275, countermand 2.380, reconcile 1.537; blob
-/// retreats are 0, 0 and 1; the benchmark lands 126 of 128; and the patrol
-/// approach settles at 17 ticks over 20 steps with no unit crossing the post.
+/// staggered 1.063, throng 1.264, countermand 2.519, reconcile 1.336; blob
+/// retreats are 0, 0 and 0; and the benchmark lands 126 of 128.
 /// Treat these as the last known good reading, not as a target: they are a
 /// machine and a moment, and the ceilings are what actually bind.
 /// </para>

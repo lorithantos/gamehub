@@ -208,16 +208,24 @@ public class GatherDoctrine : GroupDoctrine
             // became the centre when the ring learned to fill rim first.
             var rimCost = ops.Slots.Max(ops.FieldCost);
 
-            // IS MY SPOT GOOD ENOUGH? The question every rule here used to ask
-            // was "is there a better cell", and a walk that gains a fraction of
-            // a step still answers yes. Asking whether the ground underfoot is
-            // good enough instead means a member only moves for an improvement
-            // worth the walking -- one diagonal, the smallest step this model
-            // has -- and small gains stop generating movement at all. That is
-            // what a late outward step is: a unit trading its place for a
-            // marginally better one and walking the wrong way to get there.
+            // IS MY SPOT GOOD ENOUGH? Asked ONLY WHEN SOMETHING IS STOPPING ME,
+            // and that gate is the whole of this rule. A member that can still
+            // walk should walk: its place in the formation is worth the steps,
+            // and settling for the ground underfoot because the gain is small
+            // leaves the ring half empty and the member out of position. But a
+            // member that is not moving anyway -- traffic ahead, a reserved
+            // cell, a plan that has not landed -- gains nothing by holding out
+            // for a cell it cannot currently reach, and the ground it is on
+            // will do if it is within a step's worth of the offer.
+            //
+            // The stall counter is the wrong trigger here, though it reads like
+            // the obvious one and SettleWhereYouStand uses it. A failed replan
+            // sets a backstop of 64 ticks, or 256 for a member with no slot, so
+            // it says "I was blocked and will not look again for a minute"
+            // rather than "I am blocked now"; and it also counts searches that
+            // merely overran their budget.
             if (!ops.IsClaimed(here) && hereCost <= rimCost &&
-                (offer < 0 || hereCost <= ops.FieldCost(offer) + GoodEnough))
+                (offer < 0 || (!ops.IsMoving(id) && hereCost <= ops.FieldCost(offer) + GoodEnough)))
             {
                 ClaimDisplacing(ops, claiming, id, here);
                 continue;

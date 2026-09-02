@@ -106,6 +106,22 @@ public interface IGroupView
     bool HasSlot(int id);
 
     /// <summary>
+    /// Will this member change cell this tick?
+    /// </summary>
+    /// <remarks>
+    /// False when anything is holding it where it is -- traffic ahead, a cell
+    /// somebody else has reserved, a plan that has not landed yet. A doctrine gets
+    /// the fact and not the cause, which is what keeps it on the right side of the
+    /// seam: no plan, no reservation, no search, nothing it could use to break
+    /// collision-freedom. The same kind of fact the viewer already reads as
+    /// <c>AgentState.Waiting</c>.
+    /// <para>
+    /// It answers for the tick the pass is running in, like every other read here.
+    /// </para>
+    /// </remarks>
+    bool IsMoving(int id);
+
+    /// <summary>
     /// Is this cell some slot-holder's goal? <b>System-wide</b> -- it answers for
     /// every agent, including members of other groups.
     /// </summary>

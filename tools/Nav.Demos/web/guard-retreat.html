@@ -612,7 +612,7 @@
     // walls
     ctx.fillStyle = colors.wall;
     for (let i = 0; i < data.walls.length; i++) {
-      if (data.walls[i] === "@") {
+      if (data.walls[i] !== ".") {
         ctx.fillRect((i % cols) * cell, Math.floor(i / cols) * cell, cell, cell);
       }
     }

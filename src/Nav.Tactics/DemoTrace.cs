@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text;
 using System.Text.Json;
 
@@ -37,6 +36,8 @@ public static class DemoTrace
         int Height,
         string Walls,
         IReadOnlyList<int> RepairPoints,
+        IReadOnlyList<int> Route,
+        double Leash,
         int Ticks);
 
     private sealed record UnitLine(int Id, int X, int Y, double Health, int ErrandX, int ErrandY, bool Arrived);
@@ -50,11 +51,23 @@ public static class DemoTrace
         string? Note);
 
     /// <summary>
-    /// Writes the header. Walls travel as one string of '.' and '#' in row
+    /// Writes the header. Walls travel as one string of '.' and '@' in row
     /// order, which is the map itself and reads as a picture in the file.
     /// </summary>
+    /// <param name="writer">Where the line goes.</param>
+    /// <param name="name">The demo's short name.</param>
+    /// <param name="description">One line on what it shows.</param>
+    /// <param name="grid">The map.</param>
+    /// <param name="repairPoints">Cells that repair, for the replay to mark.</param>
+    /// <param name="ticks">How many ticks follow.</param>
+    /// <param name="route">A patrol's waypoints in order, or empty.</param>
+    /// <param name="leash">
+    /// How far a patrol may be drawn from its waypoint, so a replay can draw the
+    /// radius that decides what the units do. Zero when the demo has no leash.
+    /// </param>
     public static void WriteHeader(
-        TextWriter writer, string name, string description, Grid grid, IReadOnlyList<int> repairPoints, int ticks)
+        TextWriter writer, string name, string description, Grid grid, IReadOnlyList<int> repairPoints, int ticks,
+        IReadOnlyList<int>? route = null, double leash = 0.0)
     {
         ArgumentNullException.ThrowIfNull(writer);
         ArgumentNullException.ThrowIfNull(grid);
@@ -69,7 +82,7 @@ public static class DemoTrace
         writer.WriteLine(JsonSerializer.Serialize(
             new HeaderLine(
                 Version, name, description, grid.Width, grid.Height, walls.ToString(),
-                [.. repairPoints], ticks),
+                [.. repairPoints], [.. route ?? []], leash, ticks),
             Options));
     }
 
@@ -120,19 +133,4 @@ public static class DemoTrace
             Options));
     }
 
-    /// <summary>
-    /// A one-line summary of a finished demo, for a console: name, ticks, and
-    /// how many units ended arrived and at what health.
-    /// </summary>
-    public static string Summarise(string name, int ticks, IReadOnlyList<AgentState> agents, IPerception world)
-    {
-        ArgumentNullException.ThrowIfNull(agents);
-        ArgumentNullException.ThrowIfNull(world);
-
-        var arrived = agents.Count(a => a.Arrived);
-        var healthy = agents.Count(a => world.HealthOf(a.Id) >= 0.99);
-        return string.Create(
-            CultureInfo.InvariantCulture,
-            $"{name,-22} {ticks,5} ticks  {arrived}/{agents.Count} in place  {healthy}/{agents.Count} at full health");
-    }
 }

@@ -125,6 +125,10 @@ internal sealed class GuardRetreatDemo : Demo
             DemoTrace.WriteTick(trace, grid, tick, agents, world, squad.Anchor, note);
         }
 
-        return new Run(Ticks, system.Agents, world);
+        var final = system.Agents;
+        var repaired = final.Count(a => world.HealthOf(a.Id) >= 0.99);
+        return new Run(
+            Ticks, final, world,
+            $"2 casualties, both repaired and back on the line; {final.Count(a => a.Arrived)}/{final.Count} in place, {repaired}/{final.Count} at full health");
     }
 }

@@ -24,8 +24,13 @@ internal abstract class Demo
     public abstract Run Play(TextWriter trace);
 }
 
-/// <summary>What a demo produced: the state at the end, for the summary line.</summary>
+/// <summary>What a demo produced: the state at the end, and what it amounted to.</summary>
 /// <param name="Ticks">Ticks played.</param>
 /// <param name="Agents">Final unit states.</param>
 /// <param name="World">The world as it ended, for final health.</param>
-internal sealed record Run(int Ticks, IReadOnlyList<AgentState> Agents, IPerception World);
+/// <param name="Headline">
+/// What happened, in the demo's own terms. Each demo writes its own because the
+/// generic counters mislead: a patrol that is still walking at the end reports
+/// nobody "in place", which is the correct outcome and reads like a failure.
+/// </param>
+internal sealed record Run(int Ticks, IReadOnlyList<AgentState> Agents, IPerception World, string Headline);

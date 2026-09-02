@@ -11,7 +11,7 @@ namespace Nav.Demos;
 /// </remarks>
 internal static class Program
 {
-    private static readonly Demo[] Demos = [new GuardRetreatDemo()];
+    private static readonly Demo[] Demos = [new GuardRetreatDemo(), new PatrolBaitDemo()];
 
     private static int Main(string[] args)
     {
@@ -27,7 +27,8 @@ internal static class Program
                 run = demo.Play(writer);
             }
 
-            Console.WriteLine(DemoTrace.Summarise(demo.Name, run.Ticks, run.Agents, run.World));
+            Console.WriteLine(string.Create(
+                CultureInfo.InvariantCulture, $"{demo.Name,-14} {run.Ticks,4} ticks  {run.Headline}"));
             Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {path}"));
         }
 

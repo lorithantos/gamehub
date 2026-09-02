@@ -51,6 +51,12 @@ internal sealed class SquadOps : ISquadOps
     }
 
     /// <inheritdoc/>
+    public int ColumnOf(int cell) => _system.Grid.ColumnOf(cell);
+
+    /// <inheritdoc/>
+    public int RowOf(int cell) => _system.Grid.RowOf(cell);
+
+    /// <inheritdoc/>
     public void Sortie(int destination)
     {
         var onStation = Members.Where(id => !Away.Contains(id)).ToArray();

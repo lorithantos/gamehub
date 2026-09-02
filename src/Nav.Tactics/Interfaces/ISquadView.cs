@@ -54,9 +54,22 @@ public interface ISquadView
     IReadOnlyList<int> RepairPoints { get; }
 
     /// <summary>
-    /// Straight-line octile distance between two cells, in step costs. A leash
-    /// is measured with this: cheap, and blind to walls on purpose, because a
-    /// leash is about how far a unit has strayed, not how far it has walked.
+    /// Straight-line octile distance between two cells, in step costs. Blind to
+    /// walls on purpose: it answers how far apart two things are, not how far
+    /// anyone would have to walk.
     /// </summary>
     double Distance(int cellA, int cellB);
+
+    /// <summary>The cell's column.</summary>
+    /// <remarks>
+    /// With <see cref="RowOf"/>, enough for a doctrine to do its own geometry --
+    /// a leash measured to a patrol's route rather than to one point, a facing,
+    /// a flank. <see cref="Distance"/> answers the common case; these two are
+    /// there so a doctrine is not limited to the questions this interface
+    /// happened to anticipate.
+    /// </remarks>
+    int ColumnOf(int cell);
+
+    /// <summary>The cell's row.</summary>
+    int RowOf(int cell);
 }

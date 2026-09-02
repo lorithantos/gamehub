@@ -158,6 +158,136 @@ public sealed class DemoWorldTests
     }
 
     [Fact]
+    public void StandingExposedCostsHealthAsWellAsEarningRank()
+    {
+        // The same standing does both, which is the trade the whole doctrine is
+        // built on. Unit 0 is in reach and unit 1 is not.
+        var (system, grid) = Scene((4, 5), (20, 5));
+        var world = new DemoWorld(grid, exposureRadius: 6.0, rankAt: [10], damagePerTick: 0.01);
+        world.HostileCells.Add(grid.Index(0, 5));
+
+        Settle(world, system, ticks: 20);
+
+        Assert.Equal(0.8, world.HealthOf(0), 6);
+        Assert.Equal(1.0, world.HealthOf(1), 6);
+        Assert.Equal(1, world.RankOf(0));
+    }
+
+    [Fact]
+    public void AVeteranMendsItselfWhereverItIsStanding()
+    {
+        // Not on a pad, not near one. Earn the rank under fire, then walk out of
+        // reach and recover on your own -- which is what makes a veteran the
+        // unit that needs a pad least.
+        var (system, grid) = Scene((4, 5));
+        var world = new DemoWorld(grid, exposureRadius: 6.0, rankAt: [10], damagePerTick: 0.02, selfHealPerTick: 0.01);
+        world.HostileCells.Add(grid.Index(0, 5));
+
+        Settle(world, system, ticks: 10);
+        Assert.True(world.IsFullRank(0), "ten exposed ticks should have topped the one-entry table");
+
+        // Nine ticks bleeding at 0.02 and mending at 0.01, then the tenth
+        // promotes it and the eleventh onward is the net -0.01.
+        var hurt = world.HealthOf(0);
+        Assert.True(hurt < 1.0, "the unit took no damage at all");
+
+        world.HostileCells.Clear();
+        Settle(world, system, ticks: 5);
+
+        Assert.Equal(hurt + 0.05, world.HealthOf(0), 6);
+    }
+
+    [Fact]
+    public void SelfHealingCanBeOverwhelmed()
+    {
+        // The case Lori named, and it is not a case anybody wrote: the rates are
+        // summed, so being overwhelmed is just the sign of the sum. Incoming
+        // 0.03 against mending 0.01 is a veteran losing 0.02 a tick while
+        // standing exactly where its doctrine wants it.
+        var (system, grid) = Scene((4, 5));
+        var world = new DemoWorld(grid, exposureRadius: 6.0, rankAt: [1], damagePerTick: 0.03, selfHealPerTick: 0.01);
+        world.HostileCells.Add(grid.Index(0, 5));
+
+        Settle(world, system, ticks: 1);
+        Assert.True(world.IsFullRank(0));
+
+        var after = world.HealthOf(0);
+        Settle(world, system, ticks: 10);
+
+        Assert.Equal(after - 0.2, world.HealthOf(0), 6);
+        Assert.True(world.HealthOf(0) < 0.85, "a veteran under enough fire must still be losing");
+    }
+
+    [Fact]
+    public void TheArmoryIsFasterRatherThanExclusive()
+    {
+        // A veteran on a pad gets both rates. If the pad were the only way to
+        // heal, a self-healing unit would have to choose between mending and
+        // being anywhere useful.
+        var (system, grid) = Scene((4, 5));
+        var world = new DemoWorld(grid, exposureRadius: 6.0, rankAt: [1], selfHealPerTick: 0.01, repairPerTick: 0.05);
+        world.HostileCells.Add(grid.Index(0, 5));
+        world.RepairCells.Add(grid.Index(4, 5));
+        world.SetHealth(0, 0.2);
+
+        Settle(world, system, ticks: 1);
+        Assert.True(world.IsFullRank(0));
+
+        var after = world.HealthOf(0);
+        Settle(world, system, ticks: 10);
+
+        Assert.Equal(after + 0.6, world.HealthOf(0), 6);
+    }
+
+    [Fact]
+    public void ARookieDoesNotMendItself()
+    {
+        var (system, grid) = Scene((4, 5));
+        var world = new DemoWorld(grid, exposureRadius: 6.0, rankAt: [500], selfHealPerTick: 0.01);
+        world.HostileCells.Add(grid.Index(0, 5));
+        world.SetHealth(0, 0.5);
+
+        Settle(world, system, ticks: 50);
+
+        Assert.Equal(0.5, world.HealthOf(0), 6);
+        Assert.False(world.IsFullRank(0));
+    }
+
+    [Fact]
+    public void AWorldWithNoRanksHasNoVeteransToHeal()
+    {
+        // The guard the empty table needs. Rank 0 would otherwise BE the top
+        // rank, and every unit alive would mend itself -- the opposite of what
+        // an empty table says.
+        var (system, grid) = Scene((4, 5));
+        var world = new DemoWorld(grid, rankAt: [], selfHealPerTick: 0.01);
+        world.SetHealth(0, 0.5);
+
+        Settle(world, system, ticks: 50);
+
+        Assert.False(world.IsFullRank(0));
+        Assert.Equal(0.5, world.HealthOf(0), 6);
+    }
+
+    [Fact]
+    public void TheRatesAreOffUntilAskedFor()
+    {
+        // Everything above is opt-in, so every demo and test written before the
+        // rates existed still describes what runs.
+        var (system, grid) = Scene((4, 5));
+        var world = new DemoWorld(grid);
+        world.HostileCells.Add(grid.Index(4, 5));
+        world.SetHealth(0, 0.5);
+
+        Settle(world, system, ticks: 100);
+
+        Assert.Equal(0.0, world.DamagePerTick);
+        Assert.Equal(0.0, world.SelfHealPerTick);
+        Assert.Equal(0.5, world.HealthOf(0), 6);
+        Assert.Equal(100, world.ExposureTicksOf(0));
+    }
+
+    [Fact]
     public void TheRankTableMustClimb()
     {
         var grid = Grid.FromMapText(Room);
@@ -166,6 +296,8 @@ public sealed class DemoWorldTests
         Assert.Throws<ArgumentOutOfRangeException>(() => new DemoWorld(grid, rankAt: [160, 60]));
         Assert.Throws<ArgumentOutOfRangeException>(() => new DemoWorld(grid, rankAt: [0]));
         Assert.Throws<ArgumentOutOfRangeException>(() => new DemoWorld(grid, exposureRadius: 0.0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new DemoWorld(grid, damagePerTick: -0.01));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new DemoWorld(grid, selfHealPerTick: -0.01));
         Assert.Throws<ArgumentNullException>(() => new DemoWorld(null!));
 
         // An empty table is legal and means nobody is ever promoted, which is

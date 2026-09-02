@@ -9,13 +9,24 @@ namespace Nav.Tactics;
 /// library rather than in the test project because the demos need it too, and
 /// two copies of "the world, faked" would drift.
 /// <para>
-/// It enforces two rules on its own, and both are the kind a movement system
-/// cannot guess. A unit standing on a repair cell heals a little each time
-/// <see cref="Settle"/> is called. And a unit standing within
-/// <see cref="ExposureRadius"/> of a hostile is EXPOSED for that tick, which is
-/// counted; <see cref="RankOf"/> is those counts read against
-/// <see cref="RankAt"/>. Damage stays the caller's to apply, because what hurts
-/// a unit is the part nothing here models.
+/// Everything it enforces on its own turns on one idea: a unit standing within
+/// <see cref="ExposureRadius"/> of a hostile is EXPOSED for that tick. Exposure
+/// is counted, and <see cref="RankOf"/> is those counts read against
+/// <see cref="RankAt"/>; exposure also costs <see cref="DamagePerTick"/>. So
+/// the same standing that teaches a unit is the standing that hurts it, and a
+/// demo cannot arrange for one without the other. Against that, two rates give
+/// health back: <see cref="RepairPerTick"/> on a repair cell, and
+/// <see cref="SelfHealPerTick"/> anywhere at all for a unit at the top of the
+/// rank table.
+/// </para>
+/// <para>
+/// The rates are summed and applied once per tick, so <em>overwhelmed</em> is
+/// not a case anybody wrote: it is the sign of the sum. A veteran under fire
+/// faster than it mends still falls under its doctrine's threshold and still
+/// goes to a pad. Damage can still be applied by hand as well -- a demo that
+/// wants a single scripted casualty at a chosen tick says so with
+/// <see cref="Damage"/>, and with the rates left at zero this class behaves
+/// exactly as it did before they existed.
 /// </para>
 /// <para>
 /// <b>Rank is earned, not assigned.</b> There is no SetRank, on purpose. A demo
@@ -40,19 +51,33 @@ public sealed class DemoWorld : IPerception
     /// Exposed-tick counts at which rank rises, ascending. The default costs a
     /// unit a sustained spell in contact per rank. Empty means rank never rises.
     /// </param>
+    /// <param name="damagePerTick">
+    /// How much health a unit loses for each tick it stands exposed. Zero, the
+    /// default, leaves damage entirely to the caller as it always was.
+    /// </param>
+    /// <param name="selfHealPerTick">
+    /// How much health a unit at the TOP of the rank table recovers each tick,
+    /// wherever it is standing. Zero, the default, means nobody heals except on
+    /// a repair cell.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="grid"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">
-    /// A rate or radius is not positive, or <paramref name="rankAt"/> is not positive and ascending.
+    /// A rate or radius is negative, the repair rate or radius is not positive,
+    /// or <paramref name="rankAt"/> is not positive and ascending.
     /// </exception>
     public DemoWorld(
         Grid grid,
         double repairPerTick = 0.05,
         double exposureRadius = 6.0,
-        IReadOnlyList<int>? rankAt = null)
+        IReadOnlyList<int>? rankAt = null,
+        double damagePerTick = 0.0,
+        double selfHealPerTick = 0.0)
     {
         ArgumentNullException.ThrowIfNull(grid);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(repairPerTick);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(exposureRadius);
+        ArgumentOutOfRangeException.ThrowIfNegative(damagePerTick);
+        ArgumentOutOfRangeException.ThrowIfNegative(selfHealPerTick);
 
         _grid = grid;
         _rankAt = [.. rankAt ?? [60, 160]];
@@ -70,13 +95,48 @@ public sealed class DemoWorld : IPerception
 
         RepairPerTick = repairPerTick;
         ExposureRadius = exposureRadius;
+        DamagePerTick = damagePerTick;
+        SelfHealPerTick = selfHealPerTick;
     }
 
     /// <summary>How much health one tick on a repair cell restores.</summary>
     public double RepairPerTick { get; }
 
     /// <summary>Octile distance to a hostile within which a unit counts as exposed.</summary>
+    /// <remarks>
+    /// One radius, two consequences, and that is the point of it: standing here
+    /// is what earns rank AND what costs health. A demo cannot arrange for a
+    /// unit to learn without risking anything.
+    /// </remarks>
     public double ExposureRadius { get; }
+
+    /// <summary>How much health a unit loses for each tick it stands exposed.</summary>
+    public double DamagePerTick { get; }
+
+    /// <summary>
+    /// How much health a unit at the top of the rank table recovers each tick,
+    /// wherever it is standing.
+    /// </summary>
+    /// <remarks>
+    /// A RATE, not an exemption. A veteran under fire faster than this loses
+    /// health like anybody else and goes to a pad like anybody else -- being
+    /// self-healing makes a unit the one that needs a pad LEAST, never one that
+    /// never needs one. It also keeps working on the walk, so a veteran can
+    /// cross its doctrine's return threshold before it arrives and turn round;
+    /// the rejoin pass has never required arrival and
+    /// <c>RepairPolicyTests.AUnitHealedOnTheWayTurnsRoundWithoutReachingThePad</c>
+    /// pins that.
+    /// </remarks>
+    public double SelfHealPerTick { get; }
+
+    /// <summary>Whether this unit is at the top of the rank table and so heals itself.</summary>
+    /// <remarks>
+    /// A world with no rank thresholds has no veterans, so nobody qualifies --
+    /// without that guard an empty table would make rank 0 the top rank and
+    /// every unit self-healing, which is the opposite of what an empty table
+    /// means.
+    /// </remarks>
+    public bool IsFullRank(int agent) => _rankAt.Length > 0 && RankOf(agent) >= _rankAt.Length;
 
     /// <summary>Exposed-tick counts at which rank rises, ascending.</summary>
     public IReadOnlyList<int> RankAt => _rankAt;
@@ -142,16 +202,29 @@ public sealed class DemoWorld : IPerception
     public void Damage(int agent, double amount) => SetHealth(agent, HealthOf(agent) - amount);
 
     /// <summary>
-    /// Heals every unit standing on a repair cell by <see cref="RepairPerTick"/>,
-    /// and credits an exposed tick to every unit standing within reach of a
-    /// hostile. Call it once per tick, after the world has moved.
+    /// One tick of the world happening to the units: exposure credited, then
+    /// every rate that touches health applied together. Call it once per tick,
+    /// after the world has moved.
     /// </summary>
     /// <remarks>
     /// Exposure is credited AFTER the move, so a unit is judged on where it
     /// ended the tick rather than where it started -- the cell it chose, not the
-    /// cell it was leaving. A unit can be healing and exposed at once if a demo
-    /// puts a pad in a bad place; nothing here stops that, and it would be a
-    /// true thing about that map.
+    /// cell it was leaving.
+    /// <para>
+    /// The three rates are SUMMED and applied once, which is the whole design.
+    /// A veteran standing in the open loses <see cref="DamagePerTick"/> and
+    /// regains <see cref="SelfHealPerTick"/>, and whichever is larger decides
+    /// what happens to it -- so "overwhelmed" is not a special case anybody had
+    /// to write, it is just the sign of the sum. The armory is faster rather
+    /// than exclusive: a unit on a pad adds <see cref="RepairPerTick"/> on top
+    /// of whatever else it is doing, and a unit healing on the road is the same
+    /// arithmetic with one term missing.
+    /// </para>
+    /// <para>
+    /// Nothing stops a demo putting a repair cell inside an enemy's reach. The
+    /// unit would then heal, bleed and earn rank all at once, and every one of
+    /// those would be a true thing about that map.
+    /// </para>
     /// </remarks>
     public void Settle(IReadOnlyList<AgentState> agents)
     {
@@ -159,14 +232,33 @@ public sealed class DemoWorld : IPerception
 
         foreach (var agent in agents)
         {
-            if (RepairCells.Contains(agent.Cell))
-            {
-                SetHealth(agent.Id, HealthOf(agent.Id) + RepairPerTick);
-            }
-
-            if (IsExposed(agent.Cell))
+            var exposed = IsExposed(agent.Cell);
+            if (exposed)
             {
                 _exposure[agent.Id] = ExposureTicksOf(agent.Id) + 1;
+            }
+
+            // Rank is read AFTER this tick's exposure is credited, so the tick
+            // that promotes a unit is also the first tick it heals itself.
+            var delta = 0.0;
+            if (RepairCells.Contains(agent.Cell))
+            {
+                delta += RepairPerTick;
+            }
+
+            if (IsFullRank(agent.Id))
+            {
+                delta += SelfHealPerTick;
+            }
+
+            if (exposed)
+            {
+                delta -= DamagePerTick;
+            }
+
+            if (delta != 0.0)
+            {
+                SetHealth(agent.Id, HealthOf(agent.Id) + delta);
             }
         }
     }

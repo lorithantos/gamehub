@@ -57,9 +57,16 @@ internal sealed class SquadOps : ISquadOps
     public int RowOf(int cell) => _system.Grid.RowOf(cell);
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Who is on station is read LIVE here, not from the pass's snapshot. A
+    /// verb acts on the world as it is: a doctrine that detaches a casualty and
+    /// then sorties in the same pass must not drag that casualty along, and an
+    /// order ends an errand, so the snapshot would have done exactly that.
+    /// </remarks>
     public void Sortie(int destination)
     {
-        var onStation = Members.Where(id => !Away.Contains(id)).ToArray();
+        var agents = _system.Agents;
+        var onStation = Members.Where(id => id < agents.Count && !agents[id].Away).ToArray();
         if (onStation.Length == 0)
         {
             return;

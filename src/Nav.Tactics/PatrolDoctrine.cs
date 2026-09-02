@@ -47,9 +47,14 @@ public sealed class PatrolDoctrine : SquadDoctrine
     /// How far off its route the patrol will go after something, in cells.
     /// Beyond it a hostile is somebody else's problem.
     /// </param>
+    /// <param name="repair">
+    /// How the damaged are sent away and brought back. Null for the default
+    /// policy. A patrol had none at all before this and fought to the death;
+    /// it is the same rule the guard uses, which is why it is a component.
+    /// </param>
     /// <exception cref="ArgumentException"><paramref name="waypoints"/> has fewer than two cells.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="leash"/> is not positive.</exception>
-    public PatrolDoctrine(IReadOnlyList<int> waypoints, double leash = 8.0)
+    public PatrolDoctrine(IReadOnlyList<int> waypoints, double leash = 8.0, RepairPolicy? repair = null)
     {
         ArgumentNullException.ThrowIfNull(waypoints);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(leash);
@@ -60,10 +65,14 @@ public sealed class PatrolDoctrine : SquadDoctrine
 
         _waypoints = [.. waypoints];
         Leash = leash;
+        Repair = repair ?? new RepairPolicy();
     }
 
     /// <summary>How far off its route the patrol will be drawn, in cells.</summary>
     public double Leash { get; }
+
+    /// <summary>How the damaged are sent away and brought back.</summary>
+    public RepairPolicy Repair { get; }
 
     /// <summary>The route, in the order it is walked.</summary>
     public IReadOnlyList<int> Waypoints => _waypoints;
@@ -87,6 +96,10 @@ public sealed class PatrolDoctrine : SquadDoctrine
             _ordered = _waypoints[0];
             return;
         }
+
+        // Repair first, so a unit sent off this pass is not in the sortie the
+        // pass may issue below, and a unit brought back walks with it.
+        Repair.Advance(ops);
 
         var onStation = ops.Members.Where(id => !ops.Away.Contains(id)).ToArray();
         if (onStation.Length == 0)

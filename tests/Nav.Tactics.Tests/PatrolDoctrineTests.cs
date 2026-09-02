@@ -185,8 +185,11 @@ public sealed class PatrolDoctrineTests
     [Fact]
     public void AMemberAwayOnAnErrandIsNotDraggedIntoTheFight()
     {
-        // The two doctrines have to compose: a unit at the repair pad stays
-        // there while the rest of its patrol engages.
+        // The two rules have to compose: a unit still repairing at the pad
+        // stays there while the rest of its patrol engages. Still repairing --
+        // at half health, below the return threshold -- because a patrol now
+        // carries the repair policy, and a unit at the pad at FULL health is
+        // exactly what that policy brings back.
         var (system, grid) = Scene(agents: 4);
         var west = grid.Index(4, 6);
         var east = grid.Index(24, 6);
@@ -197,6 +200,7 @@ public sealed class PatrolDoctrineTests
         world.RepairCells.Add(pad);
 
         Run(squad, system, world, ticks: 40);
+        world.SetHealth(3, 0.5);
         system.Dispatch(3, pad);
         Run(squad, system, world, ticks: 40);
 

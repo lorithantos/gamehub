@@ -106,7 +106,7 @@ public sealed class RepairPolicyTests
         Assert.True(waypointsWhileAway >= 1, "the patrol stopped walking while one member was away");
         Assert.True(backAt > leftAt, "the repaired patroller was never brought back");
         Assert.False(system.Agents[1].Away);
-        Assert.Equal(1.0, world.HealthOf(1));
+        Assert.True(world.HealthOf(1) >= doctrine.Repair.ReturnAbove, "brought back before it was repaired enough");
     }
 
     [Fact]

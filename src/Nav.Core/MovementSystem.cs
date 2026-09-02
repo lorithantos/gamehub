@@ -51,8 +51,31 @@ public sealed class MovementSystem
     /// </summary>
     private const int StallBackstopTicks = 64;
 
+    /// <summary>
+    /// Ticks a SLOTTED group member may stand blocked, descending toward its
+    /// slot, before it is allowed a search instead. Greedy descent cannot get
+    /// round a parked fellow; the space-time search can.
+    /// </summary>
+    /// <remarks>
+    /// Measured on the settling report, 2 September 2026, everything else
+    /// equal: never -- the arena never settles, the throng deadlocks; 8 --
+    /// arena 326 ticks but a settled blob retreats 2 and the throng departs
+    /// over 26 ticks; 12 -- arena 388, every ceiling holds; 16 -- 446; 32 --
+    /// 523. The search is what unsticks a big crust, and every tick of waiting
+    /// for it is paid by two hundred units at once; too eager and the detours
+    /// it plans round a packed rim read as retreats. Twelve is where both
+    /// hold. The baseline this replaced settled the arena in 586.
+    /// </remarks>
+    private const int FollowBlockedTicks = 12;
+
     internal sealed class Agent(int id, int cell)
     {
+        /// <summary>
+        /// Consecutive ticks this member has stood still because no step down
+        /// its field was free. Reset by any step, and by a committed search.
+        /// </summary>
+        public int BlockedTicks { get; set; }
+
         public int Id { get; } = id;
 
         public int Cell { get; set; } = cell;
@@ -327,6 +350,40 @@ public sealed class MovementSystem
     /// </remarks>
     public void Order(IReadOnlyList<int> agents, int goalCell) => Order(agents, goalCell, doctrine: null);
 
+    private HashSet<int>? _doorways;
+
+    /// <summary>
+    /// Every chokepoint cell and every passable cell beside one: the cells a
+    /// group keeps clear of, for parking and for settling alike. Built once.
+    /// </summary>
+    private HashSet<int> Doorways
+    {
+        get
+        {
+            if (_doorways is not null)
+            {
+                return _doorways;
+            }
+
+            var doorways = new HashSet<int>();
+            foreach (var choke in MapChokepoints)
+            {
+                doorways.Add(choke.Cell);
+                var x = _grid.ColumnOf(choke.Cell);
+                var y = _grid.RowOf(choke.Cell);
+                foreach (var step in Movement.Steps)
+                {
+                    if (_grid.IsPassable(x + step.DeltaX, y + step.DeltaY))
+                    {
+                        doorways.Add(((y + step.DeltaY) * _grid.Width) + x + step.DeltaX);
+                    }
+                }
+            }
+
+            return _doorways = doorways;
+        }
+    }
+
     /// <summary>
     /// The parking ring for <paramref name="count"/> units at <paramref name="destination"/>,
     /// ordered so the rim fills before the middle. Empty if the
@@ -365,24 +422,9 @@ public sealed class MovementSystem
     private IReadOnlyList<int> RingFor(int destination, int count, IReadOnlyList<int> fromCells)
     {
         Func<int, bool>? keepDoorwaysClear = null;
-        if (count > 1 && MapChokepoints.Count > 0)
+        if (count > 1 && Doorways.Count > 0)
         {
-            var doorways = new HashSet<int>();
-            foreach (var choke in MapChokepoints)
-            {
-                doorways.Add(choke.Cell);
-                var x = _grid.ColumnOf(choke.Cell);
-                var y = _grid.RowOf(choke.Cell);
-                foreach (var step in Movement.Steps)
-                {
-                    if (_grid.IsPassable(x + step.DeltaX, y + step.DeltaY))
-                    {
-                        doorways.Add(((y + step.DeltaY) * _grid.Width) + x + step.DeltaX);
-                    }
-                }
-            }
-
-            keepDoorwaysClear = doorways.Contains;
+            keepDoorwaysClear = Doorways.Contains;
         }
 
         var candidates = GoalSpread.Nearest(_grid, destination, count, keepDoorwaysClear);
@@ -569,6 +611,19 @@ public sealed class MovementSystem
 
         _groups.RemoveAll(g => g.Members.Count == 0);
         _groups.Add(group);
+
+        // A member of a group of two or more follows the group's field from
+        // the next tick; whatever it was walking is dropped here so it does
+        // not finish an old route first. After the membership is complete,
+        // because that is what decides who follows.
+        foreach (var agent in members)
+        {
+            if (IsFollower(agent))
+            {
+                Stand(agent);
+            }
+        }
+
         ElectLeader(group);
     }
 
@@ -717,6 +772,25 @@ public sealed class MovementSystem
         unit.RetryAfterTick = CurrentTick;
         unit.WantsPlan = true;
         Abandon(unit);
+
+        if (IsFollower(unit))
+        {
+            Stand(unit);
+        }
+    }
+
+    /// <summary>
+    /// Drops whatever plan the agent was walking and holds the cell it stands on,
+    /// from now. What a follower does when its goal changes -- there is no
+    /// anchor to walk out to, it simply descends toward the new goal from the
+    /// next tick -- and what any agent does when the step it was about to take
+    /// is no longer its to take.
+    /// </summary>
+    private void Stand(Agent agent)
+    {
+        agent.Plan = null;
+        agent.BlockedTicks = 0;
+        _table.Reserve([agent.Cell], CurrentTick, agent.Id);
     }
 
     /// <summary>
@@ -796,6 +870,61 @@ public sealed class MovementSystem
         var anyArrived = false;
         var vacated = new HashSet<int>();
         var entered = new HashSet<int>();
+        // THE GUARANTEE, at the one place it can be kept: a unit takes a step
+        // only if it holds the cell at that tick. A plan committed against a
+        // table that has since changed -- a follower stopped on a cell it was
+        // going to cross -- is stale; its owner stands where it is, holds that,
+        // and asks again (followers by following, everybody else by
+        // searching). Standing can make a fellow's step stale in turn, when
+        // that fellow was stepping into the cell being held, so this runs to a
+        // fixed point BEFORE anybody moves: no unit may step into a cell
+        // another unit has just decided to stay on.
+        // Two tests, and both are needed. The table's: the mover holds the cell
+        // at this tick. And the plain one: nobody is standing still on it --
+        // because a unit that has just decided to stand parks on its cell from
+        // THIS tick, and a mover whose plan parks it on the same cell from the
+        // same tick ties with it in the table, while in the world one of them
+        // is already there. Standing wins; the mover stands too, and the loop
+        // goes round again because that can stop the unit behind it.
+        var moving = new bool[_agents.Count];
+        var target = new int[_agents.Count];
+        for (var i = 0; i < _agents.Count; i++)
+        {
+            var agent = _agents[i];
+            var step = agent.Plan?.CellAt(CurrentTick) ?? -1;
+            target[i] = step;
+            moving[i] = step >= 0 && step != agent.Cell && _table.HolderOf(step, CurrentTick) == agent.Id;
+        }
+
+        bool anyStood;
+        do
+        {
+            anyStood = false;
+            var still = new HashSet<int>();
+            for (var i = 0; i < _agents.Count; i++)
+            {
+                if (!moving[i])
+                {
+                    still.Add(_agents[i].Cell);
+                }
+            }
+
+            for (var i = 0; i < _agents.Count; i++)
+            {
+                var agent = _agents[i];
+                var stale = (target[i] >= 0 && target[i] != agent.Cell && !moving[i] && agent.Plan is not null) ||
+                            (moving[i] && still.Contains(target[i]));
+                if (stale)
+                {
+                    Stand(agent);
+                    agent.WantsPlan = true;
+                    moving[i] = false;
+                    anyStood = true;
+                }
+            }
+        }
+        while (anyStood);
+
         foreach (var agent in _agents)
         {
             var at = agent.Plan?.CellAt(CurrentTick) ?? -1;
@@ -812,6 +941,7 @@ public sealed class MovementSystem
                 anyArrived |= !wasArrived && agent.Cell == agent.Goal;
             }
         }
+
 
         // THE SPACE-OPENED WAKE — the release event the reservation-index note
         // always promised, at last implemented precisely. A cell somebody moved
@@ -936,6 +1066,35 @@ public sealed class MovementSystem
         var finished = 0;
         var abandoned = 0;
 
+        // A GROUP MOVEMENT, NOT A GROUP OF MOVEMENTS. Every member of a group
+        // shares one distance field for its destination, and that field is an
+        // exact flow field: descending it one step at a time IS the shortest
+        // route over the terrain. So members follow it, each tick, in id
+        // order, before any search runs -- and searches then see where the
+        // followers will be next tick. No node is spent on a follower.
+        //
+        // Before this, every member was planned to the destination cell by its
+        // own space-time search, and only one of them could ever hold that
+        // cell; each of the others exhausted the whole window before returning
+        // "walk to the crust and stop". On the arena that was 199 units doing
+        // it, repeatedly.
+        //
+        // FRONT FIRST. Followers step in order of distance to their goal, nearest
+        // first, ties on id -- the order a column actually moves in. In id order
+        // a unit behind another asked before the one ahead had stepped, found
+        // the cell ahead still parked on, and waited a tick; the throng's
+        // departure spread went from a column to a concertina.
+        var followers = _agents
+            .Where(agent => IsFollower(agent) && FollowIsDue(agent))
+            .OrderBy(agent => _fields.For(agent.FieldKey >= 0 ? agent.FieldKey : agent.Goal).CostFrom(agent.Cell))
+            .ThenBy(agent => agent.Id)
+            .ToArray();
+
+        foreach (var agent in followers)
+        {
+            Follow(agent);
+        }
+
         // Searches already in flight first. They are holding workspaces, and
         // finishing one frees a slot for somebody waiting.
         foreach (var agent in _agents)
@@ -1021,7 +1180,113 @@ public sealed class MovementSystem
         agent.Search is null &&
         agent.Cell != agent.Goal &&
         CurrentTick >= agent.RetryAfterTick &&
+        !(IsFollower(agent) && KeepsFollowing(agent)) &&
         (agent.WantsPlan || agent.Plan is null || agent.Plan.LastTick <= CurrentTick + agent.Latency);
+
+    /// <summary>
+    /// A follower keeps following -- never searches -- while it is not blocked
+    /// long, and ALWAYS while it holds no slot. An unslotted member's goal is
+    /// the destination, which somebody already holds; a search for that is the
+    /// window-exhausting search followers exist to avoid, and its "no progress"
+    /// then read as a stall and had the reconcile pass park a whole throng in
+    /// the wrong room. A slotted member's goal is a cell it can hold, so a
+    /// search for it is cheap and is how it gets round a parked fellow.
+    /// </summary>
+    private static bool KeepsFollowing(Agent agent) =>
+        !agent.HasSlot || agent.BlockedTicks < FollowBlockedTicks;
+
+    /// <summary>
+    /// A member of a group of two or more, on station: it moves by descending
+    /// the group's field rather than by searching. A single-unit order, and a
+    /// unit away on an errand, still plan -- their goal is one cell they can
+    /// hold, and that search is cheap.
+    /// </summary>
+    private static bool IsFollower(Agent agent) =>
+        agent.Group is { Members.Count: >= 2 } && agent.Errand < 0;
+
+    /// <summary>
+    /// A follower takes a step whenever it has no live plan to walk: its own
+    /// two-cell plan ran out last tick, or it never had one. A committed search
+    /// plan is walked to its end first, and a search in flight is left to land.
+    /// </summary>
+    private bool FollowIsDue(Agent agent) =>
+        agent.Search is null &&
+        agent.Cell != agent.Goal &&
+        KeepsFollowing(agent) &&
+        (agent.Plan is null || agent.Plan.LastTick <= CurrentTick);
+
+    /// <summary>
+    /// One step down the field: of the legal, free, non-swapping neighbours,
+    /// the one with the lowest cost -- if it is lower than here. Otherwise
+    /// stand, and count the tick as blocked.
+    /// </summary>
+    /// <remarks>
+    /// The step is a two-cell plan reserved like any other, so the tick that
+    /// moves everybody, the seam's <c>IsMoving</c>, the collision checker and
+    /// the replay never learn that no search produced it. A member holding a
+    /// claimed slot descends the octile distance to that slot instead of the
+    /// field, which is keyed to the destination; a slot is a step or two from
+    /// it and this is the first thing to try before spending a search there.
+    /// </remarks>
+    private void Follow(Agent agent)
+    {
+        var here = agent.Cell;
+        var x = _grid.ColumnOf(here);
+        var y = _grid.RowOf(here);
+
+        var toSlot = agent.HasSlot && agent.Group is { } group && agent.Goal != group.Destination;
+        var field = toSlot ? null : _fields.For(agent.FieldKey >= 0 ? agent.FieldKey : agent.Goal);
+        var goalX = _grid.ColumnOf(agent.Goal);
+        var goalY = _grid.RowOf(agent.Goal);
+
+        double Cost(int cell) => toSlot
+            ? Movement.OctileDistance(_grid.ColumnOf(cell), _grid.RowOf(cell), goalX, goalY)
+            : field!.CostFrom(cell);
+
+        var hereCost = Cost(here);
+        var best = -1;
+        var bestCost = hereCost;
+
+        foreach (var step in Movement.Steps)
+        {
+            if (!Movement.IsLegalStep(_grid, x, y, step.DeltaX, step.DeltaY))
+            {
+                continue;
+            }
+
+            var next = ((y + step.DeltaY) * _grid.Width) + x + step.DeltaX;
+            if (!_table.IsFree(next, CurrentTick + 1, agent.Id) ||
+                _table.IsSwap(here, next, CurrentTick, agent.Id) ||
+                _table.WillBeParkedOn(next, agent.Id))
+            {
+                continue;
+            }
+
+            var cost = Cost(next);
+            if (cost < bestCost - 1e-9)
+            {
+                best = next;
+                bestCost = cost;
+            }
+        }
+
+        // Nowhere better: stand. Standing beats planning, so a plan that had
+        // booked this cell for next tick is the one that goes stale, at the
+        // move. The first version stepped OUT of the way instead, to the
+        // cheapest free neighbour, and that is a unit walking away from its
+        // destination -- the blob measured it as a retreat of two.
+        if (best < 0)
+        {
+            agent.BlockedTicks++;
+            agent.Plan = new PlanResult([here, here], CurrentTick, Movement.WaitCost, Expanded: 0, Found: false);
+            _table.Reserve(agent.Plan.Cells, CurrentTick, agent.Id);
+            return;
+        }
+
+        agent.BlockedTicks = 0;
+        agent.Plan = new PlanResult([here, best], CurrentTick, bestCost, Expanded: 0, Found: best == agent.Goal);
+        _table.Reserve(agent.Plan.Cells, CurrentTick, agent.Id);
+    }
 
     private void Begin(Agent agent)
     {
@@ -1150,12 +1415,25 @@ public sealed class MovementSystem
             return SearchOutcome.Running;
         }
 
-        Commit(agent, search.Result);
+        if (!Commit(agent, search.Result))
+        {
+            // The table moved under a suspended search -- followers step every
+            // tick -- and the plan it produced now crosses somebody. Ask again
+            // from where the unit stands rather than let Mark refuse it.
+            Release(agent);
+            agent.WantsPlan = true;
+            return SearchOutcome.Abandoned;
+        }
+
         Release(agent);
         return SearchOutcome.Committed;
     }
 
-    private void Commit(Agent agent, PlanResult plan)
+    /// <returns>
+    /// False if the plan no longer fits the table and was not committed; the
+    /// caller re-asks. True otherwise.
+    /// </returns>
+    private bool Commit(Agent agent, PlanResult plan)
     {
         // The agent follows its OLD plan until the anchor -- standing still if it
         // has none -- then follows the new one. Splicing the two here means
@@ -1171,8 +1449,36 @@ public sealed class MovementSystem
 
         cells.AddRange(plan.IsStuck ? [cells.Count > 0 ? cells[^1] : agent.Cell] : plan.Cells);
 
+        // VALIDATED AGAINST THE TABLE AS IT IS NOW, not as it was when the
+        // search looked. A search suspended across ticks priced its states
+        // against a table that followers have since changed every tick; a
+        // plan through a cell somebody now holds is stale, not wrong, and is
+        // discarded here rather than refused by Mark's assertion, which stays
+        // as the last line of defence for the genuinely unsound.
+        var last = CurrentTick + _table.Horizon - 1;
+        for (var i = 0; i < cells.Count; i++)
+        {
+            var tick = CurrentTick + i;
+            if (tick > last)
+            {
+                break;
+            }
+
+            if (!_table.IsFree(cells[i], tick, agent.Id) ||
+                (i > 0 && _table.IsSwap(cells[i - 1], cells[i], tick - 1, agent.Id)))
+            {
+                return false;
+            }
+        }
+
+        if (!_table.IsHoldable(cells[^1], CurrentTick + cells.Count - 1, agent.Id))
+        {
+            return false;
+        }
+
         agent.Plan = new PlanResult(cells, CurrentTick, plan.Cost, plan.Expanded, plan.Found);
         _table.Reserve(cells, CurrentTick, agent.Id);
+        agent.BlockedTicks = 0;
 
         // It finished inside its slack, so the next search starts optimistic again
         // rather than carrying a latency it no longer needs.
@@ -1199,6 +1505,8 @@ public sealed class MovementSystem
             agent.StalledTicks++;
             agent.RetryAfterTick = CurrentTick + (agent.HasSlot ? StallBackstopTicks : 4 * StallBackstopTicks);
         }
+
+        return true;
     }
 
     private void Abandon(Agent agent)
@@ -1388,6 +1696,9 @@ public sealed class MovementSystem
         }
 
         /// <inheritdoc/>
+        public bool IsDoorway(int cell) => _system.Doorways.Contains(cell);
+
+        /// <inheritdoc/>
         public bool IsClaimed(int cell) => _system._claimedGoals.ContainsKey(cell);
 
         /// <inheritdoc/>
@@ -1497,6 +1808,70 @@ public sealed class MovementSystem
             ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ticks);
             var agent = Member(id);
             agent.RetryAfterTick = Math.Max(agent.RetryAfterTick, _system.CurrentTick + ticks);
+        }
+
+        /// <inheritdoc/>
+        public bool CanWalkTo(int id, int cell)
+        {
+            var grid = _system._grid;
+            var start = CellOf(id);
+            if (start == cell)
+            {
+                return true;
+            }
+
+            var seen = new bool[grid.CellCount];
+            var queue = new Queue<int>();
+            seen[start] = true;
+            queue.Enqueue(start);
+
+            while (queue.Count > 0)
+            {
+                var here = queue.Dequeue();
+                var x = grid.ColumnOf(here);
+                var y = grid.RowOf(here);
+                foreach (var step in Movement.Steps)
+                {
+                    if (!Movement.IsLegalStep(grid, x, y, step.DeltaX, step.DeltaY))
+                    {
+                        continue;
+                    }
+
+                    var next = ((y + step.DeltaY) * grid.Width) + x + step.DeltaX;
+                    if (next == cell)
+                    {
+                        return true;
+                    }
+
+                    if (seen[next] || IsSettled(next))
+                    {
+                        continue;
+                    }
+
+                    seen[next] = true;
+                    queue.Enqueue(next);
+                }
+            }
+
+            return false;
+        }
+
+        /// <inheritdoc/>
+        public IReadOnlyList<int> Neighbours(int cell)
+        {
+            var grid = _system._grid;
+            var x = grid.ColumnOf(cell);
+            var y = grid.RowOf(cell);
+            var result = new List<int>(8);
+            foreach (var step in Movement.Steps)
+            {
+                if (Movement.IsLegalStep(grid, x, y, step.DeltaX, step.DeltaY))
+                {
+                    result.Add(((y + step.DeltaY) * grid.Width) + x + step.DeltaX);
+                }
+            }
+
+            return result;
         }
 
         /// <inheritdoc/>

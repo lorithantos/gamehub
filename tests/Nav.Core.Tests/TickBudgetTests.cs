@@ -19,7 +19,13 @@ public sealed class TickBudgetTests(ITestOutputHelper output)
         IReadOnlyList<double> Milliseconds,
         IReadOnlyList<AgentPlan> Trajectories);
 
-    private static Run Swarm(int agents = Agents, int budget = NodeBudget)
+    /// <param name="individually">
+    /// One order per agent rather than one order for all. A group of two or
+    /// more follows its field and spends no search nodes at all, so the tests
+    /// that are ABOUT the search budget -- spreading it, running out of it --
+    /// need units that actually search, which is what a single-unit order gets.
+    /// </param>
+    private static Run Swarm(int agents = Agents, int budget = NodeBudget, bool individually = false)
     {
         var grid = Grid.FromMapFile(Fixtures.Map("arena.map"));
         var system = new MovementSystem(grid, horizon: 32, nodeBudgetPerTick: budget);
@@ -39,8 +45,18 @@ public sealed class TickBudgetTests(ITestOutputHelper output)
         }
 
         // Everybody, at once, to the far corner. The worst shape of order there
-        // is: one command, N searches, all arriving in the same frame.
-        system.Order([.. Enumerable.Range(0, agents)], grid.Index(44, 44));
+        // is: one command, N units, all arriving in the same frame.
+        if (individually)
+        {
+            for (var id = 0; id < agents; id++)
+            {
+                system.Order([id], grid.Index(44, 44));
+            }
+        }
+        else
+        {
+            system.Order([.. Enumerable.Range(0, agents)], grid.Index(44, 44));
+        }
 
         var reports = new List<TickReport>(Ticks);
         var milliseconds = new List<double>(Ticks);
@@ -207,7 +223,9 @@ public sealed class TickBudgetTests(ITestOutputHelper output)
     {
         // The order queues work; it does not do it. If a hundred searches ran
         // where the order arrived, the first tick would carry all of them.
-        var run = Swarm();
+        // Single-unit orders, so that there are searches to spread: a group
+        // follows its field and never queues.
+        var run = Swarm(individually: true);
 
         Assert.True(run.Reports[0].Queued > 0, "the first tick planned everybody");
         Assert.True(
@@ -262,8 +280,9 @@ public sealed class TickBudgetTests(ITestOutputHelper output)
         //
         // The latency doubles on each discard until it reaches half the horizon,
         // after which the agent is reported STALLED and backs off. The system says
-        // it is beaten instead of pretending to work.
-        var run = Swarm(agents: 20, budget: 50);
+        // it is beaten instead of pretending to work. Single-unit orders: a group
+        // would simply follow its field and arrive, budget or no budget.
+        var run = Swarm(agents: 20, budget: 50, individually: true);
 
         var finished = run.Reports.Sum(r => r.SearchesFinished);
         var stalled = run.System.Agents.Count(a => a.Stuck);

@@ -122,6 +122,12 @@ public sealed class FakeGroupOps : IGroupOps
     /// <inheritdoc/>
     public bool IsMoving(int id) => !_heldUp.Contains(id);
 
+    /// <summary>Cells that are a chokepoint or beside one. Empty unless a fixture says otherwise.</summary>
+    public HashSet<int> Doorways { get; } = [];
+
+    /// <inheritdoc/>
+    public bool IsDoorway(int cell) => Doorways.Contains(cell);
+
     /// <inheritdoc/>
     public bool IsClaimed(int cell) => Claimed.Contains(cell);
 
@@ -174,6 +180,18 @@ public sealed class FakeGroupOps : IGroupOps
 
     /// <inheritdoc/>
     public bool IsOccupied(int cell) => Occupied.Contains(cell);
+
+    /// <summary>Cells a member cannot walk to. Empty unless a fixture says otherwise.</summary>
+    public HashSet<int> Unreachable { get; } = [];
+
+    /// <inheritdoc/>
+    public bool CanWalkTo(int id, int cell) => !Unreachable.Contains(cell);
+
+    /// <summary>Neighbours per cell, for the one rule that needs geometry. Unset cells have none.</summary>
+    public Dictionary<int, int[]> Adjacent { get; } = [];
+
+    /// <inheritdoc/>
+    public IReadOnlyList<int> Neighbours(int cell) => Adjacent.TryGetValue(cell, out var n) ? n : [];
 
     /// <inheritdoc/>
     public IReadOnlyList<int> ReachableSpots(IReadOnlyList<int> fromMembers) =>

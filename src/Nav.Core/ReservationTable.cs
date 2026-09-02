@@ -49,7 +49,18 @@ internal sealed class ReservationTable : IReservationView
     /// horizon of 32.
     /// </para>
     /// </remarks>
-    private readonly Dictionary<int, (int Agent, int FromTick)> _parked = [];
+    /// <remarks>
+    /// A LIST per cell, not one entry. One entry was sound while every park came
+    /// from a search, which ends nowhere it cannot hold for the whole window.
+    /// Followers and stale steps park where they STAND, and a unit can stand,
+    /// legitimately and briefly, on a cell a fellow's plan will end on later;
+    /// with one entry the second park replaced the first, and when the
+    /// transient unit moved on and released its own, the fellow's park was gone
+    /// -- a third plan then validated against a cell nobody appeared to own,
+    /// and two units stood on it for good. The one standing there is the entry
+    /// with the earliest tick that has already come.
+    /// </remarks>
+    private readonly Dictionary<int, List<(int Agent, int FromTick)>> _parked = [];
 
     /// <param name="cellCount">Cells in the grid these reservations refer to.</param>
     /// <param name="horizon">
@@ -86,6 +97,13 @@ internal sealed class ReservationTable : IReservationView
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// The second question -- is the other one coming HERE next tick -- is asked
+    /// of the ring alone, because the asker is standing on <paramref name="from"/>
+    /// and, with standing taking precedence over planning, its own park would
+    /// answer for the cell and hide the other's intention. That is exactly how
+    /// two followers swapped through each other the first time this ran.
+    /// </remarks>
     public bool IsSwap(int from, int to, int tick, int agent)
     {
         var other = Occupant(to, tick);
@@ -94,7 +112,21 @@ internal sealed class ReservationTable : IReservationView
             return false;
         }
 
-        return Occupant(from, tick + 1) == other;
+        return Planned(from, tick + 1) == other;
+    }
+
+    /// <summary>Who the ring says will be on a cell at a tick -- intention only, no parks.</summary>
+    private int Planned(int cell, int tick)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(cell);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(cell, _cellCount);
+
+        if (tick < CurrentTick || tick >= CurrentTick + Horizon)
+        {
+            return Free;
+        }
+
+        return _ring[tick % Horizon][cell];
     }
 
     /// <summary>The agent holding a cell at a tick, or -1. Beyond the horizon, -1.</summary>
@@ -103,6 +135,11 @@ internal sealed class ReservationTable : IReservationView
     /// <inheritdoc/>
     public bool IsHoldable(int cell, int fromTick, int agent)
     {
+        if (WillBeParkedOn(cell, agent))
+        {
+            return false;
+        }
+
         var last = CurrentTick + Horizon - 1;
         for (var tick = Math.Max(fromTick, CurrentTick); tick <= last; tick++)
         {
@@ -113,6 +150,27 @@ internal sealed class ReservationTable : IReservationView
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Has somebody else already claimed to END on this cell -- at any tick, even
+    /// one past the window? A park is a claim on the cell, not just on a tick.
+    /// </summary>
+    /// <remarks>
+    /// One park per cell is all the table keeps, and that was sound while every
+    /// park came from a search, because a search checks holdability over the
+    /// whole window before ending anywhere. A follower checks only the next
+    /// tick. On the arena one stepped through a cell a fellow's plan was going to
+    /// end on twelve ticks later, parked there for a tick, and on leaving took
+    /// the fellow's park with it; a third unit's plan then validated against a
+    /// cell nobody appeared to own, and two units stood on it for good. So a
+    /// cell with anybody's park on it is nobody else's to enter or end on.
+    /// </remarks>
+    public bool WillBeParkedOn(int cell, int agent)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(cell);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(cell, _cellCount);
+        return _parked.TryGetValue(cell, out var parks) && parks.Any(p => p.Agent != agent);
     }
 
     /// <summary>
@@ -160,7 +218,13 @@ internal sealed class ReservationTable : IReservationView
 
         // Where the plan stops, the agent stays — for good, not until the edge of
         // whatever window happens to be current. See the note on _parked.
-        _parked[path[^1]] = (agent, startTick + path.Count - 1);
+        var end = path[^1];
+        if (!_parked.TryGetValue(end, out var parks))
+        {
+            _parked[end] = parks = [];
+        }
+
+        parks.Add((agent, startTick + path.Count - 1));
     }
 
     /// <summary>
@@ -207,9 +271,13 @@ internal sealed class ReservationTable : IReservationView
             return;
         }
 
-        foreach (var (cell, _) in _parked.Where(p => p.Value.Agent == agent).ToArray())
+        foreach (var (cell, parks) in _parked.ToArray())
         {
-            _parked.Remove(cell);
+            parks.RemoveAll(p => p.Agent == agent);
+            if (parks.Count == 0)
+            {
+                _parked.Remove(cell);
+            }
         }
 
         foreach (var reservation in held)
@@ -272,19 +340,37 @@ internal sealed class ReservationTable : IReservationView
                 nameof(tick), tick, $"Tick {tick} is behind the window, which begins at {CurrentTick}.");
         }
 
-        if (tick < CurrentTick + Horizon)
+        // STANDING BEATS PLANNING. A parked agent is on the cell, or will be and
+        // will not leave; a ring entry is somebody's intention to pass through.
+        // When both exist the intention is stale -- a follower stopped here after
+        // that plan was made -- and the plan's owner finds out when it tries to
+        // take the step and does not hold the cell. Parking does not expire with
+        // the window either, which is why it is tracked apart from the ring.
+        if (_parked.TryGetValue(cell, out var parks))
         {
-            var planned = _ring[tick % Horizon][cell];
-            if (planned != Free)
+            var standing = Free;
+            var since = int.MaxValue;
+            foreach (var (holder, from) in parks)
             {
-                return planned;
+                if (from <= tick && from < since)
+                {
+                    standing = holder;
+                    since = from;
+                }
+            }
+
+            if (standing != Free)
+            {
+                return standing;
             }
         }
 
-        // Nothing planned for that moment. Somebody may still be parked here, and
-        // parking does not expire with the window — that is the whole point of
-        // tracking it separately.
-        return _parked.TryGetValue(cell, out var park) && tick >= park.FromTick ? park.Agent : Free;
+        if (tick < CurrentTick + Horizon)
+        {
+            return _ring[tick % Horizon][cell];
+        }
+
+        return Free;
     }
 
     private void Mark(int cell, int tick, int agent, List<Reservation> held)
@@ -292,28 +378,17 @@ internal sealed class ReservationTable : IReservationView
         ArgumentOutOfRangeException.ThrowIfNegative(cell);
         ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(cell, _cellCount);
 
-        // A DEFENSIVE ASSERTION, and deliberately not a repair. Every plan that
-        // reaches here was validated cell by cell against this table by the
-        // search that produced it, so a slot already held by SOMEBODY ELSE means
-        // the plan was validated against a table that has since changed -- a
-        // search suspended across a commit -- and silently overwriting would
-        // turn that into a collision ticks later, far from its cause. The
-        // tie-break fuzz ran 320 orderings across three budgets, including the
-        // regime where searches suspend, and never reached this line; so it is
-        // an invariant made visible rather than a bug fixed, and if it ever
-        // fires the exception names the commit that broke it.
-        //
-        // Occupant rather than the ring alone: another agent PARKED here lives in
-        // _parked, not the ring, and is the same defect. The caller's own id
-        // cannot be here -- Reserve releases it first -- and would be harmless.
-        var holder = Occupant(cell, tick);
-        if (holder != Free && holder != agent)
-        {
-            throw new InvalidOperationException(
-                $"agent {agent} reserved cell {cell} at tick {tick}, which agent {holder} already holds; " +
-                "the plan was validated against a table that has since changed.");
-        }
-
+        // OVERWRITES, and that is the contract now rather than a defect. Until
+        // followers, every plan reaching here had been validated cell by cell by
+        // the search that produced it, and a slot already held by somebody else
+        // was an invariant broken -- this line threw, and caught two unsound
+        // parks. Followers change the table every tick without a search, so a
+        // committed plan can go stale honestly: a unit stopped on a cell the
+        // plan was going to cross. The guarantee moved to where it belongs -- an
+        // agent takes a step only if it holds the cell at that tick (see the
+        // move in MovementSystem.Tick) -- and Occupant answers "who holds it"
+        // with the standing unit first. A stale ring entry is then harmless: its
+        // owner does not take the step, stands, and asks again.
         _ring[tick % Horizon][cell] = agent;
         held.Add(new Reservation(tick, cell));
     }

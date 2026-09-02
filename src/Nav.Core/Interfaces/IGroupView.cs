@@ -122,6 +122,16 @@ public interface IGroupView
     bool IsMoving(int id);
 
     /// <summary>
+    /// Is this cell a doorway -- a chokepoint or a cell beside one? The ring
+    /// keeps clear of these so a group never seals its own way in, and a
+    /// doctrine settling a member where it stands must keep clear of them too:
+    /// a follower stopped in a gap behind a fellow reads as "not moving, close
+    /// enough", and the first version of the settle rule parked it there and
+    /// froze everyone behind it.
+    /// </summary>
+    bool IsDoorway(int cell);
+
+    /// <summary>
     /// Is this cell some slot-holder's goal? <b>System-wide</b> -- it answers for
     /// every agent, including members of other groups.
     /// </summary>
@@ -160,4 +170,19 @@ public interface IGroupView
     /// </summary>
     /// <param name="fromMembers">The members to flood out from.</param>
     IReadOnlyList<int> ReachableSpots(IReadOnlyList<int> fromMembers);
+
+    /// <summary>
+    /// Can this member walk to the cell -- settled units being walls -- as
+    /// <see cref="ReachableSpots"/> reckons it? One O(cells) sweep; ask it of a
+    /// member that is hard-stalled, not of everyone every pass.
+    /// </summary>
+    bool CanWalkTo(int id, int cell);
+
+    /// <summary>
+    /// The passable cells one legal step from a cell, in the movement model's
+    /// fixed step order. The one piece of geometry a doctrine gets, for the one
+    /// rule that needs it: a hole in a settled blob is filled by a fellow
+    /// standing NEXT to it.
+    /// </summary>
+    IReadOnlyList<int> Neighbours(int cell);
 }

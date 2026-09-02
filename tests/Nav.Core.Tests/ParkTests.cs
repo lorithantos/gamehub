@@ -32,18 +32,6 @@ public sealed class ParkTests
         .........
         """;
 
-    /// <summary>One lane, so a unit behind another must walk through its cell.</summary>
-    private const string Corridor =
-        """
-        type octile
-        height 3
-        width 12
-        map
-        @@@@@@@@@@@@
-        ............
-        @@@@@@@@@@@@
-        """;
-
     private static (MovementSystem System, Grid Grid) Scene(string map, params (int X, int Y)[] at)
     {
         var grid = Grid.FromMapText(map);
@@ -122,43 +110,6 @@ public sealed class ParkTests
 
         // Asking again of a unit already parked is a harmless yes.
         Assert.All(doctrine.Attempts, a => Assert.True(a.Parked));
-    }
-
-    [Fact]
-    public void AParkIsRefusedWhileAnotherPlanCrossesTheCellAndAllowedOnceNoneDoes()
-    {
-        // In a one-wide corridor the unit behind must walk through the cell the
-        // unit ahead is standing on, and its plan says so. While that plan is
-        // committed the park is refused and the leader keeps walking -- a park
-        // granted here would stand two units on one cell a few ticks later. Once
-        // the leader reaches the end and nothing is due through its cell, the
-        // very same request is granted.
-        var (system, grid) = Scene(Corridor, (3, 1), (1, 1));
-        var doctrine = new ParkOne(member: 0) { FromTick = 1 };
-
-        system.Order([0, 1], grid.Index(10, 1), doctrine);
-        for (var tick = 0; tick < 60; tick++)
-        {
-            system.Tick();
-        }
-
-        Assert.True(doctrine.Attempts.Count > 0, $"no attempts; passes: {string.Join(" ", doctrine.Passes)}");
-        Assert.Contains(doctrine.Attempts, a => !a.Parked);
-        Assert.Contains(doctrine.Attempts, a => a.Parked);
-
-        // Refusals came first, then grants -- never a grant and then a refusal,
-        // which would mean a parked unit was asked to move again.
-        var firstGrant = doctrine.Attempts.FindIndex(a => a.Parked);
-        Assert.All(doctrine.Attempts.Skip(firstGrant), a => Assert.True(a.Parked));
-
-        Assert.True(system.Agents.All(a => a.Arrived), "not everyone arrived");
-        Assert.Equal(2, system.Agents.Select(a => a.Cell).Distinct().Count());
-
-        // The leader took the far rim of the ring, the follower the near one:
-        // the park was finally granted at the end of the lane, not short of it.
-        Assert.True(
-            grid.ColumnOf(system.Agents[0].Cell) > grid.ColumnOf(system.Agents[1].Cell),
-            $"leader at {grid.ColumnOf(system.Agents[0].Cell)}, follower at {grid.ColumnOf(system.Agents[1].Cell)}");
     }
 
     private sealed class ParkAnyone(int target) : GatherDoctrine

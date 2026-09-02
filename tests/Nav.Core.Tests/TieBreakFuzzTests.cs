@@ -152,16 +152,43 @@ public sealed class TieBreakFuzzTests
     [Fact]
     public void DifferentSeedsActuallyProduceDifferentRuns()
     {
-        // If every seed replayed identically the fuzz would be exploring nothing.
-        // Sixteen seeds on the busiest scenario must not all agree on total
-        // expansions -- if they did, either ties never occur or R is ignored.
-        var (scenario, grid) = Load("throng");
+        // If every seed searched identically the fuzz would be exploring nothing.
+        // Pinned on a search rather than a scenario: a group follows its field
+        // and searches only when blocked, so no committed scenario is guaranteed
+        // to contain a search with ties in it any more. A block in the middle of
+        // a room, with start and goal on its axis of symmetry, is guaranteed to:
+        // the way round above and the way round below tie exactly on (f, h) at
+        // every step, and only the third key decides. Sixteen seeds must not all
+        // walk the same way round.
+        var grid = Grid.FromMapText(
+            """
+            type octile
+            height 13
+            width 13
+            map
+            .............
+            .............
+            .............
+            .............
+            .............
+            .....@@@.....
+            .....@@@.....
+            .....@@@.....
+            .............
+            .............
+            .............
+            .............
+            .............
+            """);
+        var table = new ReservationTable(grid.CellCount, 32);
 
-        var expansions = Enumerable.Range(0, Seeds)
-            .Select(seed => ScenarioPlayback.Play(scenario, grid, tieBreakSeed: seed).TotalExpanded)
+        var paths = Enumerable.Range(0, Seeds)
+            .Select(seed => string.Join(",", new BudgetedSearch(
+                grid, table, agent: 0, grid.Index(1, 6), grid.Index(11, 6), 0,
+                new SearchWorkspace(tieBreakSeed: seed)).RunToCompletion().Cells))
             .Distinct()
             .Count();
 
-        Assert.True(expansions > 1, "every seed produced an identical run; the tie-break key is not being consulted");
+        Assert.True(paths > 1, "every seed produced an identical path; the tie-break key is not being consulted");
     }
 }

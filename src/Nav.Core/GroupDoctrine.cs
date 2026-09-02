@@ -284,7 +284,7 @@ public class GatherDoctrine : GroupDoctrine
             // it says "I was blocked and will not look again for a minute"
             // rather than "I am blocked now"; and it also counts searches that
             // merely overran their budget.
-            if (!ops.IsClaimed(here) && hereCost <= rimCost &&
+            if (!ops.IsClaimed(here) && !ops.IsDoorway(here) && hereCost <= rimCost &&
                 (offer < 0 || (!ops.IsMoving(id) && hereCost <= ops.FieldCost(offer) + GoodEnough)))
             {
                 ParkDisplacing(ops, claiming, id);
@@ -337,6 +337,19 @@ public class GatherDoctrine : GroupDoctrine
         {
             var id = members[i];
             var cell = ops.CellOf(id);
+
+            // A SEALED HOLE: the slot is this member's and nobody else's, and
+            // it cannot be walked to because arrived fellows enclose it. No
+            // re-goaling helps -- every other spot is taken -- so a fellow
+            // standing beside the hole steps into it and gives up its own
+            // cell, which the stalled member can reach. Followers arriving in a
+            // burst seal holes the slower, searched arrivals never did; the
+            // throng showed it as one unit standing in the doorway for good.
+            if (!ops.CanWalkTo(id, ops.GoalOf(id)) && FillHole(ops, claiming, id))
+            {
+                continue;
+            }
+
             var pick = i < spots.Count ? spots[i] : (ops.IsClaimed(cell) ? -1 : cell);
             if (pick < 0 || pick == ops.GoalOf(id))
             {
@@ -415,6 +428,65 @@ public class GatherDoctrine : GroupDoctrine
     }
 
     /// <summary>
+    /// Gives a stalled member's unreachable slot to an arrived fellow standing
+    /// beside it, and the fellow's cell to the stalled member. True if a fellow
+    /// was found; the two then each have one step to make.
+    /// </summary>
+    /// <remarks>
+    /// The fellow must be able to step INTO the hole (adjacent to it) and the
+    /// stalled member must be able to reach the fellow's cell once it is empty
+    /// (a neighbour of that cell is the member's own cell or a spot the member
+    /// can walk to). Lowest id among the candidates, so the same blob always
+    /// shuffles the same way. The member's claim is released before the
+    /// fellow's is moved onto the hole, or two slot-holders would share it for
+    /// the rest of the pass and the head-of-tick rebuild would refuse it.
+    /// </remarks>
+    private static bool FillHole(IGroupView ops, IGroupClaiming claiming, int id)
+    {
+        // The hole has to be THIS member's claim. A stalled member with no slot
+        // is aimed at the destination, which somebody else holds; treating that
+        // as a hole moved a fellow onto a cell already claimed, and the
+        // head-of-tick rebuild refused the tick.
+        var hole = ops.GoalOf(id);
+        if (!ops.HasSlot(id) || ops.ClaimantOf(hole) != id)
+        {
+            return false;
+        }
+
+        var reachable = new HashSet<int>(ops.ReachableSpots([id])) { ops.CellOf(id) };
+
+        var fellow = -1;
+        foreach (var candidate in ops.Members)
+        {
+            if (candidate == id || ops.CellOf(candidate) != ops.GoalOf(candidate))
+            {
+                continue;
+            }
+
+            var standing = ops.CellOf(candidate);
+            if (!ops.Neighbours(hole).Contains(standing) ||
+                !ops.Neighbours(standing).Any(reachable.Contains))
+            {
+                continue;
+            }
+
+            fellow = candidate;
+            break;
+        }
+
+        if (fellow < 0)
+        {
+            return false;
+        }
+
+        var vacated = ops.CellOf(fellow);
+        claiming.ReleaseSlot(id);
+        claiming.ClaimSlot(fellow, hole);
+        claiming.ClaimSlot(id, vacated);
+        return true;
+    }
+
+    /// <summary>
     /// Stops a member where it stands, first releasing the fellow member who
     /// claimed that cell from afar, if any. If the table refuses the park -- a
     /// plan is due through the cell -- the cell is claimed the old way and the
@@ -431,6 +503,17 @@ public class GatherDoctrine : GroupDoctrine
     private static void ParkDisplacing(IGroupView ops, IGroupClaiming claiming, int id)
     {
         var here = ops.CellOf(id);
+
+        // NEVER IN A DOORWAY. The ring keeps clear of gates; so must every
+        // settle-where-you-stand, or a follower paused in the gap behind a
+        // fellow reads as "not moving, close enough" and plugs it. The throng
+        // measured that as two units in the doorway and twenty-two frozen
+        // behind them. The member keeps its goal and keeps trying.
+        if (ops.IsDoorway(here))
+        {
+            return;
+        }
+
         var holder = ops.ClaimantOf(here);
         if (holder >= 0 && holder != id && ops.Members.Contains(holder))
         {

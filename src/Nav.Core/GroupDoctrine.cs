@@ -196,7 +196,10 @@ public class GatherDoctrine : GroupDoctrine
             // caught it. If it is already at the rim, standing still is the
             // better answer -- so it settles where it is rather than being
             // pressed on toward a destination with no room left.
-            var rimCost = ops.FieldCost(ops.Slots[^1]);
+            // The rim is the FURTHEST slot, wherever it sits in the list. Reading
+            // the last entry assumed the ring ran centre outward, and silently
+            // became the centre when the ring learned to fill rim first.
+            var rimCost = ops.Slots.Max(ops.FieldCost);
 
             if (!ops.IsClaimed(here) && hereCost <= rimCost &&
                 (offer < 0 || hereCost <= ops.FieldCost(offer)))

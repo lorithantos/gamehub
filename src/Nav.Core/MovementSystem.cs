@@ -340,13 +340,14 @@ public sealed class MovementSystem
     /// sealed with the rest of the group outside. A single unit is exempt:
     /// ordering one unit ONTO a doorway is intent.
     /// <para>
-    /// <b>The rim goes first and the middle last.</b> Handing out the middle
-    /// first plugs the cell everything has to pass through: the leader parks in
-    /// it and every unit behind walks around the outside to reach a cell on the
-    /// far side. The patrol showed it -- a unit standing one step from its post
-    /// spent five ticks going the long way round the fellow who had taken the
-    /// centre. Rim-first leaves the middle open until last, and whoever takes it
-    /// walks straight in.
+    /// <b>It fills across, from the far rim to the near one.</b> Handing out the
+    /// middle first plugs the cell everything has to pass through: the leader
+    /// parks in it and every unit behind walks around the outside. The patrol
+    /// showed it -- a unit one step from its post spent five ticks going the
+    /// long way round whoever took the centre. Starting at the rim FURTHEST
+    /// from the arriving group and sweeping across means each unit walks into
+    /// open ground, and the last cell filled is the one nearest the units still
+    /// coming, so nobody crosses the formation to reach a place in it.
     /// </para>
     /// <para>
     /// Filling outward would march a squad to a distant edge for no reason, and
@@ -356,7 +357,12 @@ public sealed class MovementSystem
     /// </remarks>
     /// <param name="destination">The cell the order was aimed at.</param>
     /// <param name="count">How many units the ring must seat.</param>
-    private IReadOnlyList<int> RingFor(int destination, int count)
+    /// <param name="fromCells">
+    /// Where the members stand, which gives the sweep its direction. Empty, or a
+    /// group already standing on the destination, leaves no axis to sweep along
+    /// and the ring falls back to the rim outward-in.
+    /// </param>
+    private IReadOnlyList<int> RingFor(int destination, int count, IReadOnlyList<int> fromCells)
     {
         Func<int, bool>? keepDoorwaysClear = null;
         if (count > 1 && MapChokepoints.Count > 0)
@@ -385,26 +391,41 @@ public sealed class MovementSystem
             return candidates;
         }
 
-        // OUTER EDGE INWARD. The centre is the cell everything must pass
-        // through, so giving it away first plugs the hole: the leader parks in
-        // the middle and every unit behind it walks around the outside to reach
-        // a cell on the far side. Handing out the rim first leaves the middle
-        // open until last, and the unit that takes it walks straight in.
-        //
-        // Filling outward would send a squad to a distant edge for no reason,
-        // but it cannot here: the ring holds exactly as many cells as the group
-        // has members, so its rim is one shell out for three units and only
-        // widens when the group does.
         var destinationX = _grid.ColumnOf(destination);
         var destinationY = _grid.RowOf(destination);
 
-        return
-        [
-            .. candidates
-                .OrderByDescending(cell => Movement.OctileDistance(
-                    _grid.ColumnOf(cell), _grid.RowOf(cell), destinationX, destinationY))
-                .ThenBy(cell => cell)
-        ];
+        double Radius(int cell) => Movement.OctileDistance(
+            _grid.ColumnOf(cell), _grid.RowOf(cell), destinationX, destinationY);
+
+        // The axis the group is arriving along, pointing the way they are
+        // walking: from where they stand toward the destination.
+        var axisX = 0.0;
+        var axisY = 0.0;
+        if (fromCells.Count > 0)
+        {
+            axisX = destinationX - fromCells.Average(c => (double)_grid.ColumnOf(c));
+            axisY = destinationY - fromCells.Average(c => (double)_grid.RowOf(c));
+        }
+
+        var length = Math.Sqrt((axisX * axisX) + (axisY * axisY));
+        if (length < 1e-9)
+        {
+            // Already on top of the destination: no direction to sweep along,
+            // so fall back to the rim and work inward.
+            return [.. candidates.OrderByDescending(Radius).ThenBy(cell => cell)];
+        }
+
+        axisX /= length;
+        axisY /= length;
+
+        // How far along that axis a cell lies. The far rim scores highest, the
+        // near rim lowest, and the middle falls between -- so taking them in
+        // this order sweeps across the circle rather than out from its centre.
+        double Along(int cell) =>
+            ((_grid.ColumnOf(cell) - destinationX) * axisX) +
+            ((_grid.RowOf(cell) - destinationY) * axisY);
+
+        return [.. candidates.OrderByDescending(Along).ThenByDescending(Radius).ThenBy(cell => cell)];
     }
 
     /// <param name="agents">
@@ -484,7 +505,7 @@ public sealed class MovementSystem
 
         // The parking ring doubles as the passability check: an impassable
         // destination yields no ring and the order is refused as before.
-        var slots = RingFor(goalCell, agents.Count);
+        var slots = RingFor(goalCell, agents.Count, [.. members.Select(m => m.Cell)]);
         if (slots.Count == 0)
         {
             return;
@@ -510,9 +531,14 @@ public sealed class MovementSystem
             // gets NEAR -- the way a real team fills in on arrival rather than
             // pre-booking spots from across the map. A single-unit order is its
             // own claim: this unit, that cell, immediately.
-            agent.Goal = slots[0];
+            // THE DESTINATION, not the ring's first cell. They were the same
+            // thing while the ring began at its centre, and stopped being when
+            // it began at its rim -- at which point a whole group set off
+            // toward a cell on the edge of its own formation, and keyed its
+            // shared distance field there too.
+            agent.Goal = goalCell;
             agent.HasSlot = agents.Count == 1;
-            agent.FieldKey = slots[0];
+            agent.FieldKey = goalCell;
             agent.Errand = -1;   // an order ends an errand like any other goal
 
             agent.StalledTicks = 0;
@@ -593,10 +619,9 @@ public sealed class MovementSystem
         }
 
         // Back to exactly the state Order leaves a group member in.
-        var ring = unit.Group.Slots[0];
         unit.Errand = -1;
-        unit.Goal = ring;
-        unit.FieldKey = ring;
+        unit.Goal = unit.Group.Destination;
+        unit.FieldKey = unit.Group.Destination;
         unit.HasSlot = false;
         Redirect(unit);
     }
@@ -645,13 +670,15 @@ public sealed class MovementSystem
             _groups.RemoveAll(g => g.Members.Count == 0);
             host.Group.Members.Add(unit);
             unit.Group = host.Group;
-            host.Group.Slots = RingFor(host.Group.Destination, host.Group.Members.Count);
+            host.Group.Slots = RingFor(
+                host.Group.Destination,
+                host.Group.Members.Count,
+                [.. host.Group.Members.Select(m => m.Cell)]);
         }
 
-        var ring = host.Group.Slots[0];
         unit.Errand = -1;
-        unit.Goal = ring;
-        unit.FieldKey = ring;
+        unit.Goal = host.Group.Destination;
+        unit.FieldKey = host.Group.Destination;
         unit.HasSlot = false;
         Redirect(unit);
     }
@@ -862,10 +889,10 @@ public sealed class MovementSystem
             return;
         }
 
-        // Keyed by the ring, not by a member: a member away on an errand carries
-        // the errand's field key, and the leader is measured against the group's
-        // destination whoever happens to be first in the list.
-        var field = _fields.For(group.Slots[0]);
+        // Keyed by the destination, not by a member: a member away on an errand
+        // carries the errand's field key, and the leader is measured against the
+        // group's destination whoever happens to be first in the list.
+        var field = _fields.For(group.Destination);
 
         var best = -1;
         var bestCost = double.PositiveInfinity;
@@ -1193,12 +1220,12 @@ public sealed class MovementSystem
             _system = system;
             _group = group;
 
-            // The group's field is keyed by its innermost slot, which is what
-            // Order gives every member as its field key. Read from the ring rather
+            // The group's field is keyed by its destination, which is what Order
+            // gives every member as its field key. Read from the group rather
             // than from a member, because a member away on an errand carries the
             // errand's key, and "whichever member happens to be first" is not a
             // fact the group's field should depend on.
-            _field = system._fields.For(group.Slots[0]);
+            _field = system._fields.For(group.Destination);
 
             // Two lists from one membership: on station, and away. Every pass
             // iterates Members; the mutators accept both, because confinement is

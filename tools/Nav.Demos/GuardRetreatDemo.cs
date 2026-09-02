@@ -139,7 +139,8 @@ internal sealed class GuardRetreatDemo : Demo
             [0, 1, 2, 3, 4, 5],
             new GuardDoctrine(station, new RepairPolicy(RetreatByRank, returnAbove: 0.8, reserve: Reserve)));
 
-        DemoTrace.WriteHeader(trace, Name, Description, grid, world.RepairPoints, Ticks);
+        DemoTrace.WriteHeader(
+            trace, Name, Description, grid, world.RepairPoints, Ticks, exposureRadius: world.ExposureRadius);
 
         var wasAway = new bool[6];
         var wasArrived = new bool[6];

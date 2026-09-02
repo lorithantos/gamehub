@@ -26,8 +26,16 @@ public static class DemoTrace
     /// would draw everything correctly and silently show no chevrons, which is
     /// the reason the number exists: a replay that quietly omits the thing the
     /// demo is about is worse than one that refuses to open.
+    /// <para>
+    /// 3 added <c>exposureRadius</c> to the header, for the same reason
+    /// <see cref="WriteHeader"/> already carries a leash: it is the radius that
+    /// DECIDES something, and a replay showing three units promoted and three
+    /// not, with no circle on screen, is showing an outcome with its cause left
+    /// out. Bumped rather than added quietly, because two different shapes both
+    /// called version 2 is exactly the sloppiness the number exists to stop.
+    /// </para>
     /// </remarks>
-    public const int Version = 2;
+    public const int Version = 3;
 
     private static readonly JsonSerializerOptions Options = new()
     {
@@ -44,6 +52,7 @@ public static class DemoTrace
         IReadOnlyList<int> RepairPoints,
         IReadOnlyList<int> Route,
         double Leash,
+        double ExposureRadius,
         int Ticks);
 
     /// <remarks>
@@ -99,9 +108,14 @@ public static class DemoTrace
     /// How far a patrol may be drawn from its waypoint, so a replay can draw the
     /// radius that decides what the units do. Zero when the demo has no leash.
     /// </param>
+    /// <param name="exposureRadius">
+    /// How close to a hostile a unit must be to be earning rank, so a replay can
+    /// draw the circle that explains why some of a formation were promoted and
+    /// the rest were not. Zero when the demo does not model exposure.
+    /// </param>
     public static void WriteHeader(
         TextWriter writer, string name, string description, Grid grid, IReadOnlyList<int> repairPoints, int ticks,
-        IReadOnlyList<int>? route = null, double leash = 0.0)
+        IReadOnlyList<int>? route = null, double leash = 0.0, double exposureRadius = 0.0)
     {
         ArgumentNullException.ThrowIfNull(writer);
         ArgumentNullException.ThrowIfNull(grid);
@@ -116,7 +130,7 @@ public static class DemoTrace
         writer.WriteLine(JsonSerializer.Serialize(
             new HeaderLine(
                 Version, name, description, grid.Width, grid.Height, walls.ToString(),
-                [.. repairPoints], [.. route ?? []], leash, ticks),
+                [.. repairPoints], [.. route ?? []], leash, exposureRadius, ticks),
             Options));
     }
 

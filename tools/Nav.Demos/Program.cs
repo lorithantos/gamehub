@@ -30,8 +30,44 @@ internal static class Program
             Console.WriteLine(string.Create(
                 CultureInfo.InvariantCulture, $"{demo.Name,-14} {run.Ticks,4} ticks  {run.Headline}"));
             Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {path}"));
+
+            // The replay is refreshed from the trace that was just written, in
+            // the same pass, so the page cannot be left showing an older run.
+            // It used to be possible to change a demo and have the page go on
+            // playing the previous one with nothing saying so.
+            var page = ReplayPageFor(demo.Name);
+            if (ReplayPage.Refresh(page, path))
+            {
+                Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {page}  (replay refreshed)"));
+            }
         }
 
         return 0;
+    }
+
+    /// <summary>
+    /// The hand-built replay page for a demo, found by walking up from the
+    /// binary until a <c>web/</c> holding it turns up.
+    /// </summary>
+    /// <remarks>
+    /// Walked rather than taken from the working directory because the page is
+    /// SOURCE and is rewritten in place: running the demos from the repository
+    /// root and running them from bin have to reach the same file, or one of
+    /// them quietly refreshes nothing. A name with no page returns a path that
+    /// does not exist, and <see cref="ReplayPage.Refresh"/> reports false --
+    /// a demo is allowed to have no replay.
+    /// </remarks>
+    private static string ReplayPageFor(string name)
+    {
+        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+        {
+            var candidate = Path.Combine(dir.FullName, "web", $"{name}.html");
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return Path.Combine(AppContext.BaseDirectory, "web", $"{name}.html");
     }
 }

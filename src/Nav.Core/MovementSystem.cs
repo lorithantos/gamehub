@@ -328,16 +328,8 @@ public sealed class MovementSystem
     public void Order(IReadOnlyList<int> agents, int goalCell) => Order(agents, goalCell, doctrine: null);
 
     /// <summary>
-    /// How many candidate cells beyond the member count a ring is chosen from.
-    /// Without slack the ring is whatever the flood happened to reach first and
-    /// there is nothing to choose between; with it, the ordering below has real
-    /// alternatives to rank.
-    /// </summary>
-    private const int RingSlack = 8;
-
-    /// <summary>
     /// The parking ring for <paramref name="count"/> units at <paramref name="destination"/>,
-    /// ordered so the far side of the destination fills first. Empty if the
+    /// ordered so the rim fills before the middle. Empty if the
     /// destination is impassable. Shared by an order and by a unit joining a
     /// formation later, so a ring is always sized to the membership it serves.
     /// </summary>
@@ -348,24 +340,23 @@ public sealed class MovementSystem
     /// sealed with the rest of the group outside. A single unit is exempt:
     /// ordering one unit ONTO a doorway is intent.
     /// <para>
-    /// <b>Ordered against the approach, and it used to be ordered by the
-    /// compass.</b> The flood discovers neighbours in the step table's order --
-    /// north, east, south, west -- so a three-unit ring was always the
-    /// destination plus the cells north and east of it, whatever direction the
-    /// group was walking in from. A patrol arriving from the west had its
-    /// trailing unit sent past the destination to the cell beyond, where it
-    /// waited for its two parked fellows and then walked around them. Ranking
-    /// equally-close cells by distance from the group, furthest first, is what
-    /// the claim pass always said it wanted: the far side fills while the near
-    /// ground is still empty road, so latecomers stop where they arrive instead
-    /// of pushing through.
+    /// <b>The rim goes first and the middle last.</b> Handing out the middle
+    /// first plugs the cell everything has to pass through: the leader parks in
+    /// it and every unit behind walks around the outside to reach a cell on the
+    /// far side. The patrol showed it -- a unit standing one step from its post
+    /// spent five ticks going the long way round the fellow who had taken the
+    /// centre. Rim-first leaves the middle open until last, and whoever takes it
+    /// walks straight in.
+    /// </para>
+    /// <para>
+    /// Filling outward would march a squad to a distant edge for no reason, and
+    /// the ring's size is what stops it: exactly one cell per member, so the rim
+    /// is one shell out for three units and widens only as the group does.
     /// </para>
     /// </remarks>
     /// <param name="destination">The cell the order was aimed at.</param>
     /// <param name="count">How many units the ring must seat.</param>
-    /// <param name="fromX">Where the group is coming from, in columns; the mean of its members.</param>
-    /// <param name="fromY">Where the group is coming from, in rows.</param>
-    private IReadOnlyList<int> RingFor(int destination, int count, double fromX, double fromY)
+    private IReadOnlyList<int> RingFor(int destination, int count)
     {
         Func<int, bool>? keepDoorwaysClear = null;
         if (count > 1 && MapChokepoints.Count > 0)
@@ -388,35 +379,32 @@ public sealed class MovementSystem
             keepDoorwaysClear = doorways.Contains;
         }
 
-        // Ask for more than the ring needs, so there is something to choose
-        // between, then keep the best `count`.
-        var candidates = GoalSpread.Nearest(_grid, destination, count + RingSlack, keepDoorwaysClear);
+        var candidates = GoalSpread.Nearest(_grid, destination, count, keepDoorwaysClear);
         if (candidates.Count <= 1)
         {
             return candidates;
         }
 
+        // OUTER EDGE INWARD. The centre is the cell everything must pass
+        // through, so giving it away first plugs the hole: the leader parks in
+        // the middle and every unit behind it walks around the outside to reach
+        // a cell on the far side. Handing out the rim first leaves the middle
+        // open until last, and the unit that takes it walks straight in.
+        //
+        // Filling outward would send a squad to a distant edge for no reason,
+        // but it cannot here: the ring holds exactly as many cells as the group
+        // has members, so its rim is one shell out for three units and only
+        // widens when the group does.
         var destinationX = _grid.ColumnOf(destination);
         var destinationY = _grid.RowOf(destination);
 
-        var ranked = candidates
-            .Select(cell =>
-            {
-                var x = _grid.ColumnOf(cell);
-                var y = _grid.RowOf(cell);
-                return (
-                    Cell: cell,
-                    Inner: Movement.OctileDistance(x, y, destinationX, destinationY),
-                    FromGroup: Movement.OctileDistance(x, y, (int)Math.Round(fromX), (int)Math.Round(fromY)));
-            })
-            .OrderBy(c => c.Inner)              // innermost first, as ever
-            .ThenByDescending(c => c.FromGroup) // then the far side of it
-            .ThenBy(c => c.Cell)                // and a fixed order for the rest
-            .Take(count)
-            .Select(c => c.Cell)
-            .ToArray();
-
-        return ranked;
+        return
+        [
+            .. candidates
+                .OrderByDescending(cell => Movement.OctileDistance(
+                    _grid.ColumnOf(cell), _grid.RowOf(cell), destinationX, destinationY))
+                .ThenBy(cell => cell)
+        ];
     }
 
     /// <param name="agents">
@@ -494,13 +482,9 @@ public sealed class MovementSystem
             members[at++] = _agents[id];
         }
 
-        // Where the group is coming from, which is what orders the ring.
-        var fromX = members.Length == 0 ? 0.0 : members.Average(m => (double)_grid.ColumnOf(m.Cell));
-        var fromY = members.Length == 0 ? 0.0 : members.Average(m => (double)_grid.RowOf(m.Cell));
-
         // The parking ring doubles as the passability check: an impassable
         // destination yields no ring and the order is refused as before.
-        var slots = RingFor(goalCell, agents.Count, fromX, fromY);
+        var slots = RingFor(goalCell, agents.Count);
         if (slots.Count == 0)
         {
             return;
@@ -661,11 +645,7 @@ public sealed class MovementSystem
             _groups.RemoveAll(g => g.Members.Count == 0);
             host.Group.Members.Add(unit);
             unit.Group = host.Group;
-            host.Group.Slots = RingFor(
-                host.Group.Destination,
-                host.Group.Members.Count,
-                _grid.ColumnOf(unit.Cell),
-                _grid.RowOf(unit.Cell));
+            host.Group.Slots = RingFor(host.Group.Destination, host.Group.Members.Count);
         }
 
         var ring = host.Group.Slots[0];

@@ -1,0 +1,192 @@
+namespace Nav.Core.Tests;
+
+/// <summary>
+/// The validated park on the real system: a doctrine may stop a unit where it
+/// stands, and the unit stays stopped -- but only when the cell can be held.
+/// </summary>
+/// <remarks>
+/// The first attempt to say "stay where you are" from a doctrine failed two
+/// ways, and both are pinned here. Claiming the ground underfoot set the goal
+/// and did not stop the unit: it walked off along its committed plan and came
+/// back, forever. Discarding the plan and holding the cell unasked stood the
+/// unit on a cell another plan was committed to cross, and the reservation
+/// table's own assertion caught it in five scenarios. So the operation asks the
+/// table first, and a refusal changes nothing.
+/// </remarks>
+public sealed class ParkTests
+{
+    private const string Room =
+        """
+        type octile
+        height 9
+        width 9
+        map
+        .........
+        .........
+        .........
+        .........
+        .........
+        .........
+        .........
+        .........
+        .........
+        """;
+
+    /// <summary>One lane, so a unit behind another must walk through its cell.</summary>
+    private const string Corridor =
+        """
+        type octile
+        height 3
+        width 12
+        map
+        @@@@@@@@@@@@
+        ............
+        @@@@@@@@@@@@
+        """;
+
+    /// <remarks>
+    /// Metering is off. A one-wide corridor is chokepoints end to end, and a
+    /// group's ring keeps clear of every one of them -- so with metering on the
+    /// ring is empty and the order is refused. That is its own finding; here the
+    /// corridor is wanted for what it forces, one unit through another's cell.
+    /// </remarks>
+    private static (MovementSystem System, Grid Grid) Scene(string map, params (int X, int Y)[] at)
+    {
+        var grid = Grid.FromMapText(map);
+        var system = new MovementSystem(grid, chokepoints: new NoChokepoints());
+        foreach (var (x, y) in at)
+        {
+            system.AddAgent(grid.Index(x, y));
+        }
+
+        return (system, grid);
+    }
+
+    /// <summary>
+    /// Gathers normally, and from <paramref name="fromTick"/> on tries to park
+    /// <paramref name="member"/> on every pass, recording each answer.
+    /// </summary>
+    private sealed class ParkOne(int member) : GatherDoctrine
+    {
+        public int FromTick { get; set; } = int.MaxValue;
+
+        public List<(int Tick, bool Parked)> Attempts { get; } = [];
+
+        public List<(int Tick, string Members)> Passes { get; } = [];
+
+        public override void Advance(IGroupOps ops)
+        {
+            base.Advance(ops);
+            Passes.Add((ops.CurrentTick, string.Join(",", ops.Members)));
+            if (ops.CurrentTick >= FromTick && ops.Members.Contains(member))
+            {
+                Attempts.Add((ops.CurrentTick, ops.Park(member)));
+            }
+        }
+    }
+
+    [Fact]
+    public void AParkedMemberStaysWhereItWasStopped()
+    {
+        // Two units ordered across an open room. Mid-walk the doctrine parks the
+        // first one. From then on it does not move, it reads as arrived, and
+        // its slot is the cell it was stopped on.
+        var (system, grid) = Scene(Room, (0, 4), (0, 5));
+        var doctrine = new ParkOne(member: 0);
+
+        system.Order([0, 1], grid.Index(8, 4), doctrine);
+
+        // The first plan lands a latency after the order; walk until it has.
+        var start = grid.Index(0, 4);
+        for (var tick = 0; tick < 20 && system.Agents[0].Cell == start; tick++)
+        {
+            system.Tick();
+        }
+
+        Assert.NotEqual(start, system.Agents[0].Cell);
+        Assert.False(system.Agents[0].Arrived);
+
+        // The pass of the next tick parks it; that tick's move then keeps it there.
+        var standingOn = system.Agents[0].Cell;
+        doctrine.FromTick = system.CurrentTick;
+        system.Tick();
+
+        Assert.Single(doctrine.Attempts);
+        Assert.True(doctrine.Attempts[0].Parked, $"passes: {string.Join(" ", doctrine.Passes)}");
+        Assert.Equal(standingOn, system.Agents[0].Cell);
+
+        for (var tick = 0; tick < 30; tick++)
+        {
+            system.Tick();
+            Assert.Equal(standingOn, system.Agents[0].Cell);
+        }
+
+        Assert.Equal(standingOn, system.Agents[0].Goal);
+        Assert.True(system.Agents[0].Arrived);
+        Assert.True(system.Agents[1].Arrived, "the other unit never settled");
+        Assert.NotEqual(system.Agents[0].Cell, system.Agents[1].Cell);
+
+        // Asking again of a unit already parked is a harmless yes.
+        Assert.All(doctrine.Attempts, a => Assert.True(a.Parked));
+    }
+
+    [Fact]
+    public void AParkIsRefusedWhileAnotherPlanCrossesTheCellAndAllowedOnceNoneDoes()
+    {
+        // In a one-wide corridor the unit behind must walk through the cell the
+        // unit ahead is standing on, and its plan says so. While that plan is
+        // committed the park is refused and the leader keeps walking -- a park
+        // granted here would stand two units on one cell a few ticks later. Once
+        // the leader reaches the end and nothing is due through its cell, the
+        // very same request is granted.
+        var (system, grid) = Scene(Corridor, (3, 1), (1, 1));
+        var doctrine = new ParkOne(member: 0) { FromTick = 1 };
+
+        system.Order([0, 1], grid.Index(10, 1), doctrine);
+        for (var tick = 0; tick < 60; tick++)
+        {
+            system.Tick();
+        }
+
+        Assert.True(doctrine.Attempts.Count > 0, $"no attempts; passes: {string.Join(" ", doctrine.Passes)}");
+        Assert.Contains(doctrine.Attempts, a => !a.Parked);
+        Assert.Contains(doctrine.Attempts, a => a.Parked);
+
+        // Refusals came first, then grants -- never a grant and then a refusal,
+        // which would mean a parked unit was asked to move again.
+        var firstGrant = doctrine.Attempts.FindIndex(a => a.Parked);
+        Assert.All(doctrine.Attempts.Skip(firstGrant), a => Assert.True(a.Parked));
+
+        Assert.True(system.Agents.All(a => a.Arrived), "not everyone arrived");
+        Assert.Equal(2, system.Agents.Select(a => a.Cell).Distinct().Count());
+
+        // The leader took the far rim of the ring, the follower the near one:
+        // the park was finally granted at the end of the lane, not short of it.
+        Assert.True(
+            grid.ColumnOf(system.Agents[0].Cell) > grid.ColumnOf(system.Agents[1].Cell),
+            $"leader at {grid.ColumnOf(system.Agents[0].Cell)}, follower at {grid.ColumnOf(system.Agents[1].Cell)}");
+    }
+
+    private sealed class ParkAnyone(int target) : GatherDoctrine
+    {
+        public override void Advance(IGroupOps ops)
+        {
+            base.Advance(ops);
+            ops.Park(target);
+        }
+    }
+
+    [Fact]
+    public void ParkingANonMemberIsRefusedBeforeAnythingChanges()
+    {
+        // Confinement is the seam's, and it holds for the new verb the same as
+        // for the old ones: a doctrine handed one group cannot stop another
+        // group's unit, even by naming it.
+        var (system, grid) = Scene(Room, (0, 4), (0, 5), (0, 6));
+
+        system.Order([2], grid.Index(8, 6));
+        system.Order([0, 1], grid.Index(8, 4), new ParkAnyone(target: 2));
+
+        Assert.Throws<ArgumentOutOfRangeException>(system.Tick);
+    }
+}

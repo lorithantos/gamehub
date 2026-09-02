@@ -163,6 +163,42 @@ internal sealed class ReservationTable : IReservationView
         _parked[path[^1]] = (agent, startTick + path.Count - 1);
     }
 
+    /// <summary>
+    /// Parks <paramref name="agent"/> on <paramref name="cell"/> from now, for
+    /// good -- if it may stay. Refuses, and changes nothing, when anybody else's
+    /// plan crosses the cell inside the window.
+    /// </summary>
+    /// <remarks>
+    /// THE VALIDATED PARK. <see cref="Reserve"/> trusts its caller: every plan it
+    /// records was checked cell by cell by the search that produced it, and the
+    /// goal in particular passed <see cref="IsHoldable"/> before the search
+    /// declared it found. A park that did not come from a search has had no such
+    /// check, and writing it straight in is unsound -- it stands a unit on a cell
+    /// somebody is already committed to walk through, and the collision arrives
+    /// ticks later, far from its cause. That is exactly what happened when a
+    /// doctrine first tried to say "stay where you are": five scenarios tripped
+    /// the assertion in <see cref="Mark"/>. So this is the one way to park without
+    /// a search, and it asks first.
+    /// <para>
+    /// On success the agent's previous route is released, so the cells it was
+    /// going to walk are free for others at once. Releasing can never cause a
+    /// collision; only marking can, and marking here is guarded.
+    /// </para>
+    /// </remarks>
+    /// <returns>True if the agent is now parked there; false if it may not stay.</returns>
+    public bool TryPark(int cell, int agent)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(agent);
+
+        if (!IsHoldable(cell, CurrentTick, agent))
+        {
+            return false;
+        }
+
+        Reserve([cell], CurrentTick, agent);
+        return true;
+    }
+
     /// <summary>Drops everything <paramref name="agent"/> holds.</summary>
     public void Release(int agent)
     {

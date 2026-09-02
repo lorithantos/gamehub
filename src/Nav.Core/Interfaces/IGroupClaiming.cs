@@ -36,4 +36,24 @@ public interface IGroupClaiming
     /// <paramref name="id"/> is not one of this group's members.
     /// </exception>
     void ReleaseSlot(int id);
+
+    /// <summary>
+    /// Stops the member where it stands, and makes that cell its slot: goal,
+    /// claim, and a plan that goes nowhere -- <b>if the cell can be held</b>.
+    /// Refuses, changing nothing, when another unit's plan crosses the cell; the
+    /// member then keeps the plan it had.
+    /// </summary>
+    /// <remarks>
+    /// The only way a doctrine can stop a unit, and the reason it cannot cause a
+    /// collision by doing so. Claiming the ground underfoot with
+    /// <see cref="ClaimSlot"/> sets the goal but does not stop the unit: it walks
+    /// off along the plan it already committed to and comes back, forever. The
+    /// alternative -- discarding the plan and holding the cell unasked -- stands
+    /// it on a cell somebody else is committed to walk through. This asks.
+    /// </remarks>
+    /// <returns>True if the member is now parked; false if it may not stay.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="id"/> is not one of this group's members.
+    /// </exception>
+    bool Park(int id);
 }

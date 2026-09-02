@@ -207,6 +207,41 @@ public sealed class FakeGroupOps : IGroupOps
         Claimed.Remove(_goal[id]);
     }
 
+    private readonly HashSet<int> _cannotPark = [];
+
+    /// <summary>Every <see cref="Park"/> in order, as (member, whether it was allowed).</summary>
+    public List<(int Id, bool Parked)> Parks { get; } = [];
+
+    /// <summary>
+    /// Marks a member as standing on a cell somebody else's plan crosses, so a
+    /// <see cref="Park"/> on it is refused. The default is that anyone may park,
+    /// so a fixture only says this when the rule under test is about refusal.
+    /// </summary>
+    public FakeGroupOps CannotPark(int id)
+    {
+        _cannotPark.Add(id);
+        return this;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Mirrors the real one: a refusal records nothing but the attempt; a
+    /// success is a claim on the cell underfoot plus the cell reading as
+    /// settled, which is what a one-cell plan looks like from the seam.
+    /// </remarks>
+    public bool Park(int id)
+    {
+        RequireMember(id);
+        var allowed = !_cannotPark.Contains(id);
+        Parks.Add((id, allowed));
+        if (!allowed) { return false; }
+
+        ClaimSlot(id, _cell[id]);
+        Settled.Add(_cell[id]);
+        _heldUp.Add(id);
+        return true;
+    }
+
     /// <inheritdoc/>
     public void Wake(int id)
     {

@@ -1408,6 +1408,37 @@ public sealed class MovementSystem
         }
 
         /// <inheritdoc/>
+        /// <remarks>
+        /// The table is asked BEFORE anything changes, so a refusal leaves the
+        /// member exactly as it was -- plan, claim, search and all. On success
+        /// the order is: table (the old route is released and the cell held),
+        /// claim (goal and cache, which may retract a slot elsewhere), then the
+        /// search in flight is dropped -- unconditionally, because ClaimSlot
+        /// leaves a search alone when the goal already matches, and a search
+        /// that later committed would re-route a parked unit -- and finally the
+        /// plan becomes the one cell it stands on, so <see cref="Tick"/> keeps it
+        /// there and <see cref="IsMoving"/> reads false from the next pass.
+        /// </remarks>
+        public bool Park(int id)
+        {
+            var agent = Member(id);
+            var here = agent.Cell;
+
+            if (!_system._table.TryPark(here, id))
+            {
+                return false;
+            }
+
+            ClaimSlot(id, here);
+            _system.Abandon(agent);
+
+            agent.Plan = new PlanResult([here], _system.CurrentTick, 0.0, 0, Found: true);
+            agent.WantsPlan = false;
+            agent.StalledTicks = 0;
+            return true;
+        }
+
+        /// <inheritdoc/>
         public void Wake(int id)
         {
             var agent = Member(id);

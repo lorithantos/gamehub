@@ -95,6 +95,76 @@ public sealed class ReservationTableTests
     }
 
     [Fact]
+    public void TryParkRefusesACellSomebodyElseWillCross()
+    {
+        // Agent 1 walks 4 -> 5 -> 6 and is on 5 at tick 1. Cell 5 is free RIGHT
+        // NOW, which is the trap: a park that only looked at the current tick
+        // would take it, and the two would stand on 5 together one tick later.
+        var table = New();
+        table.Reserve([4, 5, 6], startTick: 0, agent: 1);
+
+        Assert.False(table.TryPark(5, agent: 0));
+
+        // Nothing changed: agent 0 holds nothing, agent 1's route is intact.
+        for (var tick = 0; tick < Horizon; tick++)
+        {
+            Assert.NotEqual(0, table.HolderOf(5, tick));
+        }
+
+        Assert.Equal(1, table.HolderOf(5, 1));
+        Assert.Equal(1, table.HolderOf(6, 2));
+    }
+
+    [Fact]
+    public void TryParkRefusesACellSomebodyElseIsParkedOn()
+    {
+        var table = New();
+        table.Reserve([5], startTick: 0, agent: 1);
+
+        Assert.False(table.TryPark(5, agent: 0));
+        Assert.Equal(1, table.HolderOf(5, Horizon * 3));
+    }
+
+    [Fact]
+    public void TryParkHoldsTheCellForGood()
+    {
+        var table = New();
+
+        Assert.True(table.TryPark(5, agent: 3));
+
+        table.Advance(Horizon * 3);
+        Assert.Equal(3, table.HolderOf(5, table.CurrentTick));
+        Assert.Equal(3, table.HolderOf(5, table.CurrentTick + Horizon * 10));
+        Assert.False(table.IsFree(5, table.CurrentTick + 2, agent: 4));
+    }
+
+    [Fact]
+    public void TryParkReleasesTheRouteItAbandons()
+    {
+        // A unit that stops where it is was going somewhere. The cells it was
+        // going to walk are nobody's now, at once -- releasing never collides.
+        var table = New();
+        table.Reserve([1, 2, 3], startTick: 0, agent: 2);
+
+        Assert.True(table.TryPark(1, agent: 2));
+
+        Assert.Equal(-1, table.HolderOf(2, 1));
+        Assert.Equal(-1, table.HolderOf(3, 2));
+        Assert.Equal(2, table.HolderOf(1, Horizon * 2));
+    }
+
+    [Fact]
+    public void TryParkTreatsTheAgentsOwnRouteAsFree()
+    {
+        // The agent's own plan crosses the cell later; that is no reason to
+        // refuse, because parking replaces that plan.
+        var table = New();
+        table.Reserve([1, 2, 1], startTick: 0, agent: 2);
+
+        Assert.True(table.TryPark(1, agent: 2));
+    }
+
+    [Fact]
     public void APlanStartingLaterLeavesTheEarlierTicksFree()
     {
         var table = New();

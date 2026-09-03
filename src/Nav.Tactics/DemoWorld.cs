@@ -34,8 +34,9 @@ namespace Nav.Tactics;
 /// not a case anybody wrote — it is the sign of the sum.
 /// </para>
 /// <para>
-/// <b>Sides.</b> Every unit is on a side, 0 unless <see cref="Enlist"/> says
-/// otherwise, and <see cref="ViewFor"/> hands each side its own perception: the
+/// <b>Sides.</b> Whose unit a thing is belongs to the movement system, given
+/// at <see cref="MovementSystem.AddAgent"/>, and this world learns it from the
+/// broadcast. <see cref="ViewFor"/> hands each side its own perception: the
 /// other sides' living units are its hostiles, alongside any scripted
 /// <see cref="HostileCells"/>, which are everybody's enemy. The world itself is
 /// side 0's view.
@@ -180,34 +181,28 @@ public sealed class DemoWorld : IPerception
     public List<int> RepairCells { get; } = [];
 
     /// <summary>
-    /// Puts a unit on a side, carrying a kit if named. Units nobody enlists are
-    /// on side 0 with no kit: they can be shot, as unarmoured, and never shoot.
+    /// Hands a unit a kit. Units nobody enlists have none: they can be shot,
+    /// as unarmoured, and never shoot.
     /// </summary>
     /// <param name="agent">Who.</param>
-    /// <param name="side">Whose side. Non-negative.</param>
-    /// <param name="kit">A unit type from the combat config, or null for none.</param>
-    /// <exception cref="ArgumentOutOfRangeException">A negative id or side.</exception>
+    /// <param name="kit">A unit type from the combat config.</param>
+    /// <exception cref="ArgumentOutOfRangeException">A negative id.</exception>
     /// <exception cref="ArgumentException">No such unit type.</exception>
-    /// <exception cref="InvalidOperationException">A kit is named and this world has no combat table.</exception>
-    public void Enlist(int agent, int side, string? kit = null)
+    /// <exception cref="InvalidOperationException">This world has no combat table.</exception>
+    public void Enlist(int agent, string kit)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(agent);
-        ArgumentOutOfRangeException.ThrowIfNegative(side);
+        ArgumentNullException.ThrowIfNull(kit);
 
-        if (kit is not null)
+        if (_combat is null)
         {
-            if (_combat is null)
-            {
-                throw new InvalidOperationException("This world has no combat table, so nothing can carry a kit.");
-            }
-
-            _kit[agent] = _combat.KitFor(kit);
+            throw new InvalidOperationException("This world has no combat table, so nothing can carry a kit.");
         }
 
-        _side[agent] = side;
+        _kit[agent] = _combat.KitFor(kit);
     }
 
-    /// <summary>Which side a unit is on; 0 for one never enlisted.</summary>
+    /// <summary>Which side a unit is on, as the movement system said when it placed it; 0 for one never heard of.</summary>
     public int SideOf(int agent) => _side.GetValueOrDefault(agent);
 
     /// <summary>What a unit carries, or null for one enlisted without a kit.</summary>
@@ -301,6 +296,7 @@ public sealed class DemoWorld : IPerception
         system.Happened += Hear;
         foreach (var agent in system.Agents)
         {
+            _side[agent.Id] = agent.Side;
             if (agent.Alive)
             {
                 _cell[agent.Id] = agent.Cell;
@@ -310,6 +306,7 @@ public sealed class DemoWorld : IPerception
 
     private void Hear(MovementEvent e)
     {
+        _side[e.Agent] = e.Side;
         switch (e.Kind)
         {
             case MovementEventKind.Added:

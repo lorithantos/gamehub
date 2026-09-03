@@ -6,6 +6,48 @@ changed each. Current code: `BudgetedSearch`, `SearchWorkspace`,
 
 ---
 
+## One reservation table per side — 3 September 2026
+
+Two sides in one movement system had one table with no owner. An attacker
+planned against the guards' reservations up to 32 ticks ahead and yielded
+to them; a guard routed round where an attacker *would* be. Two armies could
+never block each other, so a position was held by fire only, never by body.
+It had not shown in the guard demo because the waves stand off in the
+corridor and shoot; it was predicted by the 31 August note on reservation
+visibility, and the interface's own remark said what the fix should be.
+
+**Measured first.** A one-cell lane, one unit each end ordered at the other:
+with one table the loser stands at its start from tick one and the winner
+walks up to it. That is the cooperative answer and it is right for one
+commander, and `OwnershipTests.OneCommandersHeadOnStillYieldsAtOnce` keeps it.
+Between two commanders it is mind-reading, and the fixture for that failed on
+the code as it stood.
+
+**The shape.** `AddAgent` takes a side, fixed for life; the system keeps a
+`ReservationTable` per side. A planner is handed a decorator over its own
+table on which every cell another side stands on answers as held for the
+whole window. An enemy is ground, not a plan. Conservative, since it may
+well have moved by then, and the price is a replan the vacancy wake already
+pays for. Swaps are asked of the own table only.
+
+**Cross-side conflicts resolve at the step**, where the tick already refuses
+a cell somebody is standing on. Two more checks joined it: two movers bound
+for one cell, and two movers exchanging cells. The exchange stops both. The
+contested cell goes to the lower id, and that was the second try. The first
+stopped both, and two enemies then stood one cell apart forever, each
+replanning into the gap and each refused — an open room of four pairs left
+four units short of their goals after 120 ticks. A cell nobody may win is a
+cell nobody crosses.
+
+**Measured after.** In the lane, both advance until nose to nose. Three
+guards across a three-wide corridor stop three attackers for 150 ticks.
+Four pairs head-on across an open room never share a cell, never pass
+through each other, and all arrive. Every recorded scenario and every earlier
+test is unchanged, because with one side there is one table and the new
+checks never fire. The guard demo replays tick for tick.
+
+---
+
 ## Field following — 2 September 2026
 
 An order to a group used to be an order to every member of it, separately. Each

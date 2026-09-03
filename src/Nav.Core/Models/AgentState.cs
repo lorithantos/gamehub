@@ -21,6 +21,7 @@ namespace Nav.Core.Models;
 /// False once <see cref="MovementSystem.Remove"/> has taken the agent out of the
 /// world. It keeps its id and its last cell, holds nothing, and no verb accepts it.
 /// </param>
+/// <param name="Side">Whose unit it is, as given to <see cref="MovementSystem.AddAgent"/>.</param>
 /// <remarks>
 /// <see cref="Stuck"/> means NO PROGRESS, not "no plan".
 /// <para>
@@ -39,7 +40,8 @@ public readonly record struct AgentState(
     bool Thinking,
     bool Waiting,
     int Errand = -1,
-    bool Alive = true)
+    bool Alive = true,
+    int Side = 0)
 {
     /// <summary>Has an order it is making no progress on.</summary>
     public bool Stuck => !Arrived && StalledTicks > 0;

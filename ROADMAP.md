@@ -1,6 +1,6 @@
 # Roadmap
 
-`main` · 623 tests green · 3 September 2026
+`main` · 632 tests green · 3 September 2026
 
 The goal is **tactical doctrine**: units that hold a position, fall back to
 repair, rotate, and get baited — the C&C behaviours that were missing. Movement
@@ -27,7 +27,7 @@ meaningless.
 | Doctrine | guard and patrol; retreat, rank, reserve, all playing unscripted, on both sides |
 | Scale | pinned — 0.25 s/tick, 2 m/cell |
 | Combat | **weapons fire** — kits, hit points, blast, highest-threat targeting; rank earned from damage |
-| Board | one shared grid; the movement system broadcasts placed, stepped, removed, and the world listens |
+| Board | one shared grid, one reservation table per side; the movement system broadcasts placed, stepped, removed, and the world listens |
 
 ---
 
@@ -65,59 +65,54 @@ meaningless.
 - **The guard demo is AI against AI.** Three waves under GuardDoctrine
   against a line under GuardDoctrine. 4/6 standing, 15/15 destroyed, 3
   veterans, all of it earned.
+- **Reservation ownership.** A table per side; an enemy is ground, not a
+  plan; conflicts between sides settle at the step. Enemies advance until
+  they meet, a line of bodies holds a corridor, and one commander's world is
+  untouched.
 
 ---
 
 ## Next, in dependency order
 
-### 1. Reservation ownership
-
-Two sides in one movement system cooperate in pathing: one table, no owner,
-so an attacker plans against the guards' futures and yields. A line can be
-held by fire and never by body. Give the table an owner, let other sides
-enter planning as observed occupancy only, and resolve conflicts at
-execution time, where the step check already refuses an occupied cell.
-Croatia is lines across outlets; this comes first.
-
-### 2. Fog as a filtered broadcast
+### 1. Fog as a filtered broadcast
 
 Limited perception on the board. A side's view hears only the events its
 units could have witnessed. The broadcast is built; the filter is not, and
 neither is what a side does about a unit it last saw three ticks ago.
 
-### 3. Balance the region partition
+### 2. Balance the region partition
 
 90 regions sounds like a partition and is mostly slivers plus **one region
 holding 46% of the map** — a search inside it is still most of a flat search.
 Probably wants cutting only at gates that divide evenly, rather than at every
 gate found. Everything hierarchical waits on this being worth having.
 
-### 4. The disengage verb
+### 3. The disengage verb
 
 Specified, cheap, and now affordable: step outside the threat's reach and
 hold, rather than errand to a pad. No pad contention, and it makes a high
 retreat threshold cheap. Self-heal already exists as a rate.
 
-### 5. Shielding
+### 4. Shielding
 
 A veteran makes the rookies beside it safer and slower to earn. The tactical
 trade the whole rank system implies. **Do not build half of it** — the
 earn-slower half alone makes a veteran a pure penalty to everyone near it.
 
-### 6. Hierarchical planning
+### 5. Hierarchical planning
 
 Abstract A* over regions, refined locally. Cheap once the partition is balanced.
 **Keep the two claims apart**: flat search is optimal and is validated against
 published optimal costs; region routes are near-optimal by design. If those merge,
 the first hierarchical path reads as a regression in a test green since milestone 1.
 
-### 7. Speeds
+### 6. Speeds
 
 `Movement` becomes per-unit; the fastest unit moves a cell per tick and others
 wait. Note this solves the ~3× spread between unit types and **not** absolute
 pace — that was the 10× error, and calibration already fixed it.
 
-### 8. The Croatia fixture
+### 7. The Croatia fixture
 
 A map with room, scripted waves, and a hold-verdict over defended objects with
 health. Medium to build, open-ended to tune, which is the point.
@@ -142,8 +137,11 @@ health. Medium to build, open-ended to tune, which is the point.
 
 ## Known wrong
 
-- **Enemies cooperate in pathing.** One reservation table, no owner. See
-  item 1.
+- **A contested cell goes to the lower id.** Deterministic and the system's
+  usual tie-break, but it favours whichever side was placed first. A fairer
+  rule wants a reason, not a coin.
+- **An enemy's cell is held for the whole window** when planning around it,
+  though it may leave next tick. Conservative; costs a replan.
 - **Credit is per fraction of the victim.** A tank kill earns what a rifleman
   kill earns. Units have hit points now but no cost, and the C&C3 rule
   weights by cost.

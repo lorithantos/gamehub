@@ -125,8 +125,8 @@ internal sealed class GuardRetreatDemo : Demo
         ];
         for (var i = 0; i < starts.Length; i++)
         {
-            var id = system.AddAgent(starts[i]);
-            world.Enlist(id, side: 0, kit: GuardKits[i]);
+            var id = system.AddAgent(starts[i], side: 0);
+            world.Enlist(id, GuardKits[i]);
         }
 
         var guard = new Squad(
@@ -164,8 +164,8 @@ internal sealed class GuardRetreatDemo : Demo
                 var ids = new List<int>();
                 for (var k = 0; k < Wave.Length; k++)
                 {
-                    var id = system.AddAgent(grid.Index(10 + k, 0));
-                    world.Enlist(id, side: 1, kit: Wave[k]);
+                    var id = system.AddAgent(grid.Index(10 + k, 0), side: 1);
+                    world.Enlist(id, Wave[k]);
                     ids.Add(id);
                 }
 

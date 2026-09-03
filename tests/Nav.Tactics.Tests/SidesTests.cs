@@ -28,13 +28,13 @@ public sealed class SidesTests
         .............................
         """;
 
-    private static (MovementSystem System, Grid Grid) Scene(params (int X, int Y)[] at)
+    private static (MovementSystem System, Grid Grid) Scene(params (int X, int Y, int Side)[] at)
     {
         var grid = Grid.FromMapText(Room);
         var system = new MovementSystem(grid);
-        foreach (var (x, y) in at)
+        foreach (var (x, y, side) in at)
         {
-            system.AddAgent(grid.Index(x, y));
+            system.AddAgent(grid.Index(x, y), side);
         }
 
         return (system, grid);
@@ -43,10 +43,8 @@ public sealed class SidesTests
     [Fact]
     public void EachSideSeesTheOtherAndNotItself()
     {
-        var (system, grid) = Scene((1, 1), (1, 2), (20, 8), (20, 9));
+        var (system, grid) = Scene((1, 1, 0), (1, 2, 0), (20, 8, 1), (20, 9, 1));
         var world = new DemoWorld(grid);
-        world.Enlist(2, side: 1);
-        world.Enlist(3, side: 1);
         world.Listen(system);
 
         Assert.Equal([grid.Index(20, 8), grid.Index(20, 9)], world.ViewFor(0).Hostiles);
@@ -64,9 +62,8 @@ public sealed class SidesTests
     [Fact]
     public void AScriptedThreatIsEverybodysEnemy()
     {
-        var (system, grid) = Scene((1, 1), (20, 8));
+        var (system, grid) = Scene((1, 1, 0), (20, 8, 1));
         var world = new DemoWorld(grid);
-        world.Enlist(1, side: 1);
         world.Listen(system);
         var threat = grid.Index(10, 10);
         world.HostileCells.Add(threat);
@@ -79,9 +76,8 @@ public sealed class SidesTests
     [Fact]
     public void TheDeadStopBeingHostile()
     {
-        var (system, grid) = Scene((1, 1), (20, 8));
+        var (system, grid) = Scene((1, 1, 0), (20, 8, 1));
         var world = new DemoWorld(grid);
-        world.Enlist(1, side: 1);
         world.Listen(system);
         Assert.Contains(grid.Index(20, 8), world.ViewFor(0).Hostiles);
 
@@ -99,9 +95,8 @@ public sealed class SidesTests
         // Positions are what the world was last told, not what it guesses. A
         // demo that wants tick-0 sight calls Observe first, and this is the
         // test that says why.
-        var (system, grid) = Scene((1, 1), (20, 8));
+        var (system, grid) = Scene((1, 1, 0), (20, 8, 1));
         var world = new DemoWorld(grid);
-        world.Enlist(1, side: 1);
 
         Assert.Empty(world.ViewFor(0).Hostiles);
 
@@ -115,14 +110,13 @@ public sealed class SidesTests
         // The same shape as the scripted-bait test in PatrolDoctrineTests,
         // with the bait a unit on the other side standing where the cell used
         // to be. PatrolDoctrine is not told about sides; it reads Hostiles.
-        var (system, grid) = Scene((1, 1), (1, 2), (1, 3), (9, 10));
+        var (system, grid) = Scene((1, 1, 0), (1, 2, 0), (1, 3, 0), (9, 10, 1));
         var west = grid.Index(4, 6);
         var east = grid.Index(24, 6);
         var bait = grid.Index(9, 10);
         var doctrine = new PatrolDoctrine([west, east], leash: 8.0);
         var patrol = new Squad("patrol", [0, 1, 2], doctrine);
         var world = new DemoWorld(grid);
-        world.Enlist(3, side: 1);
         world.Listen(system);
 
         for (var tick = 0; tick < 150; tick++)

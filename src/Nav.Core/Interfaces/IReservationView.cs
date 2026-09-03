@@ -9,13 +9,14 @@ namespace Nav.Core.Interfaces;
 /// that owns what has been booked.
 /// <para>
 /// <b>An interface rather than a convention, because visibility is per-observer.</b>
-/// One table serves everybody today, so an agent plans against every other
-/// agent's committed future — correct for one commander, mind-reading for two.
+/// One table serves one side: an agent plans against every fellow's committed
+/// future, which is correct for one commander and would be mind-reading for
+/// two. Another side's units reach it only as the ground they stand on.
 /// </para>
 /// <para>
-/// A view that answers <c>free</c> for reservations the asker cannot observe
-/// makes fog and multi-team planning a DECORATOR rather than a change to the
-/// collision core.
+/// That is a DECORATOR over the side's own table rather than a change to the
+/// collision core, and fog -- answering <c>free</c> for what the asker cannot
+/// see -- is the same shape again.
 /// </para>
 /// <para>
 /// <c>HolderOf</c> is deliberately NOT here: a filtering view would have to

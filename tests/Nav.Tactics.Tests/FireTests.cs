@@ -36,13 +36,13 @@ public sealed class FireTests(ITestOutputHelper output)
 
     private static readonly WorldScale Scale = WorldScale.Default;
 
-    private static (MovementSystem System, Grid Grid) Scene(params (int X, int Y)[] at)
+    private static (MovementSystem System, Grid Grid) Scene(params (int X, int Y, int Side)[] at)
     {
         var grid = Grid.FromMapText(Room);
         var system = new MovementSystem(grid);
-        foreach (var (x, y) in at)
+        foreach (var (x, y, side) in at)
         {
-            system.AddAgent(grid.Index(x, y));
+            system.AddAgent(grid.Index(x, y), side);
         }
 
         return (system, grid);
@@ -57,11 +57,11 @@ public sealed class FireTests(ITestOutputHelper output)
     {
         var combat = Shipped();
         var rifleman = combat.KitFor("rifleman");
-        var (system, grid) = Scene((5, 5), (8, 5), (15, 5));
+        var (system, grid) = Scene((5, 5, 0), (8, 5, 1), (15, 5, 1));
         var world = new DemoWorld(grid, combat: combat, scale: Scale);
-        world.Enlist(0, side: 0, kit: "rifleman");
-        world.Enlist(1, side: 1, kit: "rifleman");
-        world.Enlist(2, side: 1, kit: "rifleman");
+        world.Enlist(0, "rifleman");
+        world.Enlist(1, "rifleman");
+        world.Enlist(2, "rifleman");
 
         system.Tick();
         world.Listen(system);
@@ -97,11 +97,11 @@ public sealed class FireTests(ITestOutputHelper output)
                 + $"to a rifleman: buggy {combat.ThreatPerSecond(buggy, "unarmoured"):F1}/s, "
                 + $"rocket bike {combat.ThreatPerSecond(rocketbike, "unarmoured"):F1}/s");
 
-        var (system, grid) = Scene((5, 5), (5, 8), (9, 5));
+        var (system, grid) = Scene((5, 5, 0), (5, 8, 1), (9, 5, 1));
         var world = new DemoWorld(grid, combat: combat, scale: Scale);
-        world.Enlist(0, side: 0, kit: "tank");
-        world.Enlist(1, side: 1, kit: "buggy");
-        world.Enlist(2, side: 1, kit: "rocketbike");
+        world.Enlist(0, "tank");
+        world.Enlist(1, "buggy");
+        world.Enlist(2, "rocketbike");
         system.Tick();
         world.Listen(system);
         world.Settle();
@@ -109,11 +109,11 @@ public sealed class FireTests(ITestOutputHelper output)
         Assert.True(world.HealthOf(2) < 1.0, "the tank did not shoot the rocket bike");
         Assert.Equal(1.0, world.HealthOf(1), 9);
 
-        var (system2, grid2) = Scene((5, 5), (7, 5), (5, 9));
+        var (system2, grid2) = Scene((5, 5, 0), (7, 5, 1), (5, 9, 1));
         var world2 = new DemoWorld(grid2, combat: combat, scale: Scale);
-        world2.Enlist(0, side: 0, kit: "rifleman");
-        world2.Enlist(1, side: 1, kit: "rocketbike");
-        world2.Enlist(2, side: 1, kit: "buggy");
+        world2.Enlist(0, "rifleman");
+        world2.Enlist(1, "rocketbike");
+        world2.Enlist(2, "buggy");
         system2.Tick();
         world2.Listen(system2);
         world2.Settle();
@@ -131,11 +131,11 @@ public sealed class FireTests(ITestOutputHelper output)
         var combat = Shipped();
         var rocketbike = combat.KitFor("rocketbike");
         var rifleman = combat.KitFor("rifleman");
-        var (system, grid) = Scene((2, 5), (7, 5), (8, 5));
+        var (system, grid) = Scene((2, 5, 0), (7, 5, 1), (8, 5, 0));
         var world = new DemoWorld(grid, combat: combat, scale: Scale);
-        world.Enlist(0, side: 0, kit: "rocketbike");
-        world.Enlist(1, side: 1, kit: "tank");
-        world.Enlist(2, side: 0, kit: "rifleman");
+        world.Enlist(0, "rocketbike");
+        world.Enlist(1, "tank");
+        world.Enlist(2, "rifleman");
         system.Tick();
         world.Listen(system);
         world.Settle();
@@ -153,9 +153,9 @@ public sealed class FireTests(ITestOutputHelper output)
     public void DamageIsInHitPointsAndHealthStaysAFraction()
     {
         var combat = Shipped();
-        var (_, grid) = Scene((5, 5));
+        var (_, grid) = Scene((5, 5, 0));
         var world = new DemoWorld(grid, combat: combat) { RankPerDamage = 10.0, RankPerKill = 0.0 };
-        world.Enlist(0, side: 0, kit: "tank");
+        world.Enlist(0, "tank");
 
         var tank = combat.KitFor("tank");
         var earned = world.DamageBy(target: 0, amount: tank.HitPoints / 10.0, attacker: 7);
@@ -170,10 +170,10 @@ public sealed class FireTests(ITestOutputHelper output)
     public void TheFallenAreReportedAndTheDeadStopFiring()
     {
         var combat = Shipped();
-        var (system, grid) = Scene((5, 5), (6, 5));
+        var (system, grid) = Scene((5, 5, 0), (6, 5, 1));
         var world = new DemoWorld(grid, combat: combat, scale: Scale);
-        world.Enlist(0, side: 0, kit: "rifleman");
-        world.Enlist(1, side: 1, kit: "rifleman");
+        world.Enlist(0, "rifleman");
+        world.Enlist(1, "rifleman");
         world.SetHealth(1, 0.001);
 
         system.Tick();
@@ -200,10 +200,10 @@ public sealed class FireTests(ITestOutputHelper output)
     public void MutualKillsAreSimultaneous()
     {
         var combat = Shipped();
-        var (system, grid) = Scene((5, 5), (6, 5));
+        var (system, grid) = Scene((5, 5, 0), (6, 5, 1));
         var world = new DemoWorld(grid, combat: combat, scale: Scale);
-        world.Enlist(0, side: 0, kit: "rifleman");
-        world.Enlist(1, side: 1, kit: "rifleman");
+        world.Enlist(0, "rifleman");
+        world.Enlist(1, "rifleman");
         world.SetHealth(0, 0.001);
         world.SetHealth(1, 0.001);
 
@@ -220,10 +220,10 @@ public sealed class FireTests(ITestOutputHelper output)
     public void AKitNeedsATableAndAKnownName()
     {
         var combat = Shipped();
-        var (_, grid) = Scene((5, 5));
+        var (_, grid) = Scene((5, 5, 0));
 
-        Assert.Throws<InvalidOperationException>(() => new DemoWorld(grid).Enlist(0, 0, "tank"));
-        Assert.Throws<ArgumentException>(() => new DemoWorld(grid, combat: combat).Enlist(0, 0, "trebuchet"));
+        Assert.Throws<InvalidOperationException>(() => new DemoWorld(grid).Enlist(0, "tank"));
+        Assert.Throws<ArgumentException>(() => new DemoWorld(grid, combat: combat).Enlist(0, "trebuchet"));
         Assert.Throws<ArgumentException>(() => combat.KitFor("trebuchet"));
     }
 

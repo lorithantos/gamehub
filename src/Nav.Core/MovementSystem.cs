@@ -70,8 +70,11 @@ public sealed class MovementSystem
     /// </remarks>
     private const int FollowBlockedTicks = 12;
 
-    internal sealed class Agent(int id, int cell)
+    internal sealed class Agent(int id, int cell, int side)
     {
+        /// <summary>Whose unit this is: the reservation table it plans against.</summary>
+        public int Side { get; } = side;
+
         /// <summary>
         /// Consecutive ticks this member has stood still because no step down
         /// its field was free. Reset by any step, and by a committed search.
@@ -165,7 +168,18 @@ public sealed class MovementSystem
     }
 
     private readonly Grid _grid;
-    private readonly ReservationTable _table;
+    private readonly int _horizon;
+
+    // ONE TABLE PER SIDE. A unit plans against what its own side has booked
+    // -- the whole future of every fellow -- and against nothing of any other
+    // side but the ground its units stand on now. Planning against an enemy's
+    // reservations would be planning against its intentions, and two sides
+    // that do that route round each other forever and never block. Cross-side
+    // conflicts are settled where the step is taken, not where it is planned.
+    private readonly Dictionary<int, ReservationTable> _tables = [];
+
+    // Which side stands on which cell, rebuilt at the top of every tick.
+    private readonly Dictionary<int, int> _cellSide = [];
     private readonly List<Agent> _agents = [];
     private readonly Stack<SearchWorkspace> _workspacePool = new();
 
@@ -266,8 +280,10 @@ public sealed class MovementSystem
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(nodeBudgetPerTick);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSearchesInFlight);
 
+        ArgumentOutOfRangeException.ThrowIfLessThan(horizon, 2);
+
         _grid = grid;
-        _table = new ReservationTable(grid.CellCount, horizon);
+        _horizon = horizon;
         _nodeBudgetPerTick = nodeBudgetPerTick;
         _maxSearchesInFlight = maxSearchesInFlight;
         _fields = fields ?? new FieldCache(grid, FieldCapacity);
@@ -317,7 +333,8 @@ public sealed class MovementSystem
             a.Id, a.Cell, a.Goal, a.Cell == a.Goal, a.StalledTicks, a.Search is not null,
             Waiting: a.Cell != a.Goal && a.Search is null && a.RetryAfterTick > CurrentTick,
             Errand: a.Errand,
-            Alive: a.Alive))];
+            Alive: a.Alive,
+            Side: a.Side))];
 
     /// <summary>
     /// Raised for everything that happens to an agent: placed, stepped,
@@ -342,6 +359,46 @@ public sealed class MovementSystem
     /// </para>
     /// </remarks>
     public event Action<MovementEvent>? Happened;
+
+    /// <summary>The table this agent's side plans against and books into.</summary>
+    private ReservationTable TableOf(Agent agent) => _tables[agent.Side];
+
+    /// <summary>Whether a unit of some OTHER side is standing on this cell right now.</summary>
+    private bool OccupiedByAnotherSide(int cell, int side) =>
+        _cellSide.TryGetValue(cell, out var standing) && standing != side;
+
+    /// <summary>
+    /// What one side's planner may ask: its own table, with every cell another
+    /// side stands on answering as held for the whole window.
+    /// </summary>
+    /// <remarks>
+    /// The decorator <see cref="IReservationView"/> was written for. An enemy
+    /// is ground, not a plan: it is where it is, and where it means to be is
+    /// none of this planner's business. Treating its cell as held to the edge
+    /// of the window is conservative -- it may well have left by then -- and
+    /// the price is a replan when it does, which the vacancy wake already
+    /// pays for.
+    /// <para>
+    /// Swaps are asked of the own table only. A head-on exchange with an
+    /// enemy cannot be seen here and is caught at the step instead.
+    /// </para>
+    /// </remarks>
+    private sealed class SideView(MovementSystem system, int side) : IReservationView
+    {
+        private readonly ReservationTable _own = system._tables[side];
+
+        public int Horizon => _own.Horizon;
+
+        public int CurrentTick => _own.CurrentTick;
+
+        public bool IsFree(int cell, int tick, int agent) =>
+            _own.IsFree(cell, tick, agent) && !system.OccupiedByAnotherSide(cell, side);
+
+        public bool IsSwap(int from, int to, int tick, int agent) => _own.IsSwap(from, to, tick, agent);
+
+        public bool IsHoldable(int cell, int fromTick, int agent) =>
+            _own.IsHoldable(cell, fromTick, agent) && !system.OccupiedByAnotherSide(cell, side);
+    }
 
     /// <summary>
     /// Puts a verb on the list for the next tick if one is in progress. False
@@ -379,9 +436,15 @@ public sealed class MovementSystem
     /// that runs before this agent has ever moved already routes around it.
     /// </summary>
     /// <param name="cell">Where it stands. Must be passable.</param>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="cell"/> is impassable.</exception>
+    /// <param name="side">
+    /// Whose unit it is. Units of one side plan against each other's booked
+    /// futures and cooperate; units of different sides see only where the
+    /// other stands. Fixed for life. Non-negative; 0 by default, so a world
+    /// with one commander never names it.
+    /// </param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="cell"/> is impassable, or <paramref name="side"/> is negative.</exception>
     /// <exception cref="InvalidOperationException">Called from a handler during a tick; there is no id to answer with yet.</exception>
-    public int AddAgent(int cell)
+    public int AddAgent(int cell, int side = 0)
     {
         if (_ticking)
         {
@@ -393,12 +456,21 @@ public sealed class MovementSystem
             throw new ArgumentOutOfRangeException(nameof(cell), cell, "An agent cannot stand on an impassable cell.");
         }
 
-        var agent = new Agent(_agents.Count, cell);
+        ArgumentOutOfRangeException.ThrowIfNegative(side);
+
+        if (!_tables.TryGetValue(side, out var table))
+        {
+            table = new ReservationTable(_grid.CellCount, _horizon);
+            table.Advance(CurrentTick);
+            _tables[side] = table;
+        }
+
+        var agent = new Agent(_agents.Count, cell, side);
         _agents.Add(agent);
 
         // It is standing here, and everyone planning after this must see that.
-        _table.Reserve([cell], CurrentTick, agent.Id);
-        Happened?.Invoke(new MovementEvent(CurrentTick, MovementEventKind.Added, agent.Id, cell));
+        table.Reserve([cell], CurrentTick, agent.Id);
+        Happened?.Invoke(new MovementEvent(CurrentTick, MovementEventKind.Added, agent.Id, cell, Side: side));
         return agent.Id;
     }
 
@@ -912,7 +984,7 @@ public sealed class MovementSystem
         }
 
         Abandon(unit);
-        _table.Release(unit.Id);
+        TableOf(unit).Release(unit.Id);
 
         unit.Plan = null;
         unit.WantsPlan = false;
@@ -940,7 +1012,7 @@ public sealed class MovementSystem
         }
 
         unit.Alive = false;
-        Happened?.Invoke(new MovementEvent(CurrentTick, MovementEventKind.Removed, unit.Id, unit.Cell));
+        Happened?.Invoke(new MovementEvent(CurrentTick, MovementEventKind.Removed, unit.Id, unit.Cell, Side: unit.Side));
     }
 
     /// <summary>A goal changed under this agent: plan again, now, from scratch.</summary>
@@ -973,7 +1045,7 @@ public sealed class MovementSystem
     {
         agent.Plan = null;
         agent.BlockedTicks = 0;
-        _table.Reserve([agent.Cell], CurrentTick, agent.Id);
+        TableOf(agent).Reserve([agent.Cell], CurrentTick, agent.Id);
     }
 
     /// <summary>
@@ -1011,10 +1083,12 @@ public sealed class MovementSystem
     /// <summary>The tick proper. Split from <see cref="Tick"/> so the in-progress flag brackets exactly this.</summary>
     private void Advance()
     {
-        // Per-tick occupancy caches the doctrines read through GroupOps.
+        // Per-tick occupancy caches: what the doctrines read through GroupOps,
+        // and what every other side's planner sees of this one.
         _claimedGoals.Clear();
         _settledCells.Clear();
         _occupiedCells.Clear();
+        _cellSide.Clear();
         foreach (var agent in _agents)
         {
             if (!agent.Alive)
@@ -1023,6 +1097,7 @@ public sealed class MovementSystem
             }
 
             _occupiedCells.Add(agent.Cell);
+            _cellSide[agent.Cell] = agent.Side;
             if (agent.Cell == agent.Goal)
             {
                 _settledCells.Add(agent.Cell);
@@ -1081,7 +1156,10 @@ public sealed class MovementSystem
         LastTick = SpendPlanningBudget();
 
         CurrentTick++;
-        _table.Advance();
+        foreach (var table in _tables.Values)
+        {
+            table.Advance();
+        }
 
         var anyArrived = false;
         var vacated = new HashSet<int>();
@@ -1104,12 +1182,17 @@ public sealed class MovementSystem
         // goes round again because that can stop the unit behind it.
         var moving = new bool[_agents.Count];
         var target = new int[_agents.Count];
+        var atCell = new Dictionary<int, int>();
         for (var i = 0; i < _agents.Count; i++)
         {
             var agent = _agents[i];
             var step = agent.Plan?.CellAt(CurrentTick) ?? -1;
             target[i] = step;
-            moving[i] = step >= 0 && step != agent.Cell && _table.HolderOf(step, CurrentTick) == agent.Id;
+            moving[i] = step >= 0 && step != agent.Cell && TableOf(agent).HolderOf(step, CurrentTick) == agent.Id;
+            if (agent.Alive)
+            {
+                atCell[agent.Cell] = i;
+            }
         }
 
         bool anyStood;
@@ -1127,11 +1210,46 @@ public sealed class MovementSystem
                 }
             }
 
+            // BETWEEN SIDES the tables know nothing of each other, so the two
+            // collisions one table rules out at planning are ruled out here.
+            // Two movers bound for one cell: the lower id takes it and the
+            // rest stand, which is the tie-break everything else in this
+            // system falls back on -- and a cell nobody may win is a cell two
+            // enemies contest forever, one apart, each replanning into it.
+            // Two movers exchanging cells: both stand. Nobody passes through
+            // anybody; a line of bodies is a line.
+            var claimed = new Dictionary<int, int>();
+            var contested = new HashSet<int>();
+            for (var i = 0; i < _agents.Count; i++)
+            {
+                if (!moving[i])
+                {
+                    continue;
+                }
+
+                if (claimed.ContainsKey(target[i]))
+                {
+                    contested.Add(i);
+                }
+                else
+                {
+                    claimed[target[i]] = i;
+                }
+
+                if (atCell.TryGetValue(target[i], out var occupant) &&
+                    moving[occupant] && target[occupant] == _agents[i].Cell)
+                {
+                    contested.Add(i);
+                    contested.Add(occupant);
+                }
+            }
+
             for (var i = 0; i < _agents.Count; i++)
             {
                 var agent = _agents[i];
                 var stale = (target[i] >= 0 && target[i] != agent.Cell && !moving[i] && agent.Plan is not null) ||
-                            (moving[i] && still.Contains(target[i]));
+                            (moving[i] && still.Contains(target[i])) ||
+                            contested.Contains(i);
                 if (stale)
                 {
                     Stand(agent);
@@ -1153,7 +1271,7 @@ public sealed class MovementSystem
                 {
                     vacated.Add(agent.Cell);
                     entered.Add(at);
-                    stepped.Add(new MovementEvent(CurrentTick, MovementEventKind.Moved, agent.Id, at, agent.Cell));
+                    stepped.Add(new MovementEvent(CurrentTick, MovementEventKind.Moved, agent.Id, at, agent.Cell, agent.Side));
                 }
 
                 var wasArrived = agent.Cell == agent.Goal;
@@ -1481,6 +1599,7 @@ public sealed class MovementSystem
         var hereCost = Cost(here);
         var best = -1;
         var bestCost = hereCost;
+        var table = TableOf(agent);
 
         foreach (var step in Movement.Steps)
         {
@@ -1490,9 +1609,10 @@ public sealed class MovementSystem
             }
 
             var next = ((y + step.DeltaY) * _grid.Width) + x + step.DeltaX;
-            if (!_table.IsFree(next, CurrentTick + 1, agent.Id) ||
-                _table.IsSwap(here, next, CurrentTick, agent.Id) ||
-                _table.WillBeParkedOn(next, agent.Id))
+            if (!table.IsFree(next, CurrentTick + 1, agent.Id) ||
+                table.IsSwap(here, next, CurrentTick, agent.Id) ||
+                table.WillBeParkedOn(next, agent.Id) ||
+                OccupiedByAnotherSide(next, agent.Side))
             {
                 continue;
             }
@@ -1514,13 +1634,13 @@ public sealed class MovementSystem
         {
             agent.BlockedTicks++;
             agent.Plan = new PlanResult([here, here], CurrentTick, Movement.WaitCost, Expanded: 0, Found: false);
-            _table.Reserve(agent.Plan.Cells, CurrentTick, agent.Id);
+            table.Reserve(agent.Plan.Cells, CurrentTick, agent.Id);
             return;
         }
 
         agent.BlockedTicks = 0;
         agent.Plan = new PlanResult([here, best], CurrentTick, bestCost, Expanded: 0, Found: best == agent.Goal);
-        _table.Reserve(agent.Plan.Cells, CurrentTick, agent.Id);
+        table.Reserve(agent.Plan.Cells, CurrentTick, agent.Id);
     }
 
     private void Begin(Agent agent)
@@ -1546,11 +1666,11 @@ public sealed class MovementSystem
                 remaining.Add(live.CellAt(t));
             }
 
-            _table.Reserve(remaining, CurrentTick, agent.Id);
+            TableOf(agent).Reserve(remaining, CurrentTick, agent.Id);
         }
         else
         {
-            _table.Reserve([agent.Cell], CurrentTick, agent.Id);
+            TableOf(agent).Reserve([agent.Cell], CurrentTick, agent.Id);
         }
 
         // The field build is amortised: once per destination, cached across the
@@ -1568,7 +1688,7 @@ public sealed class MovementSystem
         }
 
         agent.Search = new BudgetedSearch(
-            _grid, _table, agent.Id, start, agent.Goal, agent.AnchorTick, agent.Workspace, field);
+            _grid, new SideView(this, agent.Side), agent.Id, start, agent.Goal, agent.AnchorTick, agent.Workspace, field);
     }
 
     /// <summary>What became of a search this call.</summary>
@@ -1615,7 +1735,7 @@ public sealed class MovementSystem
             // leaves the search exactly one tick to plan in, so it comes back with
             // a single cell and the agent stands still — a plan in form and a
             // stall in fact. The anchor has to leave room for a plan behind it.
-            var ceiling = Math.Max(_table.Horizon / 2, InitialPlanningLatency);
+            var ceiling = Math.Max(_horizon / 2, InitialPlanningLatency);
 
             if (agent.Latency >= ceiling)
             {
@@ -1690,7 +1810,8 @@ public sealed class MovementSystem
         // plan through a cell somebody now holds is stale, not wrong, and is
         // discarded here rather than refused by Mark's assertion, which stays
         // as the last line of defence for the genuinely unsound.
-        var last = CurrentTick + _table.Horizon - 1;
+        var view = new SideView(this, agent.Side);
+        var last = CurrentTick + _horizon - 1;
         for (var i = 0; i < cells.Count; i++)
         {
             var tick = CurrentTick + i;
@@ -1699,20 +1820,20 @@ public sealed class MovementSystem
                 break;
             }
 
-            if (!_table.IsFree(cells[i], tick, agent.Id) ||
-                (i > 0 && _table.IsSwap(cells[i - 1], cells[i], tick - 1, agent.Id)))
+            if (!view.IsFree(cells[i], tick, agent.Id) ||
+                (i > 0 && view.IsSwap(cells[i - 1], cells[i], tick - 1, agent.Id)))
             {
                 return false;
             }
         }
 
-        if (!_table.IsHoldable(cells[^1], CurrentTick + cells.Count - 1, agent.Id))
+        if (!view.IsHoldable(cells[^1], CurrentTick + cells.Count - 1, agent.Id))
         {
             return false;
         }
 
         agent.Plan = new PlanResult(cells, CurrentTick, plan.Cost, plan.Expanded, plan.Found);
-        _table.Reserve(cells, CurrentTick, agent.Id);
+        TableOf(agent).Reserve(cells, CurrentTick, agent.Id);
         agent.BlockedTicks = 0;
 
         // It finished inside its slack, so the next search starts optimistic again
@@ -2021,7 +2142,7 @@ public sealed class MovementSystem
             var agent = Member(id);
             var here = agent.Cell;
 
-            if (!_system._table.TryPark(here, id))
+            if (!_system.TableOf(agent).TryPark(here, id))
             {
                 return false;
             }

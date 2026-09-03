@@ -30,7 +30,7 @@ namespace Nav.Core;
 public static class MapGenerator
 {
     /// <summary>Smallest room the splitter will leave, excluding its walls.</summary>
-    private const int MinRoom = 7;
+    private const int MinRoom = 6;
 
     /// <summary>
     /// Cuts a map of rooms joined by passages, and reports what it cut.
@@ -63,26 +63,66 @@ public static class MapGenerator
         var leaves = new List<Rect>();
         Split(new Rect(1, 1, width - 2, height - 2), ref rng, leaves, 0);
 
-        // 2. Carve a room inside each piece, inset so rooms never touch.
+        // 2. Carve a room inside each piece. The room takes roughly half to three
+        //    quarters of its partition, NOT all of it: the leftover is the wall,
+        //    and a generator that fills its leaves produces an arena rather than
+        //    a map. Our own arena fixture is 85% open, and it is open on purpose
+        //    because it exists to test throughput; real maps run 35-74%.
         var rooms = new List<Rect>();
         foreach (var leaf in leaves)
         {
-            var w = Math.Max(3, leaf.W - 2 - (int)(rng.Next(3)));
-            var h = Math.Max(3, leaf.H - 2 - (int)(rng.Next(3)));
-            var x = leaf.X + 1 + (int)(rng.Next(Math.Max(1, leaf.W - w - 1)));
-            var y = leaf.Y + 1 + (int)(rng.Next(Math.Max(1, leaf.H - h - 1)));
+            var w = Math.Max(3, (leaf.W * (45 + (int)rng.Next(30))) / 100);
+            var h = Math.Max(3, (leaf.H * (45 + (int)rng.Next(30))) / 100);
+            var x = leaf.X + 1 + (int)rng.Next(Math.Max(1, leaf.W - w - 1));
+            var y = leaf.Y + 1 + (int)rng.Next(Math.Max(1, leaf.H - h - 1));
             var room = new Rect(x, y, w, h);
             rooms.Add(room);
             Fill(open, width, room);
         }
 
-        // 3. Join them. A spanning tree first so the map is connected, then extra
+        // 3. Clutter the larger rooms. Blocks are kept clear of the room's edges
+        //    and of its centre, so they cannot seal a room off or land on the
+        //    cell a corridor is aimed at -- they add cover and local narrowness
+        //    without ever threatening connectivity.
+        foreach (var room in rooms)
+        {
+            if (room.W < 9 || room.H < 9)
+            {
+                continue;
+            }
+
+            var blocks = 1 + (int)rng.Next(3);
+            for (var i = 0; i < blocks; i++)
+            {
+                var bw = 2 + (int)rng.Next(Math.Max(1, room.W / 4));
+                var bh = 2 + (int)rng.Next(Math.Max(1, room.H / 4));
+                var bx = room.X + 2 + (int)rng.Next(Math.Max(1, room.W - bw - 4));
+                var by = room.Y + 2 + (int)rng.Next(Math.Max(1, room.H - bh - 4));
+                var midX = room.X + (room.W / 2);
+                var midY = room.Y + (room.H / 2);
+
+                for (var y = by; y < by + bh; y++)
+                {
+                    for (var x = bx; x < bx + bw; x++)
+                    {
+                        if (Math.Abs(x - midX) <= 1 && Math.Abs(y - midY) <= 1)
+                        {
+                            continue;
+                        }
+
+                        open[(y * width) + x] = false;
+                    }
+                }
+            }
+        }
+
+        // 4. Join them. A spanning tree first so the map is connected, then extra
         //    passages so there is more than one way round.
         var edges = SpanningTree(rooms, ref rng);
         var extra = rooms.Count * loopPercent / 100;
         AddLoops(edges, rooms, extra, ref rng);
 
-        // 4. Cut each passage and remember where it went.
+        // 5. Cut each passage and remember where it went.
         var carved = new List<(int A, int B, int Cell)>();
         foreach (var (a, b) in edges)
         {
@@ -154,39 +194,54 @@ public static class MapGenerator
             }
 
             var without = Grid.FromMapText(ToText(plugged, width, height));
-            var from = Centre(without, rooms[a]);
-            var to = Centre(without, rooms[b]);
-
-            var before = PathFinder.FindPath(grid, Centre(grid, rooms[a]), Centre(grid, rooms[b]), workspace);
-            // Infinite covers both "there is no way round" and "the plug sealed a
-            // room's own centre", which for this measure is the same answer: that
-            // passage was the only way in.
-            var detour = double.PositiveInfinity;
-            if (from >= 0 && to >= 0 && before.Found)
+            // ONE FLOOD DECIDES BOTH, and the order matters. The first version
+            // worked the two out independently and let a test assert they
+            // agreed. They did not, because "I could not find a cell to path
+            // from" was being recorded as "there is no way round" -- three
+            // passages in open ground came back as cuts that stranded nobody.
+            // Whether plugging split the map is a CONNECTIVITY question, so a
+            // flood answers it, and the detour follows from that answer instead
+            // of racing it.
+            var total = 0;
+            var anyOpen = -1;
+            for (var c = 0; c < without.CellCount; c++)
             {
-                var after = PathFinder.FindPath(without, from, to, workspace);
-                if (after.Found)
+                if (!without.IsPassable(c))
                 {
-                    detour = after.Cost - before.Cost;
+                    continue;
+                }
+
+                total++;
+                if (anyOpen < 0)
+                {
+                    anyOpen = c;
                 }
             }
 
-            // Stranding: how much of the map the far side loses. Only meaningful
-            // when the passage was the only way through.
-            var stranded = 0;
-            if (double.IsInfinity(detour) && from >= 0)
-            {
-                var reachable = Flood(without, from);
-                var total = 0;
-                for (var c = 0; c < without.CellCount; c++)
-                {
-                    if (without.IsPassable(c))
-                    {
-                        total++;
-                    }
-                }
+            var reached = anyOpen >= 0 ? Flood(without, anyOpen) : 0;
+            var stranded = Math.Min(reached, total - reached);
 
-                stranded = Math.Min(reachable, total - reachable);
+            double detour;
+            if (stranded > 0)
+            {
+                // Split in two, so there is no way round by definition and no
+                // path needs running to discover it.
+                detour = double.PositiveInfinity;
+            }
+            else
+            {
+                var from = Centre(without, rooms[a]);
+                var to = Centre(without, rooms[b]);
+                var before = PathFinder.FindPath(
+                    grid, Centre(grid, rooms[a]), Centre(grid, rooms[b]), workspace);
+                var after = from >= 0 && to >= 0
+                    ? PathFinder.FindPath(without, from, to, workspace)
+                    : before;
+
+                // Still connected, so a route exists. If the endpoints could not
+                // be resolved, the honest answer is that this passage cost the
+                // traffic nothing -- not that it was a gate.
+                detour = after.Found && before.Found ? Math.Max(0, after.Cost - before.Cost) : 0;
             }
 
             gates.Add(new KnownGate(cell, corridorWidth, stranded, detour));
@@ -195,11 +250,44 @@ public static class MapGenerator
         return [.. gates.OrderBy(g => g.Cell)];
     }
 
-    /// <summary>A room's middle, or the nearest open cell to it, or -1.</summary>
+    /// <summary>
+    /// Somewhere inside the room to path from: its middle if that is open, else
+    /// the open cell nearest the middle, else -1 if the whole room is filled.
+    /// </summary>
+    /// <remarks>
+    /// It searches rather than testing one cell, and that is not fussiness. The
+    /// obstacle pass and the plug can both cover a room's exact middle, and
+    /// treating "the middle cell is blocked" as "this room is unreachable"
+    /// recorded a passage as a cut when the room was perfectly well connected
+    /// two cells to the left. It made the two halves of the oracle contradict
+    /// each other, which the consistency test caught.
+    /// </remarks>
     private static int Centre(Grid grid, Rect room)
     {
-        var cell = grid.Index(room.X + (room.W / 2), room.Y + (room.H / 2));
-        return grid.IsPassable(cell) ? cell : -1;
+        var midX = room.X + (room.W / 2);
+        var midY = room.Y + (room.H / 2);
+        var best = -1;
+        var bestDistance = int.MaxValue;
+
+        for (var y = room.Y; y < room.Y + room.H; y++)
+        {
+            for (var x = room.X; x < room.X + room.W; x++)
+            {
+                if (!grid.IsPassable(x, y))
+                {
+                    continue;
+                }
+
+                var d = ((x - midX) * (x - midX)) + ((y - midY) * (y - midY));
+                if (d < bestDistance || (d == bestDistance && grid.Index(x, y) < best))
+                {
+                    bestDistance = d;
+                    best = grid.Index(x, y);
+                }
+            }
+        }
+
+        return best;
     }
 
     private static int Flood(Grid grid, int from)

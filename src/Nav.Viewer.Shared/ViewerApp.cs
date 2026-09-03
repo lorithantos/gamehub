@@ -34,12 +34,34 @@ public sealed class ViewerApp : IViewerApp
     /// <summary>A drag smaller than this in both axes is a click.</summary>
     private const float ClickSlopPixels = 4.0f;
 
+    /// <summary>
+    /// How much of the route the inspector spells out. Enough to see the next
+    /// turn; a whole plan is what the overlay is for.
+    /// </summary>
+    private const int RoutePreviewCells = 6;
+
     private readonly ViewerSession _session;
     private readonly int _fitWidth;
     private readonly int _fitHeight;
 
     /// <summary>Never zoom past a cell this big; beyond it a screen holds nothing.</summary>
     private const int MaxCellSize = 48;
+
+    /// <summary>
+    /// Degrees of hue between one side's arc and the next. Side 0 comes out warm
+    /// and side 1 cool, with a gap between them wider than any two ids inside one
+    /// arc — which is the ordering that matters, and the reason
+    /// <see cref="SideArcWidth"/> is narrower than this.
+    /// </summary>
+    /// <remarks>
+    /// Tuned for the two sides a fight has. A third side wraps back into the
+    /// first's arc, and a viewer that has to tell three apart wants a palette
+    /// rather than a wider spacing.
+    /// </remarks>
+    private const float SideArcSpacing = 155f;
+
+    /// <summary>How much of the wheel one side's units are spread across.</summary>
+    private const float SideArcWidth = 110f;
 
     // The camera. Fit settles the window and the zoomed-out floor once per load;
     // these three are what panning and zooming move, and Layout is derived from
@@ -98,7 +120,7 @@ public sealed class ViewerApp : IViewerApp
     /// <see cref="Layout"/> is usually smaller. They are kept, not consumed --
     /// every later load re-fits the new map into the same budget.
     /// </remarks>
-    public ViewerApp(ViewerSession session, int maxPixelWidth, int maxPixelHeight)
+    public ViewerApp(ViewerSession session, int maxPixelWidth, int maxPixelHeight, Keymap? keys = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(maxPixelWidth, 0);
@@ -107,8 +129,10 @@ public sealed class ViewerApp : IViewerApp
         _session = session;
         _fitWidth = maxPixelWidth;
         _fitHeight = maxPixelHeight;
+        Keys = keys ?? Keymap.Default;
         AdoptContent();
         StatusText = BuildStatus();
+        Inspector = BuildInspector();
     }
 
     /// <summary>
@@ -117,8 +141,13 @@ public sealed class ViewerApp : IViewerApp
     /// the fit budget, which reproduces the identical layout because
     /// <see cref="GridLayout.Fit"/> is a fixed point over its own output.
     /// </summary>
-    public ViewerApp(Grid grid, GridLayout layout, int squad = ViewerSession.DefaultSquad, RecordedScenario? scenario = null)
-        : this(BuildSession(grid, scenario, squad), layout.PixelWidth, layout.PixelHeight)
+    public ViewerApp(
+        Grid grid,
+        GridLayout layout,
+        int squad = ViewerSession.DefaultSquad,
+        RecordedScenario? scenario = null,
+        Keymap? keys = null)
+        : this(BuildSession(grid, scenario, squad), layout.PixelWidth, layout.PixelHeight, keys)
     {
     }
 
@@ -142,6 +171,25 @@ public sealed class ViewerApp : IViewerApp
     /// </para>
     /// </remarks>
     public string StatusText { get; private set; }
+
+    /// <summary>
+    /// The watched unit, spelled out. Rebuilt alongside
+    /// <see cref="StatusText"/>, on the same occasions and for the same reason:
+    /// it describes the state a frame is about to be drawn from.
+    /// </summary>
+    /// <remarks>
+    /// The sole selection, or the lowest id when several are selected — one unit
+    /// read properly beats forty summarised, and the lowest id is the one the
+    /// box-select gesture puts first.
+    /// </remarks>
+    public IReadOnlyList<InspectorRow> Inspector { get; private set; }
+
+    /// <summary>
+    /// Which keycap does what. Fixed for the life of the app: the hints in
+    /// <see cref="StatusText"/> are generated from it, and a map that changed
+    /// mid-session would change the status line's length.
+    /// </summary>
+    public Keymap Keys { get; }
 
     /// <summary>
     /// The window's name, following the session's <c>MapName</c> -- so loading a
@@ -202,6 +250,7 @@ public sealed class ViewerApp : IViewerApp
         }
 
         StatusText = BuildStatus();
+        Inspector = BuildInspector();
     }
 
     /// <summary>
@@ -353,6 +402,7 @@ public sealed class ViewerApp : IViewerApp
         }
 
         StatusText = BuildStatus();
+        Inspector = BuildInspector();
     }
 
     /// <summary>
@@ -395,19 +445,90 @@ public sealed class ViewerApp : IViewerApp
             }
 
             var thickness = Math.Max(1.0f, Layout.CellSize * 0.12f);
+
+            // ONE COLOUR. A plan that stopped at the edge of the reservation
+            // window is PROGRESS, not surrender -- the agent walks as far as it
+            // booked and replans when the window moves. That used to be drawn
+            // orange, which sounded informative and was not: a unit under a
+            // group order plans a step at a time and reads IsPartial
+            // continuously, so nearly every grouped unit was permanently orange
+            // and the colour separated nobody from anybody. Partial is a raw
+            // fact; it is in the inspector.
+            //
+            // IsStuck then took the second colour, on the argument that a plan
+            // with no cells at all is the distinction worth one. It is -- but it
+            // cannot arrive here: MovementSystem leaves a stuck agent's Plan
+            // null rather than storing the result, so it never reaches
+            // CurrentPlans, and the guard above skips anything under two cells
+            // in any case. A colour that cannot be seen is dead code on a map
+            // whose whole job is to show what is happening, so it came out.
+            //
+            // A unit which has given up is no longer invisible: having no plan is
+            // exactly the state the no-route cross below draws, and a stuck agent
+            // has none. The cross says "nothing to walk", not "gave up" -- the
+            // reason is still only in the inspector -- but the unit is at least
+            // pickable out of a crowd now. See
+            // TheReasonAStuckPlanNeverReachesTheOverlay.
+            var routeColour = RgbaColor.SkyBlue;
+            var waitRadius = Math.Max(1.5f, Layout.CellSize * 0.18f);
+
+            // Where the plan's own cells begin. Commit pads a new plan from the
+            // current tick out to AnchorTick -- CurrentTick + Latency -- with
+            // wherever the agent stands until then, and the search's first cell
+            // repeats that anchor cell again. Every repeat in that head run is
+            // the PLANNER's delay rather than the unit waiting for anybody, and
+            // marking them put a cluster of dots on the ground under the unit's
+            // own feet on every route that had just been ordered.
+            //
+            // Gating on AgentState.Thinking was tried first and does NOT work:
+            // the padding is written in when the plan is committed, so by the
+            // time it is drawn the search that caused it has finished and
+            // Thinking is already false. The head run is what actually tells the
+            // two apart, so the Thinking condition came out with it in --
+            // keeping both would blink a genuine wait off on whichever ticks the
+            // NEXT search happens to be in flight, which is a different unit's
+            // business entirely.
+            var interior = 1;
+            while (interior < plan.Cells.Count && plan.Cells[interior - 1] == plan.Cells[interior])
+            {
+                interior++;
+            }
+
             for (var i = 1; i < plan.Cells.Count; i++)
             {
                 if (plan.Cells[i - 1] == plan.Cells[i])
                 {
-                    continue;   // a wait draws nothing
+                    if (i > interior)
+                    {
+                        // A repeated cell past the first step is a deliberate tick
+                        // of waiting -- the unit standing behind somebody -- and it
+                        // used to draw nothing at all, so a queued unit's route had
+                        // a silent gap in it exactly where the interesting decision
+                        // was. QUEUED MUST NOT LOOK LIKE REFUSED, the same trap
+                        // ColourFor guards, one layer down.
+                        renderer.DrawCircle(CenterOfCell(plan.Cells[i]), waitRadius, routeColour);
+                    }
+
+                    continue;
                 }
 
                 renderer.DrawLine(
                     CenterOfCell(plan.Cells[i - 1]),
                     CenterOfCell(plan.Cells[i]),
                     thickness,
-                    RgbaColor.SkyBlue);
+                    routeColour);
             }
+        }
+
+        // Who the planner currently has a route for. CurrentPlans is keyed by id
+        // and carries ONLY agents that have a plan, so the ids missing from it are
+        // the ones with nothing to walk -- and that absence is the only place the
+        // viewer can read the fact from. Built once rather than searched per unit:
+        // the loop below runs over every agent on the map.
+        var routed = new HashSet<int>();
+        foreach (var (agent, _) in plans)
+        {
+            routed.Add(agent);
         }
 
         var radius = Math.Max(2.0f, Layout.CellSize * 0.34f);
@@ -435,6 +556,65 @@ public sealed class ViewerApp : IViewerApp
                 // but the seam has no stroke, so the selection is a second smaller
                 // dot on top.
                 renderer.DrawCircle(at, radius * 0.35f, RgbaColor.Black);
+            }
+
+            // NO ROUTE: a live, unarrived unit that is not mid-search and has no
+            // plan. A unit with nothing to walk is the state you most want to pick
+            // out of a crowd, and until now it looked identical to one standing on
+            // its goal.
+            //
+            // All four conditions are needed, and each excludes a different
+            // ordinary reason to have no plan:
+            //   arrived   -- no plan because none is needed;
+            //   thinking  -- a search is in flight and nothing is committed yet;
+            //   not alive -- a removed unit keeps its id and its last cell forever
+            //                and will NEVER have a plan, so without this guard
+            //                every corpse on the field wears the mark -- a false
+            //                signal on exactly the map where you would be counting
+            //                bodies.
+            //
+            // THE ALIVE GUARD IS CURRENTLY REDUNDANT AND IS KEPT ANYWAY. Measured,
+            // not assumed: MovementSystem.Remove parks a removed unit's goal on its
+            // own cell, and AgentState.Arrived is Cell == Goal, so today every
+            // corpse is already excluded by the arrived guard one line earlier and
+            // dropping this condition fails no test. It stays because the exclusion
+            // it makes is the one this code MEANS, while the arrived one is a
+            // coincidence in a class a layer away: the day Remove keeps a
+            // casualty's last goal -- which is a reasonable thing to want in a
+            // casualty report -- every body on the field lights up, and the
+            // instrument lies loudest on the map it was built for.
+            //
+            // Deliberately NOT AgentState.Stuck (!Arrived && StalledTicks > 0).
+            // Stuck is a HISTORY -- "its replans keep failing" -- and this is a
+            // PRESENT FACT -- "it has no route right now". They overlap heavily
+            // and are not the same set: a unit can be stuck while still walking
+            // the plan it has, and a unit can be routeless on the very tick its
+            // stall counter is zero. An instrument shows the present fact.
+            if (!routed.Contains(agent.Id) && agent.Alive && !agent.Arrived && !agent.Thinking)
+            {
+                // A CROSS, not another circle. Every other mark at a unit's
+                // position is a filled disc -- the unit, the leader's doubled dot,
+                // the selection dot -- so one more concentric circle would land in
+                // the middle of a vocabulary that already reads by radius, and at
+                // small cell sizes a bullseye of three is indistinguishable from a
+                // bullseye of two. Crossed lines share no shape with any of them,
+                // and "crossed out" is what the state means: nothing to walk.
+                //
+                // The arms reach PAST the unit's own circle so the mark survives
+                // being drawn over a disc of any hue, and it is drawn last so it
+                // sits on top of the selection dot rather than under it.
+                var arm = radius * 1.2f;
+                var stroke = Math.Max(1.0f, Layout.CellSize * 0.08f);
+
+                // Orange, which the overlay freed when the partial-plan colour
+                // came out. Not SkyBlue (routes and the drag band), not Red (a
+                // stuck unit's own circle), and unreachable by ColourFor -- unit
+                // hues are floored at 0.35 in every channel and orange has none in
+                // blue, so nothing on the map can wear it by accident.
+                renderer.DrawLine(
+                    at - new Vector2(arm, arm), at + new Vector2(arm, arm), stroke, RgbaColor.Orange);
+                renderer.DrawLine(
+                    at - new Vector2(arm, -arm), at + new Vector2(arm, -arm), stroke, RgbaColor.Orange);
             }
         }
 
@@ -595,13 +775,27 @@ public sealed class ViewerApp : IViewerApp
     /// A colour per unit, so a crowd is legible as individuals.
     /// </summary>
     /// <remarks>
-    /// Hue stepped by the golden angle, which spreads any number of ids apart
-    /// without a palette to run out of. Stalled units are red and arrived ones are
-    /// grey, because those two states are worth seeing at a glance and no amount
-    /// of hue tells you them.
+    /// Hue spread by the golden ratio, which separates any number of ids without
+    /// a palette to run out of. Stalled units are red and arrived ones are grey,
+    /// because those two states are worth seeing at a glance and no amount of hue
+    /// tells you them.
+    /// <para>
+    /// Each side then owns an ARC of the wheel rather than the whole of it. A
+    /// full-wheel spread is the best answer to "which unit is that" and the worst
+    /// to "whose unit is that", and in a fight the second question is asked far
+    /// more often.
+    /// </para>
     /// </remarks>
     private static RgbaColor ColourFor(AgentState agent)
     {
+        if (!agent.Alive)
+        {
+            // Out of the world: it keeps its id and its last cell, holds nothing,
+            // and no verb accepts it. Darker than the walls, so a body reads as
+            // scenery rather than as a unit that has stopped taking orders.
+            return RgbaColor.Rgb(55, 55, 60);
+        }
+
         if (agent.Stuck)
         {
             // Blocked-and-waiting dims toward the terrain; blocked-and-probing
@@ -625,7 +819,14 @@ public sealed class ViewerApp : IViewerApp
             return RgbaColor.Rgb(150, 150, 170);
         }
 
-        var hue = agent.Id * 137.508f % 360f;
+        // The golden ratio's conjugate one dimension down: ids land as far apart
+        // inside the arc as they can, the way the golden angle spread them around
+        // the whole wheel before sides existed. Stepping the angle itself and
+        // then folding it into a narrower arc does NOT work -- 137.5 degrees
+        // modulo a 130-degree arc is a 7-degree step, and consecutive ids come
+        // out the same colour.
+        var spread = agent.Id * 0.381966f % 1f;
+        var hue = ((agent.Side * SideArcSpacing) + (spread * SideArcWidth)) % 360f;
         var sector = hue / 60f;
         var x = 1f - Math.Abs((sector % 2f) - 1f);
 
@@ -728,7 +929,168 @@ public sealed class ViewerApp : IViewerApp
             $"{_session.LastTick.NodesSpent,6} nodes/tick  " +
             $"tick {_session.CurrentTick,6}  {(_session.Running ? "[running]" : "[paused]"),-9} " +
             $"{PaceLabel,-8} sel {Fixed(_session.Selection.Count)}  " +
-            $"LMB click/drag select  RMB order  SPACE pause  S step  T pace  " +
-            $"{(_session.IsReplay ? "R restart" : "R regroup")}");
+            $"LMB click/drag select  RMB order  {Hints()}");
     }
+
+    /// <summary>
+    /// The key hints, read off the keymap rather than written out.
+    /// </summary>
+    /// <remarks>
+    /// A literal here was correct exactly as long as nothing could be rebound,
+    /// and the whole point of the keymap is that something can be. A status line
+    /// that is confidently wrong about a key is worse than one that omits it.
+    /// <para>
+    /// Only the four actions that DO something appear. The viewpoint and overlay
+    /// keys are bound and carried and do nothing yet; hinting them would be the
+    /// same lie one step earlier.
+    /// </para>
+    /// </remarks>
+    private string Hints() =>
+        $"{Keys.KeycapFor(ViewerKeys.Space)} pause  " +
+        $"{Keys.KeycapFor(ViewerKeys.Step)} step  " +
+        $"{Keys.KeycapFor(ViewerKeys.Pace)} pace  " +
+        $"{Keys.KeycapFor(ViewerKeys.R)} {(_session.IsReplay ? "restart" : "regroup")}";
+
+    /// <summary>
+    /// The watched unit spelled out, in group order: who it is, where it is,
+    /// what it is thinking, and what it plans to do next.
+    /// </summary>
+    /// <remarks>
+    /// Every field here is already on <see cref="AgentState"/> or
+    /// <see cref="PlanResult"/> — this reads what the simulation already
+    /// publishes rather than asking it for anything new, so nothing about the
+    /// tick path changes when nobody is watching.
+    /// <para>
+    /// Rebuilt whole each time rather than cached: a cache is one more thing
+    /// that can go on describing a unit after it moved, and this is a few dozen
+    /// strings for ONE unit.
+    /// </para>
+    /// <para>
+    /// <b>Partial and waits are here because the map stopped drawing them.</b>
+    /// Both were map distinctions that fired almost every frame, and a
+    /// distinction that is always on is not one. A raw fact that is usually the
+    /// same reads fine as a row and reads as noise as a colour.
+    /// </para>
+    /// </remarks>
+    private IReadOnlyList<InspectorRow> BuildInspector()
+    {
+        const string Identity = "Identity";
+        const string Position = "Position";
+        const string Planning = "Planning";
+        const string Route = "Route";
+
+        var selection = _session.Selection;
+        if (selection.Count == 0)
+        {
+            return [];
+        }
+
+        // The lowest id, because ViewerSession keeps the selection in ascending
+        // order and a box-select has no other stable first member.
+        var watched = selection[0];
+        var agent = _session.Agents[watched];
+
+        var rows = new List<InspectorRow>
+        {
+            new(Identity, "id", Number(agent.Id)),
+            new(Identity, "side", Number(agent.Side)),
+            new(Identity, "alive", YesNo(agent.Alive)),
+            new(Identity, "leader", YesNo(_session.Leaders.Contains(agent.Id))),
+        };
+
+        if (selection.Count > 1)
+        {
+            // Otherwise the panel silently describes one unit of a boxed group
+            // and reads as though the box only caught one.
+            rows.Add(new InspectorRow(Identity, "others", $"{Number(selection.Count - 1)} also selected"));
+        }
+
+        rows.Add(new InspectorRow(Position, "cell", CellText(agent.Cell)));
+        rows.Add(new InspectorRow(Position, "goal", CellText(agent.Goal)));
+        rows.Add(new InspectorRow(Position, "arrived", YesNo(agent.Arrived)));
+        rows.Add(new InspectorRow(Position, "errand", CellText(agent.Errand)));
+
+        rows.Add(new InspectorRow(Planning, "thinking", YesNo(agent.Thinking)));
+        rows.Add(new InspectorRow(Planning, "waiting", YesNo(agent.Waiting)));
+        rows.Add(new InspectorRow(Planning, "stalled", Number(agent.StalledTicks)));
+        rows.Add(new InspectorRow(Planning, "stuck", YesNo(agent.Stuck)));
+
+        PlanResult? route = null;
+        foreach (var (id, plan) in _session.CurrentPlans())
+        {
+            if (id == watched)
+            {
+                route = plan;
+                break;
+            }
+        }
+
+        if (route is null)
+        {
+            rows.Add(new InspectorRow(Route, "plan", "none"));
+            return rows;
+        }
+
+        rows.Add(new InspectorRow(Route, "cells", Number(route.Cells.Count)));
+        rows.Add(new InspectorRow(Route, "cost", string.Create(CultureInfo.InvariantCulture, $"{route.Cost:0.##}")));
+        rows.Add(new InspectorRow(Route, "expanded", Number(route.Expanded)));
+        rows.Add(new InspectorRow(Route, "found", YesNo(route.Found)));
+        rows.Add(new InspectorRow(Route, "partial", YesNo(route.IsPartial)));
+        rows.Add(new InspectorRow(Route, "waits", Number(WaitCount(route))));
+        rows.Add(new InspectorRow(Route, "last tick", Number(route.LastTick)));
+        rows.Add(new InspectorRow(Route, "next", NextCells(route)));
+
+        return rows;
+    }
+
+    /// <summary>
+    /// Ticks the plan spends standing still: a cell repeated from the one before
+    /// it.
+    /// </summary>
+    /// <remarks>
+    /// The raw count, every repeat. The map marks only the ones in the plan's
+    /// interior, because the run at its head is the planner's latency and a dot
+    /// per tick of that lands on top of the unit and says nothing. The panel is
+    /// where the unfiltered number belongs, so what was drawn can be read
+    /// against what there was to draw.
+    /// </remarks>
+    private static int WaitCount(PlanResult plan)
+    {
+        var waits = 0;
+        for (var i = 1; i < plan.Cells.Count; i++)
+        {
+            if (plan.Cells[i - 1] == plan.Cells[i])
+            {
+                waits++;
+            }
+        }
+
+        return waits;
+    }
+
+    /// <summary>
+    /// Where the plan takes the unit from here, a handful of cells deep. Cut at
+    /// the current tick rather than at the plan's start, so it says what happens
+    /// next and not what already happened.
+    /// </summary>
+    private string NextCells(PlanResult plan)
+    {
+        var from = Math.Max(0, _session.CurrentTick - plan.StartTick);
+        var cells = plan.Cells.Skip(from).Take(RoutePreviewCells).Select(CellText);
+        var text = string.Join(" ", cells);
+        return text.Length > 0 ? text : "-";
+    }
+
+    /// <summary>
+    /// A cell as <c>col,row</c>, or <c>-</c> for the -1 that means "none" on
+    /// <see cref="AgentState.Errand"/>. Flat indices are how the simulation
+    /// talks; nobody reads a map in them.
+    /// </summary>
+    private string CellText(int cell) => cell < 0
+        ? "-"
+        : string.Create(CultureInfo.InvariantCulture, $"{_grid.ColumnOf(cell)},{_grid.RowOf(cell)}");
+
+    private static string YesNo(bool value) => value ? "yes" : "no";
+
+    private static string Number(int value) => value.ToString(CultureInfo.InvariantCulture);
 }

@@ -13,6 +13,10 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
 
         <!--
             The Direct3D surface. NearestNeighbor on the WPF side as well as in
@@ -21,6 +25,7 @@
         -->
         <Image x:Name="Surface"
                Grid.Row="0"
+               Grid.Column="0"
                Stretch="Fill"
                RenderOptions.BitmapScalingMode="NearestNeighbor"
                SnapsToDevicePixels="True" />
@@ -30,13 +35,44 @@
             That decision is why IRenderer has no DrawText, and why raw Direct3D
             11, which cannot draw a glyph at all, needed no font machinery here.
         -->
-        <Border x:Name="StatusBar" Grid.Row="1" Background="Black" Padding="6,5">
+        <Border x:Name="StatusBar" Grid.Row="1" Grid.Column="0" Background="Black" Padding="6,5">
             <TextBlock x:Name="Status"
                        Foreground="#F5F5F5"
                        FontFamily="Consolas"
                        FontSize="12"
                        TextTrimming="CharacterEllipsis"
                        Text="starting..." />
+        </Border>
+
+        <!--
+            The inspector, the same chrome argument as the status line one size
+            up. Its width is FIXED rather than sized to its content: the window
+            auto-sizes to this grid, so a panel that grew with the longest value
+            in it would move the window every time a unit replanned - the same
+            shake the status line's padded counters exist to prevent.
+
+            Its height is driven from the surface in WpfHost.SizeChrome, so the
+            map alone decides how tall the window is. The scroll viewer is what
+            makes that safe on a small map: it takes the overflow instead of the
+            window taking it.
+        -->
+        <Border x:Name="InspectorPanel"
+                Grid.Row="0"
+                Grid.RowSpan="2"
+                Grid.Column="1"
+                Width="260"
+                Background="Black"
+                Padding="8,6">
+            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          Focusable="False">
+                <TextBlock x:Name="Inspector"
+                           Foreground="#F5F5F5"
+                           FontFamily="Consolas"
+                           FontSize="12"
+                           TextWrapping="NoWrap"
+                           Text="" />
+            </ScrollViewer>
         </Border>
     </Grid>
 </Window>

@@ -25,6 +25,30 @@ public interface IViewerApp
     string StatusText { get; }
 
     /// <summary>
+    /// Everything worth knowing about the watched unit, as rows. The same split
+    /// as the status line — the app decides what it says, the host decides how
+    /// it looks.
+    /// </summary>
+    /// <remarks>
+    /// A <em>second</em> property rather than more <see cref="StatusText"/>, and
+    /// that is the whole reason it exists: the status line's length is pinned so
+    /// a window sized to content cannot shake, and a unit's state is far too much
+    /// text to live under that rule.
+    /// <para>
+    /// Empty when nothing is selected, which is a host's cue to show nothing
+    /// rather than an empty frame.
+    /// </para>
+    /// </remarks>
+    IReadOnlyList<InspectorRow> Inspector { get; }
+
+    /// <summary>
+    /// Which keycap does what. The host reads it to translate its own key type;
+    /// the app reads it to write the hints in <see cref="StatusText"/>, so a
+    /// rebind cannot leave the hints lying.
+    /// </summary>
+    Keymap Keys { get; }
+
+    /// <summary>
     /// What the window should be called. The same split as the status line —
     /// and observable rather than a constructor argument, because a loaded file
     /// changes what the window is showing.

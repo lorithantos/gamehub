@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Text;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -110,19 +111,26 @@ internal sealed class WpfHost(GridLayout layout, int? maxFrames) : IViewerHost
     }
 
     /// <summary>
-    /// The surface, not the status text, decides the window's width.
+    /// The surface, not the text, decides the window's size.
     /// </summary>
     /// <remarks>
     /// Otherwise the status line is the widest element on small maps, and
     /// SizeToContent re-measures the WHOLE WINDOW every time a counter changes
     /// digit count — the window visibly shakes while an agent replans.
     /// <para>The text trims instead.</para>
+    /// <para>
+    /// The inspector column joined that arithmetic and had to be pinned at both
+    /// ends to stay out of it: a fixed width in the XAML, and its height taken
+    /// from the surface here. Left to size itself it would have driven the
+    /// window from whichever unit happened to be selected.
+    /// </para>
     /// </remarks>
     private void SizeChrome()
     {
         _window!.Surface.Width = _layout.PixelWidth / _dpiScale;
         _window.Surface.Height = _layout.PixelHeight / _dpiScale;
         _window.StatusBar.Width = _layout.PixelWidth / _dpiScale;
+        _window.InspectorPanel.Height = _layout.PixelHeight / _dpiScale;
     }
 
     /// <summary>
@@ -230,10 +238,67 @@ internal sealed class WpfHost(GridLayout layout, int? maxFrames) : IViewerHost
             _window.Status.Text = _app.StatusText;
         }
 
+        var inspector = Format(_app.Inspector);
+        if (!string.Equals(_window.Inspector.Text, inspector, StringComparison.Ordinal))
+        {
+            // The string is built every frame; only the assignment is guarded,
+            // because the layout pass is the expensive half and it costs more
+            // here -- the panel is a dozen lines rather than one, and most of
+            // them are the same from frame to frame. One TextBlock rather than
+            // an element per row for the same reason -- laying out twenty
+            // elements sixty times a second to show a cell that changed once is
+            // work nobody asked for.
+            _window.Inspector.Text = inspector;
+        }
+
         if (maxFrames is { } limit && ++_frames >= limit)
         {
             _window.Close();
         }
+    }
+
+    /// <summary>
+    /// The inspector rows as one monospace block: a heading per group, then
+    /// label and value in two columns.
+    /// </summary>
+    /// <remarks>
+    /// The app hands over rows and this decides what they look like — the same
+    /// split as the status line, one size up. Columns are spaces rather than a
+    /// grid because Consolas already lines them up, and a real grid would be
+    /// twenty elements to lay out for a value that changed once.
+    /// <para>
+    /// Rows arrive in group order, so a heading is emitted when the group
+    /// changes rather than by grouping anything here.
+    /// </para>
+    /// </remarks>
+    private static string Format(IReadOnlyList<InspectorRow> rows)
+    {
+        if (rows.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var width = rows.Max(r => r.Label.Length);
+        var text = new StringBuilder();
+        var group = string.Empty;
+
+        foreach (var row in rows)
+        {
+            if (!string.Equals(group, row.Group, StringComparison.Ordinal))
+            {
+                if (text.Length > 0)
+                {
+                    text.AppendLine();
+                }
+
+                group = row.Group;
+                text.AppendLine(group.ToUpperInvariant());
+            }
+
+            text.Append("  ").Append(row.Label.PadRight(width)).Append("  ").AppendLine(row.Value);
+        }
+
+        return text.ToString().TrimEnd();
     }
 
     private void OnClosed(object? sender, EventArgs e) => Dispose();
@@ -243,54 +308,49 @@ internal sealed class WpfHost(GridLayout layout, int? maxFrames) : IViewerHost
         // Held state, never edges. InputAccumulator derives the edge, which is
         // what makes WPF's key auto-repeat -- roughly thirty events a second --
         // harmless without a single WPF-specific line.
+        //
+        // Escape and Ctrl+O are host chrome and stop here: they close the window
+        // and open a file, neither of which the app has an opinion about, and
+        // neither of which anyone should be able to rebind away.
         switch (key)
         {
-            case Key.Space:
-                _input.SetKeyState(ViewerKeys.Space, down);
-                break;
-            case Key.R:
-                _input.SetKeyState(ViewerKeys.R, down);
-                break;
-            case Key.S:
-                _input.SetKeyState(ViewerKeys.Step, down);
-                break;
-            case Key.T:
-                _input.SetKeyState(ViewerKeys.Pace, down);
-                break;
-
-            // Arrows pan, +/- zoom, Home puts the whole map back.
-            case Key.Left:
-                _input.SetKeyState(ViewerKeys.PanLeft, down);
-                break;
-            case Key.Right:
-                _input.SetKeyState(ViewerKeys.PanRight, down);
-                break;
-            case Key.Up:
-                _input.SetKeyState(ViewerKeys.PanUp, down);
-                break;
-            case Key.Down:
-                _input.SetKeyState(ViewerKeys.PanDown, down);
-                break;
-            case Key.OemPlus:
-            case Key.Add:
-                _input.SetKeyState(ViewerKeys.ZoomIn, down);
-                break;
-            case Key.OemMinus:
-            case Key.Subtract:
-                _input.SetKeyState(ViewerKeys.ZoomOut, down);
-                break;
-            case Key.Home:
-                _input.SetKeyState(ViewerKeys.ResetView, down);
-                break;
             case Key.Escape when down:
                 _window?.Close();
-                break;
+                return;
             case Key.O when down && (Keyboard.Modifiers & ModifierKeys.Control) != 0:
                 PromptForFile();
-                break;
+                return;
             default:
                 break;
         }
+
+        // WPF's Key becomes the shared physical identity ONCE, and the app's
+        // keymap decides what it does -- see Keymap for why the map sits
+        // between them.
+        var physical = key switch
+        {
+            Key.Space => PhysicalKey.Space,
+            Key.R => PhysicalKey.R,
+            Key.S => PhysicalKey.S,
+            Key.T => PhysicalKey.T,
+            Key.V => PhysicalKey.V,
+            Key.P => PhysicalKey.P,
+            Key.L => PhysicalKey.L,
+            Key.Left => PhysicalKey.Left,
+            Key.Right => PhysicalKey.Right,
+            Key.Up => PhysicalKey.Up,
+            Key.Down => PhysicalKey.Down,
+
+            Key.OemPlus or Key.Add => PhysicalKey.Plus,
+            Key.OemMinus or Key.Subtract => PhysicalKey.Minus,
+            Key.Home => PhysicalKey.Home,
+            _ => PhysicalKey.None,
+        };
+
+        // An unbound key answers None, and setting an empty mask sets and clears
+        // nothing -- so there is no need to ask first whether the viewer wants
+        // this key.
+        _input.SetKeyState(_app?.Keys.Action(physical) ?? ViewerKeys.None, down);
     }
 
     private void OnDrop(object sender, DragEventArgs e)

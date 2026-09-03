@@ -300,8 +300,31 @@ public sealed class ViewerSession
     }
 
     /// <summary>Sends every unit to a cell, selected or not.</summary>
+    /// <remarks>
+    /// The living ones. <see cref="MovementSystem.Order(IReadOnlyList{int}, int)"/> throws on a removed
+    /// agent rather than quietly moving a corpse, and this hands it every id there
+    /// has ever been -- so one casualty would turn the regroup key into an
+    /// exception for the rest of the session.
+    /// </remarks>
     public void OrderEveryone(int goalCell) =>
-        _system.Order([.. Enumerable.Range(0, _system.Agents.Count)], goalCell);
+        _system.Order([.. _system.Agents.Where(a => a.Alive).Select(a => a.Id)], goalCell);
+
+    /// <summary>
+    /// Takes a unit out of the world: what a casualty is to this layer. It keeps
+    /// its id and its last cell, so everything indexing agents by id goes on
+    /// working, and <see cref="AgentState.Alive"/> is how the viewer tells a body
+    /// from a unit.
+    /// </summary>
+    /// <remarks>
+    /// Dropped from the selection as well, because the selection is what orders
+    /// are aimed at and <see cref="MovementSystem.Order(IReadOnlyList{int}, int)"/> refuses a removed
+    /// agent -- leaving a corpse selected would arm a right-click to throw.
+    /// </remarks>
+    public void Remove(int agent)
+    {
+        _system.Remove(agent);
+        _selection.Remove(agent);
+    }
 
     /// <summary>
     /// One simulation step: recorded orders due at this tick are issued exactly

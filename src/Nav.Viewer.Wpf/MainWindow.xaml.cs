@@ -9,10 +9,12 @@ namespace Nav.Viewer.Wpf;
 internal partial class MainWindow : Window
 {
     /// <summary>
-    /// Realises the two named elements the host drives: the nearest-neighbour
-    /// <c>Surface</c> image the Direct3D back buffer is attached to, and the
-    /// <c>Status</c> line under it. The window opens auto-sizing to that content;
-    /// <see cref="WpfHost"/> locks the sizing once the first layout has run.
+    /// Realises the named elements the host drives: the nearest-neighbour
+    /// <c>Surface</c> image the Direct3D back buffer is attached to, the
+    /// <c>Status</c> line under it, and the <c>Inspector</c> panel beside it.
+    /// The window opens auto-sizing to that content; <see cref="WpfHost"/> locks
+    /// the sizing once the first layout has run, and sizes the surface and the
+    /// two chrome elements from the map.
     /// </summary>
     public MainWindow() => InitializeComponent();
 }

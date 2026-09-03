@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Numerics;
 
 using Nav.Core;
@@ -354,9 +355,628 @@ public sealed class ViewerAppTests
         host.Run(app);
 
         // Whatever is drawn, it belongs to one unit: every segment lies on the
-        // selected unit's plan.
+        // selected unit's plan, so every segment wears that plan's colour.
+        //
+        // Named rather than derived from IsPartial. All four were sent to the
+        // same cell and only one can have it, so most of them are planning to
+        // the edge of the reservation window -- which the map has stopped
+        // colouring differently, precisely because that is the usual case.
+        var route = app.Session.CurrentPlans().First(p => p.Agent == app.Selection[0]).Plan;
+        Assert.False(route.IsStuck);
+
         var lines = renderer.LastFrameOfKind<DrawCommand.Line>().ToList();
         Assert.All(lines, line => Assert.Equal(RgbaColor.SkyBlue, line.Color));
+    }
+
+    /// <summary>A corridor with the far end three steps away — well inside the window.</summary>
+    private const string ShortCorridor =
+        """
+        type octile
+        height 3
+        width 6
+        map
+        @@@@@@
+        @....@
+        @@@@@@
+        """;
+
+    /// <summary>
+    /// A corridor longer than the reservation window is deep, so an order to the
+    /// far end cannot be planned all the way.
+    /// </summary>
+    private const string LongCorridor =
+        """
+        type octile
+        height 3
+        width 44
+        map
+        @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        @..........................................@
+        @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        """;
+
+    /// <summary>One unit, ordered somewhere, one tick in.</summary>
+    private static (ViewerApp App, RecordingRenderer Renderer) Ordered(string map, int goalX)
+    {
+        var grid = Grid.FromMapText(map);
+        var layout = LayoutFor(grid);
+        var app = new ViewerApp(grid, layout, squad: 1);
+        var renderer = new RecordingRenderer();
+
+        using var host = new ScriptedHost(
+            [new ScriptedFrame(Mouse: layout.CenterOf(goalX, 1), ButtonsDown: MouseButtons.Right), .. Ticks(1)],
+            renderer);
+        host.Run(app);
+
+        return (app, renderer);
+    }
+
+    private static PlanResult PlanOf(ViewerApp app, int agent) =>
+        app.Session.CurrentPlans().First(p => p.Agent == agent).Plan;
+
+    /// <summary>
+    /// The plan's repeated cells -- one tick of standing still apiece -- as the
+    /// pixel centres a mark would land on. Every one of them, which is what the
+    /// inspector's <c>waits</c> row counts.
+    /// </summary>
+    private static List<Vector2> WaitsIn(ViewerApp app, PlanResult plan) =>
+        [.. Enumerable.Range(1, Math.Max(0, plan.Cells.Count - 1))
+            .Where(i => plan.Cells[i - 1] == plan.Cells[i])
+            .Select(i => app.CenterOfCell(plan.Cells[i]))];
+
+    /// <summary>
+    /// The index of the plan's first actual step -- the end of the run of
+    /// repeats the planner's latency pads the head with.
+    /// </summary>
+    private static int FirstStepIn(PlanResult plan)
+    {
+        var first = 1;
+        while (first < plan.Cells.Count && plan.Cells[first - 1] == plan.Cells[first])
+        {
+            first++;
+        }
+
+        return first;
+    }
+
+    /// <summary>
+    /// The repeats the map marks: the ones after the plan's first step. The run
+    /// at the head is latency and is not a wait, however much it looks like one.
+    /// </summary>
+    private static List<Vector2> InteriorWaitsIn(ViewerApp app, PlanResult plan) =>
+        [.. Enumerable.Range(1, Math.Max(0, plan.Cells.Count - 1))
+            .Where(i => i > FirstStepIn(plan) && plan.Cells[i - 1] == plan.Cells[i])
+            .Select(i => app.CenterOfCell(plan.Cells[i]))];
+
+    /// <summary>
+    /// The wait marks in the last frame drawn, identified by the route's colour
+    /// rather than by size: no unit wears it, and a radius is a presentation
+    /// detail these tests should not pin.
+    /// </summary>
+    private static List<Vector2> MarksIn(RecordingRenderer renderer) =>
+        [.. renderer.LastFrameOfKind<DrawCommand.Circle>()
+            .Where(c => c.Color == RgbaColor.SkyBlue)
+            .Select(c => c.Center)];
+
+    /// <summary>
+    /// A one-wide corridor with room to walk down before running into anybody.
+    /// </summary>
+    private const string QueueCorridor =
+        """
+        type octile
+        height 3
+        width 12
+        map
+        @@@@@@@@@@@@
+        @..........@
+        @@@@@@@@@@@@
+        """;
+
+    /// <summary>
+    /// Two units in <see cref="QueueCorridor"/>: the front one sent to a cell
+    /// short of the rear one's goal, so the rear one walks up behind it and then
+    /// stands still for the rest of its plan. Queued, not refused.
+    /// </summary>
+    /// <remarks>
+    /// The point of the walk is that the wait lands in the plan's INTERIOR,
+    /// after real steps, which is the only shape the map marks.
+    /// <para>
+    /// It has to be caught in the middle. The fixture this replaced ordered the
+    /// rear unit straight into a blocker's back and its plan came out as five
+    /// repeats of the cell it was already standing on -- every one of them
+    /// indistinguishable from the planner's latency pad, and marked only because
+    /// the map was marking the pad too. This one is read while it is still
+    /// closing the gap: earlier its plan is all head, later it has closed up and
+    /// its whole plan is standing still again.
+    /// </para>
+    /// </remarks>
+    private static (ViewerApp App, RecordingRenderer Renderer) Queued()
+    {
+        var grid = Grid.FromMapText(QueueCorridor);
+        var layout = LayoutFor(grid);
+        var app = new ViewerApp(grid, layout, squad: 2);
+        var renderer = new RecordingRenderer();
+
+        var front = app.Agents[1].Cell;
+        var rear = app.Agents[0].Cell;
+
+        // Select and order each in turn -- press and release on the same spot,
+        // because two different spots is a drag and would box them both.
+        ScriptedFrame[] OrderFrom(int unit, int goalX) =>
+        [
+            new(Mouse: layout.CenterOf(grid.ColumnOf(unit), grid.RowOf(unit)), ButtonsDown: MouseButtons.Left),
+            new(Mouse: layout.CenterOf(grid.ColumnOf(unit), grid.RowOf(unit))),
+            new(Mouse: layout.CenterOf(goalX, 1), ButtonsDown: MouseButtons.Right),
+            new(Mouse: layout.CenterOf(goalX, 1)),
+        ];
+
+        // The rear unit is ordered last, so it is the one left selected and the
+        // one whose route is drawn.
+        using var host = new ScriptedHost(
+            [.. OrderFrom(front, goalX: 6), .. OrderFrom(rear, goalX: 10), .. Ticks(12)],
+            renderer);
+        host.Run(app);
+
+        return (app, renderer);
+    }
+
+    /// <summary>
+    /// Open ground, walled at the edge, big enough that a corner-to-corner order
+    /// outruns the reservation window. The unit replans on the move, so there
+    /// are ticks where a search is in flight while the plan it will replace is
+    /// still the one being drawn.
+    /// </summary>
+    private static Grid OpenField()
+    {
+        const int Width = 60;
+        const int Height = 40;
+
+        var lines = new List<string> { "type octile", $"height {Height}", $"width {Width}", "map" };
+        for (var y = 0; y < Height; y++)
+        {
+            lines.Add(y == 0 || y == Height - 1
+                ? new string('@', Width)
+                : $"@{new string('.', Width - 2)}@");
+        }
+
+        return Grid.FromMapText(string.Join("\n", lines));
+    }
+
+    /// <summary>One unit crossing <see cref="OpenField"/>, some way in.</summary>
+    private static (ViewerApp App, RecordingRenderer Renderer) CrossingTheField(int ticks)
+    {
+        var grid = OpenField();
+        var layout = LayoutFor(grid);
+        var app = new ViewerApp(grid, layout, squad: 1);
+        var renderer = new RecordingRenderer();
+
+        using var host = new ScriptedHost(
+            [new ScriptedFrame(Mouse: layout.CenterOf(58, 38), ButtonsDown: MouseButtons.Right), .. Ticks(ticks)],
+            renderer);
+        host.Run(app);
+
+        return (app, renderer);
+    }
+
+    [Fact]
+    public void AWaitInThePlanDrawsAMarkRatherThanNothing()
+    {
+        // A repeated cell is a deliberate tick of standing still -- here a unit
+        // that has walked up behind a slower one and can go no further. Every
+        // one of them used to draw nothing at all, so the route had a silent gap
+        // exactly where the waiting was, and a queued unit read as one that had
+        // stopped caring about the order.
+        var (app, renderer) = Queued();
+        var plan = PlanOf(app, 0);
+
+        // The shape the mark now depends on, and no flag: the plan takes a real
+        // step before it starts repeating, so the repeats are its own and not
+        // the latency the planner pads every fresh plan's head with.
+        Assert.Equal(1, FirstStepIn(plan));
+
+        var waits = InteriorWaitsIn(app, plan);
+        Assert.NotEmpty(waits);
+
+        var marks = MarksIn(renderer);
+        Assert.Equal(waits.Count, marks.Count);
+        Assert.All(waits, wait => Assert.Contains(wait, marks));
+    }
+
+    [Fact]
+    public void TheThinkingFlagNeverSeparatedTheLatencyPadFromAWait()
+    {
+        // The rejected fix, kept because it looked right and measured false.
+        //
+        // The repeats at the head of a plan are the planner's latency: Commit
+        // pads from the current tick out to AnchorTick, which is CurrentTick +
+        // Latency, and the search's own first cell repeats the anchor cell
+        // again. Marking them dropped a cluster of dots on the ground under the
+        // unit's own feet on every route.
+        //
+        // Gating the mark on AgentState.Thinking was supposed to close that, on
+        // the reading that a repeat while a search is in flight is the unit
+        // holding for a plan of its own. It closed nothing: the pad is written
+        // in when the plan is COMMITTED, so by the time it is drawn the search
+        // that caused it has finished and Thinking is already false. Here are
+        // the two ticks that show it -- the same plan, the same repeats, the
+        // flag opposite in each, and the pad drawn in both.
+        var (quiet, quietRenderer) = CrossingTheField(ticks: 10);
+        var (searching, searchingRenderer) = CrossingTheField(ticks: 30);
+
+        Assert.False(quiet.Agents[0].Thinking);
+        Assert.True(searching.Agents[0].Thinking, "the fixture stopped catching a search in flight");
+
+        // Same plan in both, so the only thing that differs is the flag.
+        var plan = PlanOf(quiet, 0);
+        Assert.Equal(plan.Cells, PlanOf(searching, 0).Cells);
+
+        // It does have repeats -- they are simply all in the head run, which is
+        // the half the flag was blind to.
+        Assert.NotEmpty(WaitsIn(quiet, plan));
+        Assert.Empty(InteriorWaitsIn(quiet, plan));
+
+        Assert.Empty(MarksIn(quietRenderer));
+        Assert.Empty(MarksIn(searchingRenderer));
+    }
+
+    [Fact]
+    public void TheHeadOfAPlanIsLatencyAndOnlyItsInteriorIsAWait()
+    {
+        // The distinction the map draws, both sides of it in one place.
+        //
+        // A unit that has just been ordered across open ground has a plan whose
+        // head is nothing but repeats and whose interior has none: it is not
+        // waiting for anybody, it is waiting for its own search, and it draws no
+        // marks at all. A unit queued behind a slower one has stepped first and
+        // then stopped, and every repeat after that first step is marked.
+        var (crossing, crossingRenderer) = CrossingTheField(ticks: 10);
+        var crossingPlan = PlanOf(crossing, 0);
+
+        Assert.True(FirstStepIn(crossingPlan) > 1, "the fixture stopped starting with a latency pad");
+        Assert.Empty(MarksIn(crossingRenderer));
+
+        var (queued, queuedRenderer) = Queued();
+        var queuedPlan = PlanOf(queued, 0);
+
+        Assert.NotEmpty(InteriorWaitsIn(queued, queuedPlan));
+        Assert.Equal(InteriorWaitsIn(queued, queuedPlan).Count, MarksIn(queuedRenderer).Count);
+    }
+
+    [Fact]
+    public void APartialPlanLooksExactlyLikeAWholeOne()
+    {
+        // Planning is bounded by the reservation window, so a plan that stops
+        // short of the goal is ordinary progress -- the agent walks as far as it
+        // booked and replans when the window moves. The map used to say so in
+        // orange, and saying so cost the colour its meaning: a unit under a
+        // group order plans a step at a time and is partial almost continuously,
+        // so almost every route was orange almost always. The flag is a row in
+        // the inspector now, and the map keeps colours for things that differ.
+        var (whole, wholeRenderer) = Ordered(ShortCorridor, goalX: 4);
+        Assert.False(PlanOf(whole, 0).IsPartial, "three steps should be inside anybody's window");
+
+        var wholeLines = wholeRenderer.LastFrameOfKind<DrawCommand.Line>().ToList();
+        Assert.NotEmpty(wholeLines);
+        Assert.All(wholeLines, line => Assert.Equal(RgbaColor.SkyBlue, line.Color));
+
+        // Forty-one cells away with thirty-two ticks of window: the same unit
+        // doing the same thing, unable to plan the whole way.
+        var (edge, edgeRenderer) = Ordered(LongCorridor, goalX: 42);
+        Assert.True(PlanOf(edge, 0).IsPartial, "the fixture stopped outrunning the reservation window");
+
+        var edgeLines = edgeRenderer.LastFrameOfKind<DrawCommand.Line>().ToList();
+        Assert.NotEmpty(edgeLines);
+        Assert.All(edgeLines, line => Assert.Equal(RgbaColor.SkyBlue, line.Color));
+    }
+
+    [Fact]
+    public void TheReasonAStuckPlanNeverReachesTheOverlay()
+    {
+        // The route wears ONE colour, and this is why there is nothing for a
+        // second one to say.
+        //
+        // A stuck plan gave up entirely, and for a while the overlay drew it
+        // orange. That branch could never run. A stuck result has NO cells -- not
+        // even a tick of standing still -- so Render's own "fewer than two cells"
+        // guard would skip it, and it does not get that far anyway: MovementSystem
+        // leaves a stuck agent's Plan null rather than storing the result, so it
+        // never appears in CurrentPlans at all. The branch came out; an unreachable
+        // colour is dead code on a map whose whole job is to show what is
+        // happening.
+        //
+        // THE GAP IS NARROWER THAN IT WAS. A unit that has given up shows on the
+        // map as a unit with no route -- and that no longer looks like an arrived
+        // or an unordered unit, because having no plan is precisely what the
+        // no-route cross draws and those two are guarded out of it. See
+        // AUnitWithNoRouteIsMarked.
+        //
+        // What is still missing is the REASON. The cross says "nothing to walk",
+        // which is true of a unit that gave up and equally true of one that was
+        // ordered a moment ago and has not been planned yet; only the inspector
+        // separates them. Distinguishing them on the map needs the stuck result
+        // itself, which is discarded before the viewer sees it. If a change ever
+        // routes one into CurrentPlans, this test is where that decision was
+        // left, and it is worth doing properly rather than by reviving the colour.
+        var stuck = PlanResult.Stuck(startTick: 0, expanded: 0);
+        Assert.Empty(stuck.Cells);
+
+        // Which is under the two cells a segment needs, so Render's own guard
+        // would skip it even if it did arrive.
+        Assert.True(stuck.Cells.Count < 2);
+
+        // And it does not arrive. Four units sent to one cell, which only one of
+        // them can have, is as crowded as this fixture gets -- and no plan the
+        // viewer can see is ever stuck, because MovementSystem drops the result
+        // and leaves the agent's plan null instead of publishing it.
+        //
+        // Checked EVERY tick rather than at the end. A stuck plan would be one
+        // frame wide, and looking only at the last frame is how a branch comes to
+        // be believed reachable in the first place.
+        var grid = Fixture();
+        var layout = LayoutFor(grid);
+        var app = new ViewerApp(grid, layout, Squad);
+        app.Session.Select([.. Enumerable.Range(0, Squad)]);
+
+        using (var host = new ScriptedHost(
+            [
+                new ScriptedFrame(Mouse: layout.CenterOf(10, 5), ButtonsDown: MouseButtons.Right),
+                new ScriptedFrame(Mouse: layout.CenterOf(10, 5)),
+            ],
+            new RecordingRenderer()))
+        {
+            host.Run(app);
+        }
+
+        var idle = new InputState(layout.CenterOf(10, 5), ViewerKeys.None, MouseButtons.None, MouseButtons.None);
+        for (var tick = 0; tick < 120; tick++)
+        {
+            app.Update(idle, (float)WorldScale.Default.SecondsPerTick);
+            Assert.All(app.Session.CurrentPlans(), p => Assert.NotEmpty(p.Plan.Cells));
+        }
+    }
+
+    /// <summary>
+    /// The no-route crosses in the last frame drawn, one point per marked unit.
+    /// </summary>
+    /// <remarks>
+    /// Each mark is two orange lines through a unit's centre, so both arms share
+    /// that centre as their midpoint and the pair collapses to the one point a
+    /// test actually wants to name: WHICH UNIT was marked. Identified by colour
+    /// rather than by length, because an arm radius is presentation and these
+    /// tests should not pin it.
+    /// <para>
+    /// Midpoints are compared with a tolerance rather than for equality: the arms
+    /// are built as centre plus and minus an offset, and float addition does not
+    /// promise to give the centre back exactly.
+    /// </para>
+    /// </remarks>
+    private static List<Vector2> NoRouteMarksIn(RecordingRenderer renderer)
+    {
+        var centres = new List<Vector2>();
+        foreach (var line in renderer.LastFrameOfKind<DrawCommand.Line>()
+            .Where(l => l.Color == RgbaColor.Orange))
+        {
+            var centre = (line.From + line.To) / 2f;
+            if (!centres.Exists(c => Marks(c, centre)))
+            {
+                centres.Add(centre);
+            }
+        }
+
+        return centres;
+    }
+
+    private static bool Marks(Vector2 mark, Vector2 unit) => Vector2.Distance(mark, unit) < 0.5f;
+
+    /// <summary>
+    /// One unit, ordered, with the clock given nothing to spend: the order lands
+    /// and no tick is bought to plan it in.
+    /// </summary>
+    /// <remarks>
+    /// This is the routeless state at its cleanest. The goal is elsewhere so the
+    /// unit has not arrived; no search has started, so it is not thinking; and
+    /// planning is queued rather than done inline on the order, so
+    /// <c>CurrentPlans</c> has nothing for it. It has somewhere to be and no route
+    /// there, which is precisely what the mark is for.
+    /// </remarks>
+    private static (ViewerApp App, RecordingRenderer Renderer) OrderedButUnplanned()
+    {
+        var grid = Grid.FromMapText(ShortCorridor);
+        var layout = LayoutFor(grid);
+        var app = new ViewerApp(grid, layout, squad: 1);
+        var renderer = new RecordingRenderer();
+
+        using var host = new ScriptedHost(
+            [new ScriptedFrame(Dt: 0f, Mouse: layout.CenterOf(4, 1), ButtonsDown: MouseButtons.Right)],
+            renderer);
+        host.Run(app);
+
+        return (app, renderer);
+    }
+
+    [Fact]
+    public void AUnitWithNoRouteIsMarked()
+    {
+        // The absence CurrentPlans was already reporting and the viewer was
+        // throwing away: it lists only agents that HAVE a plan, so an agent in
+        // Agents and missing from it has nothing to walk. Until now that looked
+        // exactly like a unit standing on its goal.
+        var (app, renderer) = OrderedButUnplanned();
+        var unit = app.Agents[0];
+
+        // All four conditions, stated rather than assumed, so a fixture that
+        // drifts into some other state fails here instead of silently testing it.
+        Assert.Empty(app.Session.CurrentPlans());
+        Assert.True(unit.Alive);
+        Assert.False(unit.Arrived);
+        Assert.False(unit.Thinking);
+
+        var marks = NoRouteMarksIn(renderer);
+        var mark = Assert.Single(marks);
+        Assert.True(Marks(mark, app.CenterOfCell(unit.Cell)), $"the cross landed at {mark}, not on the unit");
+    }
+
+    [Fact]
+    public void AnArrivedUnitIsNotMarked()
+    {
+        // No plan because none is needed. This is the state the mark would
+        // otherwise be indistinguishable from -- and it is the COMMON one, which
+        // is the whole reason an unqualified "has no plan" is not worth drawing.
+        //
+        // A unit that has never been ordered is the shape that matters, and it is
+        // the one this test was rebuilt around. Ordering a unit and running it to
+        // its goal proves nothing: it arrives still holding the plan that got it
+        // there, so it is excluded by being in CurrentPlans and the arrived guard
+        // is never consulted. Measured, not assumed -- with the guard deleted that
+        // version still passed. A freshly placed unit has its own cell for a goal
+        // and no plan at all, so it is arrived AND absent from CurrentPlans, which
+        // is exactly the pair the guard exists to separate.
+        var (fresh, freshRenderer, _) = Run(new ScriptedFrame());
+
+        Assert.All(fresh.Agents, a => Assert.True(a.Arrived));
+        Assert.Empty(fresh.Session.CurrentPlans());
+        Assert.Empty(NoRouteMarksIn(freshRenderer));
+
+        // And the earned arrival too, for the other half of the state.
+        var grid = Grid.FromMapText(ShortCorridor);
+        var layout = LayoutFor(grid);
+        var app = new ViewerApp(grid, layout, squad: 1);
+        var renderer = new RecordingRenderer();
+
+        using var host = new ScriptedHost(
+            [new ScriptedFrame(Mouse: layout.CenterOf(4, 1), ButtonsDown: MouseButtons.Right), .. Ticks(60)],
+            renderer);
+        host.Run(app);
+
+        Assert.True(app.Agents[0].Arrived, "the fixture never got its unit there");
+        Assert.Empty(NoRouteMarksIn(renderer));
+    }
+
+    [Fact]
+    public void AThinkingUnitIsNotMarked()
+    {
+        // A search in flight is not "no route" -- it is "not yet". Nothing is
+        // committed because the answer has not landed, and marking that would put
+        // a cross on every unit for the first tick or two after every order,
+        // which is the same always-on distinction the partial-plan colour was
+        // taken off the map for.
+        //
+        // Twenty-four units ordered SEPARATELY, each to its own far cell, which
+        // is what makes the state findable at all. One unit on open ground
+        // finishes its first search inside one tick's node budget, so the state
+        // never appears; and one GROUP order does not produce it either, because
+        // a group shares a flow field and its members follow it without spending
+        // a node on a search. Two dozen individual orders are two dozen searches
+        // against one tick's budget, and the ones at the back of the queue spend
+        // ticks thinking with nothing committed.
+        var grid = OpenField();
+        var layout = LayoutFor(grid);
+        var app = new ViewerApp(grid, layout, ViewerSession.DefaultSquad);
+        var renderer = new RecordingRenderer();
+
+        for (var id = 0; id < ViewerSession.DefaultSquad; id++)
+        {
+            app.Session.Select([id]);
+            app.Session.OrderSelection(grid.Index(58, 2 + id));
+        }
+
+        var caught = 0;
+        for (var tick = 0; tick < 40; tick++)
+        {
+            renderer.Clear();
+            using (var step = new ScriptedHost(Ticks(1), renderer))
+            {
+                step.Run(app);
+            }
+
+            var planned = app.Session.CurrentPlans().Select(p => p.Agent).ToHashSet();
+            var thinking = app.Agents
+                .Where(a => a.Thinking && a.Alive && !a.Arrived && !planned.Contains(a.Id))
+                .ToList();
+
+            caught += thinking.Count;
+
+            // Every OTHER condition holds for these units -- they are live,
+            // unarrived and planless -- so the thinking flag is the only thing
+            // keeping the cross off them.
+            var marks = NoRouteMarksIn(renderer);
+            Assert.All(thinking, unit =>
+                Assert.DoesNotContain(marks, mark => Marks(mark, app.CenterOfCell(unit.Cell))));
+        }
+
+        Assert.True(caught > 0, "the fixture never caught a search in flight with nothing committed");
+    }
+
+    [Fact]
+    public void ARemovedUnitIsNotMarkedWhileALiveRoutelessOneIs()
+    {
+        // THE GUARD THAT MATTERS. A removed unit keeps its id and its last cell
+        // for the life of the system and will never have a plan again, so an
+        // unguarded "no plan" marks every body on the field -- and the map where
+        // bodies pile up is exactly the map where somebody is trying to count who
+        // is still moving.
+        //
+        // Both halves in one fixture on purpose: a test that only showed the
+        // corpse going unmarked would pass just as well if the mark had stopped
+        // being drawn at all.
+        var grid = Grid.FromMapText(QueueCorridor);
+        var layout = LayoutFor(grid);
+        var app = new ViewerApp(grid, layout, squad: 2);
+        var renderer = new RecordingRenderer();
+
+        // Ordered, then one of them taken out of the world, then drawn before the
+        // clock buys a tick to plan either of them in.
+        app.Session.Select([0, 1]);
+        app.Session.OrderSelection(grid.Index(10, 1));
+        app.Session.Remove(1);
+
+        using var host = new ScriptedHost([new ScriptedFrame(Dt: 0f)], renderer);
+        host.Run(app);
+
+        var live = app.Agents[0];
+        var body = app.Agents[1];
+
+        Assert.True(live.Alive);
+        Assert.False(body.Alive);
+        Assert.Empty(app.Session.CurrentPlans());
+        Assert.NotEqual(live.Cell, body.Cell);
+
+        var marks = NoRouteMarksIn(renderer);
+        var mark = Assert.Single(marks);
+        Assert.True(Marks(mark, app.CenterOfCell(live.Cell)), "the live routeless unit lost its mark");
+        Assert.False(Marks(mark, app.CenterOfCell(body.Cell)), "a body was marked as having no route");
+    }
+
+    private static string InspectorValue(ViewerApp app, string label) =>
+        app.Inspector.Single(row => row.Group == "Route" && row.Label == label).Value;
+
+    [Fact]
+    public void TheInspectorCarriesTheRouteFactsTheMapStoppedDrawing()
+    {
+        // Partial and the wait count came off the map because they were true
+        // almost always, and a distinction that is always on is not one. They
+        // are still facts about the plan, and a row that usually reads the same
+        // is fine -- it is a colour that usually reads the same which is noise.
+        //
+        // Here rather than in InspectorTests because it is the other half of the
+        // two tests above: the same two corridors, one showing what the map
+        // stopped saying and this one showing where it went.
+        var (whole, _) = Ordered(ShortCorridor, goalX: 4);
+        var wholePlan = PlanOf(whole, 0);
+
+        Assert.False(wholePlan.IsPartial);
+        Assert.Equal("no", InspectorValue(whole, "partial"));
+        Assert.NotEmpty(WaitsIn(whole, wholePlan));
+        Assert.Equal(WaitsIn(whole, wholePlan).Count.ToString(CultureInfo.InvariantCulture),
+            InspectorValue(whole, "waits"));
+
+        var (edge, _) = Ordered(LongCorridor, goalX: 42);
+        var edgePlan = PlanOf(edge, 0);
+
+        Assert.True(edgePlan.IsPartial);
+        Assert.Equal("yes", InspectorValue(edge, "partial"));
+        Assert.Equal(WaitsIn(edge, edgePlan).Count.ToString(CultureInfo.InvariantCulture),
+            InspectorValue(edge, "waits"));
     }
 
     [Fact]

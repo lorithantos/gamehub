@@ -276,6 +276,37 @@ public sealed class ViewerSessionTests
     }
 
     [Fact]
+    public void RegroupingAfterACasualtyOrdersTheLivingRatherThanThrowing()
+    {
+        // ONE CASUALTY USED TO END THE REGROUP KEY. OrderEveryone handed
+        // MovementSystem.Order every id there had ever been, and Order refuses a
+        // removed agent -- it throws rather than quietly walking a corpse -- so
+        // from the first death onward every press of R was an exception, for the
+        // rest of the session.
+        //
+        // The unit is taken out through the middle of the squad rather than off
+        // the end on purpose: the ids either side of it stay live, so a fix that
+        // simply stopped at the first gap would be caught here too.
+        var session = ViewerSession.FromMap(Grid.FromMapText(SampleMaps.CornerCutTrap), "m.map", squad: 4);
+        var goal = session.Grid.Index(10, 5);
+        var fell = session.Agents[2].Cell;
+
+        session.Remove(2);
+        session.OrderEveryone(goal);
+
+        // Exactly the living, and all of them: a group order aims every member at
+        // the shared destination and claims distinct parking on approach, which is
+        // the core suite's business rather than this one's.
+        Assert.Equal([0, 1, 3], session.Agents.Where(a => a.Alive).Select(a => a.Id));
+        Assert.All(session.Agents.Where(a => a.Alive), a => Assert.Equal(goal, a.Goal));
+
+        // And the body was not ordered anywhere: Remove parks its goal on the cell
+        // it fell on, and nothing here moved it.
+        Assert.Equal(fell, session.Agents[2].Goal);
+        Assert.Equal(fell, session.Agents[2].Cell);
+    }
+
+    [Fact]
     public void TickAdvancesEvenWhilePaused()
     {
         // Single-stepping a paused world is a legitimate thing for a caller to

@@ -66,27 +66,13 @@ internal sealed class RaylibHost(GridLayout layout, int statusHeight, int? maxFr
             _input.SetMousePosition(global::Raylib_cs.Raylib.GetMousePosition());
             _input.SetMouseButtonState(MouseButtons.Left, global::Raylib_cs.Raylib.IsMouseButtonDown(MouseButton.Left));
             _input.SetMouseButtonState(MouseButtons.Right, global::Raylib_cs.Raylib.IsMouseButtonDown(MouseButton.Right));
-            _input.SetKeyState(ViewerKeys.Space, global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.Space));
-            _input.SetKeyState(ViewerKeys.R, global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.R));
-            _input.SetKeyState(ViewerKeys.Step, global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.S));
-            _input.SetKeyState(ViewerKeys.Pace, global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.T));
-
-            // Arrows pan, +/- zoom, Home puts the whole map back. Which keycap
-            // means what is each host's business and appears nowhere in the
-            // shared project -- see ViewerKeys.
-            _input.SetKeyState(ViewerKeys.PanLeft, global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.Left));
-            _input.SetKeyState(ViewerKeys.PanRight, global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.Right));
-            _input.SetKeyState(ViewerKeys.PanUp, global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.Up));
-            _input.SetKeyState(ViewerKeys.PanDown, global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.Down));
-            _input.SetKeyState(
-                ViewerKeys.ZoomIn,
-                global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.Equal) ||
-                global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.KpAdd));
-            _input.SetKeyState(
-                ViewerKeys.ZoomOut,
-                global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.Minus) ||
-                global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.KpSubtract));
-            _input.SetKeyState(ViewerKeys.ResetView, global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.Home));
+            // Raylib's keycaps become the shared PHYSICAL identity here, once,
+            // and the app's keymap decides what each one does -- see Keymap for
+            // why the map sits between them.
+            foreach (var (key, held) in Held())
+            {
+                _input.SetKeyState(app.Keys.Action(key), held);
+            }
 
             // Raw frame time, unclamped: FixedTimestep.MaxStepsPerFrame is
             // already the circuit breaker, and a second one here would make the
@@ -114,4 +100,37 @@ internal sealed class RaylibHost(GridLayout layout, int statusHeight, int? maxFr
     }
 
     public void Dispose() => _renderer.Dispose();
+
+    /// <summary>
+    /// This frame's keyboard, as the shared physical identity: every key the
+    /// viewer has a name for, and whether raylib says it is down.
+    /// </summary>
+    /// <remarks>
+    /// Polled with the <c>IsKeyDown</c> family rather than <c>IsKeyPressed</c>,
+    /// because <see cref="InputAccumulator"/> derives the edges.
+    /// <para>
+    /// The two plus keys and the two minus keys collapse to one identity each,
+    /// per <see cref="PhysicalKey.Plus"/>. Reporting them separately would also
+    /// let one clear what the other set.
+    /// </para>
+    /// </remarks>
+    private static IEnumerable<(PhysicalKey Key, bool Held)> Held()
+    {
+        static bool Down(KeyboardKey key) => global::Raylib_cs.Raylib.IsKeyDown(key);
+
+        yield return (PhysicalKey.Space, Down(KeyboardKey.Space));
+        yield return (PhysicalKey.R, Down(KeyboardKey.R));
+        yield return (PhysicalKey.S, Down(KeyboardKey.S));
+        yield return (PhysicalKey.T, Down(KeyboardKey.T));
+        yield return (PhysicalKey.V, Down(KeyboardKey.V));
+        yield return (PhysicalKey.P, Down(KeyboardKey.P));
+        yield return (PhysicalKey.L, Down(KeyboardKey.L));
+        yield return (PhysicalKey.Left, Down(KeyboardKey.Left));
+        yield return (PhysicalKey.Right, Down(KeyboardKey.Right));
+        yield return (PhysicalKey.Up, Down(KeyboardKey.Up));
+        yield return (PhysicalKey.Down, Down(KeyboardKey.Down));
+        yield return (PhysicalKey.Plus, Down(KeyboardKey.Equal) || Down(KeyboardKey.KpAdd));
+        yield return (PhysicalKey.Minus, Down(KeyboardKey.Minus) || Down(KeyboardKey.KpSubtract));
+        yield return (PhysicalKey.Home, Down(KeyboardKey.Home));
+    }
 }

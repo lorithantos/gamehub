@@ -7,9 +7,9 @@ namespace Nav.Viewer.Models;
 /// <remarks>
 /// Flags, because one snapshot has to carry several at once.
 /// <para>
-/// Which physical key produces which member is each host's business and appears
-/// nowhere in the shared project — moving one would not touch a line of this
-/// file.
+/// Which physical key produces which member is a <see cref="Keymap"/>'s
+/// business, not a host's and not this file's. Rebinding moves an entry there
+/// and nothing anywhere else.
 /// </para>
 /// <para>
 /// <see cref="Space"/> and <see cref="R"/> are named after their key only
@@ -87,4 +87,22 @@ public enum ViewerKeys
     /// that cannot scroll does not.
     /// </summary>
     ResetView = 1024,
+
+    /// <summary>
+    /// Cycle whose knowledge the board is drawn from: the observer, then each
+    /// side in turn. Watching the same fight from each side is how a doctrine
+    /// acting on knowledge it should not have gets caught.
+    /// </summary>
+    /// <remarks>
+    /// This and the two overlays below are bound and carried but do nothing yet.
+    /// They are here so the keymap and both hosts are already complete when the
+    /// fog and LOS work lands, rather than being touched again for a key.
+    /// </remarks>
+    Viewpoint = 2048,
+
+    /// <summary>Show or hide the watched unit's route.</summary>
+    PathOverlay = 4096,
+
+    /// <summary>Show or hide the watched unit's sight and weapon radii.</summary>
+    LosOverlay = 8192,
 }

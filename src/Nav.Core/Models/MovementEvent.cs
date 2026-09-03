@@ -22,10 +22,9 @@ public enum MovementEventKind
 /// <param name="Cell">Where it is now: the cell placed on, stepped onto, or last stood on.</param>
 /// <param name="From">The cell stepped off, for a move; -1 otherwise.</param>
 /// <remarks>
-/// The journal these make up is how a layer above learns where things are
-/// without reaching into the system or keeping a copy of its state. A reader
-/// keeps a cursor and reads what is new, in the order it happened, and two
-/// readers of the same journal agree on everything. Fog of war is the same
-/// stream with the events a side could not have witnessed left out.
+/// Raised through <see cref="MovementSystem.Happened"/>: how a layer above
+/// learns where things are without reaching into the system or keeping a copy
+/// of its state. Every listener hears the same things in the same order. Fog
+/// of war is a listener that passes on only what a side could have witnessed.
 /// </remarks>
 public readonly record struct MovementEvent(int Tick, MovementEventKind Kind, int Agent, int Cell, int From = -1);

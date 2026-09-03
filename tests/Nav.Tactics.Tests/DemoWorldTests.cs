@@ -50,7 +50,8 @@ public sealed class DemoWorldTests
         for (var tick = 0; tick < ticks; tick++)
         {
             system.Tick();
-            world.Settle(system);
+            world.Listen(system);
+            world.Settle();
         }
     }
 

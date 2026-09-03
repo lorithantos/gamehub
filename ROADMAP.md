@@ -27,7 +27,7 @@ meaningless.
 | Doctrine | guard and patrol; retreat, rank, reserve, all playing unscripted, on both sides |
 | Scale | pinned — 0.25 s/tick, 2 m/cell |
 | Combat | **weapons fire** — kits, hit points, blast, highest-threat targeting; rank earned from damage |
-| Board | one shared grid; the movement system broadcasts a journal and the world reads nothing else |
+| Board | one shared grid; the movement system broadcasts placed, stepped, removed, and the world listens |
 
 ---
 
@@ -58,10 +58,10 @@ meaningless.
 - **Weapons that fire.** Kits from config, hit points per type, a shot per
   tick at whatever in range can hurt *you* fastest, blast that spares nobody
   but the shooter. Rank reads contribution; exposure accrual retired.
-- **Death, sides, and the journal.** A unit can leave the world and the
+- **Death, sides, and the broadcast.** A unit can leave the world and the
   living carry on; each side perceives the other's living units as hostiles;
-  the movement system broadcasts placed, stepped, removed, and the world
-  learns the board from that alone.
+  the movement system raises placed, stepped, removed, the world learns the
+  board from that alone, and a verb issued mid-tick waits for the next.
 - **The guard demo is AI against AI.** Three waves under GuardDoctrine
   against a line under GuardDoctrine. 4/6 standing, 15/15 destroyed, 3
   veterans, all of it earned.
@@ -79,12 +79,11 @@ enter planning as observed occupancy only, and resolve conflicts at
 execution time, where the step check already refuses an occupied cell.
 Croatia is lines across outlets; this comes first.
 
-### 2. Fog as a filtered journal
+### 2. Fog as a filtered broadcast
 
-Limited perception on the board. A side's view is the journal with the
-events its units could not have witnessed left out. The stream is built;
-the filter is not, and neither is what a side does about a unit it last saw
-three ticks ago.
+Limited perception on the board. A side's view hears only the events its
+units could have witnessed. The broadcast is built; the filter is not, and
+neither is what a side does about a unit it last saw three ticks ago.
 
 ### 3. Balance the region partition
 
@@ -175,6 +174,7 @@ health. Medium to build, open-ended to tune, which is the point.
   benchmark maps stay downloaded, never committed; nothing we publish carries
   someone else's level design.
 - **Broadcast rather than open a seam.** When a layer above needed to know
-  the board, the answer was a journal it reads from a cursor, not a hole in
-  the movement system and not a second copy of its state. Fog falls out of
-  the same shape.
+  the board, the answer was an event it registers for, not a hole in the
+  movement system and not a second copy of its state. The system defers any
+  verb it hears mid-tick to the next one, so listening is safe. Fog falls
+  out of the same shape.

@@ -64,7 +64,8 @@ public sealed class FireTests(ITestOutputHelper output)
         world.Enlist(2, side: 1, kit: "rifleman");
 
         system.Tick();
-        world.Settle(system);
+        world.Listen(system);
+        world.Settle();
 
         // Three cells is inside a rifle's reach and ten is not. The two in
         // reach shoot each other in the same tick, so both are hurt alike.
@@ -102,7 +103,8 @@ public sealed class FireTests(ITestOutputHelper output)
         world.Enlist(1, side: 1, kit: "buggy");
         world.Enlist(2, side: 1, kit: "rocketbike");
         system.Tick();
-        world.Settle(system);
+        world.Listen(system);
+        world.Settle();
 
         Assert.True(world.HealthOf(2) < 1.0, "the tank did not shoot the rocket bike");
         Assert.Equal(1.0, world.HealthOf(1), 9);
@@ -113,7 +115,8 @@ public sealed class FireTests(ITestOutputHelper output)
         world2.Enlist(1, side: 1, kit: "rocketbike");
         world2.Enlist(2, side: 1, kit: "buggy");
         system2.Tick();
-        world2.Settle(system2);
+        world2.Listen(system2);
+        world2.Settle();
 
         Assert.True(world2.HealthOf(2) < 1.0, "the rifleman did not shoot the buggy");
         Assert.Equal(1.0, world2.HealthOf(1), 9);
@@ -134,7 +137,8 @@ public sealed class FireTests(ITestOutputHelper output)
         world.Enlist(1, side: 1, kit: "tank");
         world.Enlist(2, side: 0, kit: "rifleman");
         system.Tick();
-        world.Settle(system);
+        world.Listen(system);
+        world.Settle();
 
         // The tank shoots back at the rocket bike, not the rifleman beside it,
         // so the rifleman's only wound is friendly.
@@ -173,7 +177,8 @@ public sealed class FireTests(ITestOutputHelper output)
         world.SetHealth(1, 0.001);
 
         system.Tick();
-        world.Settle(system);
+        world.Listen(system);
+        world.Settle();
 
         // Both shots were decided before either landed: the dying man fires.
         Assert.Equal([new Casualty(Victim: 1, Killer: 0)], world.Fallen);
@@ -183,7 +188,8 @@ public sealed class FireTests(ITestOutputHelper output)
 
         system.Remove(1);
         system.Tick();
-        world.Settle(system);
+        world.Listen(system);
+        world.Settle();
 
         Assert.Empty(world.Fallen);
         Assert.Equal(wounded, world.HealthOf(0), 9);
@@ -202,7 +208,8 @@ public sealed class FireTests(ITestOutputHelper output)
         world.SetHealth(1, 0.001);
 
         system.Tick();
-        world.Settle(system);
+        world.Listen(system);
+        world.Settle();
 
         // Listed in the order the shots landed: 0's shot first, so 1 falls
         // first, and 1's shot -- already decided -- still lands.

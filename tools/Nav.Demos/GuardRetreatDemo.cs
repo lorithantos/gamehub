@@ -152,7 +152,7 @@ internal sealed class GuardRetreatDemo : Demo
         // slot loses whichever happened first.
         var events = new List<string>();
 
-        world.Observe(system);
+        world.Listen(system);
 
         for (var tick = 0; tick < Ticks; tick++)
         {
@@ -173,7 +173,7 @@ internal sealed class GuardRetreatDemo : Demo
                 waves.Add(new Squad(
                     $"wave {waveIndex + 1}", ids,
                     new GuardDoctrine(attackStation, retreatBelow: 0.0, returnAbove: 0.5)));
-                world.Observe(system);
+                world.Listen(system);
                 events.Add($"wave {waveIndex + 1} enters from the north: two rocket bikes, two riflemen, a buggy");
             }
 
@@ -184,7 +184,8 @@ internal sealed class GuardRetreatDemo : Demo
             }
 
             system.Tick();
-            world.Settle(system);
+            world.Listen(system);
+            world.Settle();
 
             foreach (var (victim, killer) in world.Fallen)
             {

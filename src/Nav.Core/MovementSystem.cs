@@ -167,8 +167,12 @@ public sealed class MovementSystem
     private readonly Grid _grid;
     private readonly ReservationTable _table;
     private readonly List<Agent> _agents = [];
-    private readonly List<MovementEvent> _journal = [];
     private readonly Stack<SearchWorkspace> _workspacePool = new();
+
+    // Verbs that arrived while a tick was in progress, in arrival order, to be
+    // applied at the head of the next tick. See Defer.
+    private readonly List<Action> _deferred = [];
+    private bool _ticking;
     private readonly int _nodeBudgetPerTick;
     private readonly int _maxSearchesInFlight;
     private readonly IDistanceFieldSource _fields;
@@ -316,21 +320,43 @@ public sealed class MovementSystem
             Alive: a.Alive))];
 
     /// <summary>
-    /// Everything that has happened to every agent, in the order it happened:
-    /// placed, stepped, removed. Append-only for the life of the system.
+    /// Raised for everything that happens to an agent: placed, stepped,
+    /// removed. Steps are raised at the end of the tick that took them, in id
+    /// order, once every agent has moved.
     /// </summary>
     /// <remarks>
-    /// The broadcast. A layer above reads from a cursor it keeps and learns
-    /// where things are from what happened, never by copying this system's
-    /// state -- so there is one truth about the board and any number of
-    /// readers of it, and what a reader is allowed to know is a filter on the
-    /// stream rather than a hole in the seam.
+    /// The broadcast. A layer above learns where things are from what
+    /// happened, never by copying this system's state -- one truth about the
+    /// board, any number of listeners, and what a listener is allowed to know
+    /// is a filter on what it hears rather than a hole in the seam.
     /// <para>
-    /// A tick in which nobody stepped writes nothing, so a quiet run costs no
-    /// memory; a busy one costs one entry per step taken.
+    /// A handler may call this system's verbs. One that does so during a tick
+    /// is not refused and not applied there and then: the verb is put on the
+    /// system's own list and applied at the head of the next tick, so a
+    /// reaction to a step can never distort the pass that produced it.
+    /// <see cref="AddAgent"/> is the exception, because it answers with an id.
+    /// </para>
+    /// <para>
+    /// Single-threaded, and handlers run in registration order, so a run with
+    /// the same listeners registered in the same order replays the same.
     /// </para>
     /// </remarks>
-    public IReadOnlyList<MovementEvent> Journal => _journal;
+    public event Action<MovementEvent>? Happened;
+
+    /// <summary>
+    /// Puts a verb on the list for the next tick if one is in progress. False
+    /// means nothing was queued and the caller should apply it now.
+    /// </summary>
+    private bool Defer(Action verb)
+    {
+        if (!_ticking)
+        {
+            return false;
+        }
+
+        _deferred.Add(verb);
+        return true;
+    }
 
     /// <summary>Each live group's leader, for display and diagnostics.</summary>
     public IReadOnlyList<int> Leaders =>
@@ -354,8 +380,14 @@ public sealed class MovementSystem
     /// </summary>
     /// <param name="cell">Where it stands. Must be passable.</param>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="cell"/> is impassable.</exception>
+    /// <exception cref="InvalidOperationException">Called from a handler during a tick; there is no id to answer with yet.</exception>
     public int AddAgent(int cell)
     {
+        if (_ticking)
+        {
+            throw new InvalidOperationException("An agent cannot be added during a tick; add it from outside the tick.");
+        }
+
         if (!_grid.IsPassable(cell))
         {
             throw new ArgumentOutOfRangeException(nameof(cell), cell, "An agent cannot stand on an impassable cell.");
@@ -366,7 +398,7 @@ public sealed class MovementSystem
 
         // It is standing here, and everyone planning after this must see that.
         _table.Reserve([cell], CurrentTick, agent.Id);
-        _journal.Add(new MovementEvent(CurrentTick, MovementEventKind.Added, agent.Id, cell));
+        Happened?.Invoke(new MovementEvent(CurrentTick, MovementEventKind.Added, agent.Id, cell));
         return agent.Id;
     }
 
@@ -536,6 +568,13 @@ public sealed class MovementSystem
     {
         ArgumentNullException.ThrowIfNull(agents);
 
+        // Copied before deferring, so a caller that reuses its list after the
+        // call has not changed the order it gave.
+        if (Defer(() => Order([.. agents], goalCell, doctrine)))
+        {
+            return;
+        }
+
         // A click on a wall MEANS the ground beside it. Refuse-don't-repair is
         // the right rule for file formats and the wrong one for player input:
         // an order onto impassable terrain used to be silently swallowed, and
@@ -692,6 +731,11 @@ public sealed class MovementSystem
     /// </exception>
     public void Dispatch(int agent, int destination)
     {
+        if (Defer(() => Dispatch(agent, destination)))
+        {
+            return;
+        }
+
         var unit = Resolve(agent);
         if (unit.Group is null)
         {
@@ -722,6 +766,11 @@ public sealed class MovementSystem
     /// <exception cref="ArgumentOutOfRangeException">No such agent.</exception>
     public void Recall(int agent)
     {
+        if (Defer(() => Recall(agent)))
+        {
+            return;
+        }
+
         var unit = Resolve(agent);
         if (unit.Errand < 0 || unit.Group is null)
         {
@@ -760,6 +809,11 @@ public sealed class MovementSystem
     /// <exception cref="InvalidOperationException"><paramref name="alongside"/> has never been ordered.</exception>
     public void Recall(int agent, int alongside)
     {
+        if (Defer(() => Recall(agent, alongside)))
+        {
+            return;
+        }
+
         var unit = Resolve(agent);
         var host = Resolve(alongside);
         if (agent == alongside)
@@ -840,6 +894,11 @@ public sealed class MovementSystem
     /// <exception cref="ArgumentOutOfRangeException">No such agent.</exception>
     public void Remove(int agent)
     {
+        if (Defer(() => Remove(agent)))
+        {
+            return;
+        }
+
         if (agent < 0 || agent >= _agents.Count)
         {
             throw new ArgumentOutOfRangeException(
@@ -881,7 +940,7 @@ public sealed class MovementSystem
         }
 
         unit.Alive = false;
-        _journal.Add(new MovementEvent(CurrentTick, MovementEventKind.Removed, unit.Id, unit.Cell));
+        Happened?.Invoke(new MovementEvent(CurrentTick, MovementEventKind.Removed, unit.Id, unit.Cell));
     }
 
     /// <summary>A goal changed under this agent: plan again, now, from scratch.</summary>
@@ -923,6 +982,34 @@ public sealed class MovementSystem
     /// arrival is exactly the event that can change a stalled agent's answer.
     /// </summary>
     public void Tick()
+    {
+        // What handlers asked for during the last tick, applied now, before
+        // anything else, with the tick not yet in progress so each applies
+        // rather than queueing itself again. A verb that would have thrown
+        // then throws here, from the tick that honours it.
+        if (_deferred.Count > 0)
+        {
+            var pending = _deferred.ToArray();
+            _deferred.Clear();
+            foreach (var verb in pending)
+            {
+                verb();
+            }
+        }
+
+        _ticking = true;
+        try
+        {
+            Advance();
+        }
+        finally
+        {
+            _ticking = false;
+        }
+    }
+
+    /// <summary>The tick proper. Split from <see cref="Tick"/> so the in-progress flag brackets exactly this.</summary>
+    private void Advance()
     {
         // Per-tick occupancy caches the doctrines read through GroupOps.
         _claimedGoals.Clear();
@@ -1056,6 +1143,7 @@ public sealed class MovementSystem
         }
         while (anyStood);
 
+        var stepped = new List<MovementEvent>();
         foreach (var agent in _agents)
         {
             var at = agent.Plan?.CellAt(CurrentTick) ?? -1;
@@ -1065,7 +1153,7 @@ public sealed class MovementSystem
                 {
                     vacated.Add(agent.Cell);
                     entered.Add(at);
-                    _journal.Add(new MovementEvent(CurrentTick, MovementEventKind.Moved, agent.Id, at, agent.Cell));
+                    stepped.Add(new MovementEvent(CurrentTick, MovementEventKind.Moved, agent.Id, at, agent.Cell));
                 }
 
                 var wasArrived = agent.Cell == agent.Goal;
@@ -1143,6 +1231,13 @@ public sealed class MovementSystem
                     break;
                 }
             }
+        }
+
+        // Last, once every agent stands where this tick put it, so a handler
+        // reads a board that agrees with itself.
+        foreach (var step in stepped)
+        {
+            Happened?.Invoke(step);
         }
     }
 

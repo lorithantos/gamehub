@@ -54,7 +54,7 @@ public sealed class DemoWorld : IPerception
     private readonly double[] _rankAt;
     private readonly Combat? _combat;
     private readonly double _secondsPerTick;
-    private int _read;
+    private MovementSystem? _system;
 
     /// <param name="grid">The map the cells are indices into. Needed to measure exposure.</param>
     /// <param name="repairPerTick">How much health one tick on a repair cell restores.</param>
@@ -235,9 +235,9 @@ public sealed class DemoWorld : IPerception
     /// and the OTHER sides' living units as hostiles.
     /// </summary>
     /// <remarks>
-    /// Where units stand is what the journal has said so far -- read by
-    /// <see cref="Settle"/>, or by <see cref="Observe"/> alone. Read it once
-    /// before the first pass, or a doctrine's first decision is taken blind.
+    /// Where units stand is what the system has broadcast since
+    /// <see cref="Listen"/>. Listen before the first pass, or a doctrine's
+    /// first decision is taken blind.
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException">A negative side.</exception>
     public IPerception ViewFor(int side)
@@ -265,36 +265,60 @@ public sealed class DemoWorld : IPerception
     }
 
     /// <summary>
-    /// Reads what the movement system has broadcast since this world last
-    /// looked: who was placed where, who stepped where, who is gone. Touches
-    /// nothing but where things are. <see cref="Settle"/> does this first;
-    /// call it alone before the opening pass so the sides can see each other
-    /// at tick 0.
+    /// Registers for what the movement system broadcasts -- who was placed
+    /// where, who stepped where, who is gone -- and catches up on who is
+    /// already standing. Call it once, before the opening pass, so the sides
+    /// can see each other at tick 0. Calling it again for the same system
+    /// changes nothing.
     /// </summary>
     /// <remarks>
-    /// The world's whole knowledge of the board comes through here, from
-    /// <see cref="MovementSystem.Journal"/>, and nothing else is read from the
-    /// system. That is what makes a limited perception possible later: leave
-    /// events out of what a side is told and it does not know them.
+    /// The world's whole knowledge of the board comes through the handler
+    /// this registers, and nothing else is read from the system after the
+    /// catch-up. That is what makes a limited perception possible later: a
+    /// side that is not told an event does not know it.
+    /// <para>
+    /// The handler writes only this world's own record of where things are.
+    /// It never calls back into the system, so it can be told a step
+    /// mid-tick without anything being asked of the tick.
+    /// </para>
     /// </remarks>
-    public void Observe(MovementSystem system)
+    /// <exception cref="InvalidOperationException">Already listening to a different system.</exception>
+    public void Listen(MovementSystem system)
     {
         ArgumentNullException.ThrowIfNull(system);
 
-        var journal = system.Journal;
-        for (; _read < journal.Count; _read++)
+        if (ReferenceEquals(_system, system))
         {
-            var e = journal[_read];
-            switch (e.Kind)
+            return;
+        }
+
+        if (_system is not null)
+        {
+            throw new InvalidOperationException("This world is already listening to another movement system.");
+        }
+
+        _system = system;
+        system.Happened += Hear;
+        foreach (var agent in system.Agents)
+        {
+            if (agent.Alive)
             {
-                case MovementEventKind.Added:
-                case MovementEventKind.Moved:
-                    _cell[e.Agent] = e.Cell;
-                    break;
-                case MovementEventKind.Removed:
-                    _cell.Remove(e.Agent);
-                    break;
+                _cell[agent.Id] = agent.Cell;
             }
+        }
+    }
+
+    private void Hear(MovementEvent e)
+    {
+        switch (e.Kind)
+        {
+            case MovementEventKind.Added:
+            case MovementEventKind.Moved:
+                _cell[e.Agent] = e.Cell;
+                break;
+            case MovementEventKind.Removed:
+                _cell.Remove(e.Agent);
+                break;
         }
     }
 
@@ -438,10 +462,10 @@ public sealed class DemoWorld : IPerception
     public double RankPerKill { get; init; } = 25.0;
 
     /// <summary>
-    /// One tick of the world happening to the units: the journal read, every
-    /// armed unit's shot resolved, exposure credited, then every rate that
-    /// touches health applied together, for every unit the journal has
-    /// placed and not removed. Call it once per tick, after the system has.
+    /// One tick of the world happening to the units: every armed unit's shot
+    /// resolved, exposure credited, then every rate that touches health
+    /// applied together, for every unit the system has placed and not
+    /// removed. Call it once per tick, after the system has ticked.
     /// </summary>
     /// <remarks>
     /// <b>Shots are decided before any lands.</b> Every shooter picks its
@@ -483,9 +507,14 @@ public sealed class DemoWorld : IPerception
     /// those would be a true thing about that map.
     /// </para>
     /// </remarks>
-    public void Settle(MovementSystem system)
+    /// <exception cref="InvalidOperationException">Not listening to any system, so there is nothing to settle.</exception>
+    public void Settle()
     {
-        Observe(system);
+        if (_system is null)
+        {
+            throw new InvalidOperationException("Listen to a movement system before settling; a world that hears nothing has nothing to settle.");
+        }
+
         _fallen.Clear();
         Fire();
 

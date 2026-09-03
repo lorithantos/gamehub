@@ -79,12 +79,22 @@ of the truth. Asked whether the seam wanted reconsidering, Lori: "we want
 broadcast events. This is better than opening up seams. The grid can remain
 shared, but consider that we will want fog later."
 
-`MovementSystem.Journal` is an append-only list of `(tick, kind, agent,
-cell, from)` — placed, stepped, removed. No callbacks: a reader keeps a
-cursor and reads what is new in the system's own order, so two readers agree
-and a replay agrees with both. `DemoWorld` reads nothing else from the
-system. Fog is the same stream with the events a side could not have
-witnessed left out.
+The first cut was an append-only journal read from a cursor, chosen for
+determinism and for late readers. Lori: "Why not use the built in
+broadcasts with registration? This is single threaded." Right — the cursor
+was ceremony, and the journal grew without bound. So `MovementSystem.Happened`
+is a plain event carrying `(tick, kind, agent, cell, from)` — placed,
+stepped, removed — with steps raised at the end of the tick once every unit
+stands where the tick put it. `DemoWorld.Listen` registers once and reads
+nothing else from the system afterwards.
+
+The one hazard of a callback, a handler calling back into the system
+mid-tick, is handled where Lori said it should be: the system puts any verb
+it receives during a tick on its own list and applies it at the head of the
+next tick. A reaction to a step can never distort the pass that produced
+it. `AddAgent` is the exception and refuses, because it answers with an id.
+
+Fog is a listener that passes on only what a side could have witnessed.
 
 ### Measured on the day
 

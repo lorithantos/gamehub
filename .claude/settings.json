@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__janet__dotnet_check",
+      "mcp__janet__research_query",
+      "mcp__janet__assembly_api",
+      "mcp__janet__api_doc_query",
+      "mcp__janet__thread_show",
+      "mcp__razorgraph__find_nodes",
+      "mcp__razorgraph__get_node",
+      "mcp__razorgraph__build_solution",
+      "mcp__razorgraph__list_graphs",
+      "mcp__razorgraph__graph_summary",
+      "mcp__razorgraph__covering_tests",
+      "mcp__razorgraph__uncovered_methods",
+      "mcp__razorgraph__excess_visibility",
+      "mcp__razorgraph__exception_escapes",
+      "mcp__razorgraph__server_info",
+      "mcp__razorgraph__find_path",
+      "mcp__razorgraph__deep_methods",
+      "mcp__razorgraph__research",
+      "PowerShell(dotnet test *)",
+      "PowerShell(dotnet build *)",
+      "PowerShell(janet check *)",
+      "PowerShell(Get-ChildItem *)",
+      "PowerShell(Get-Content *)",
+      "PowerShell(Select-String *)",
+      "PowerShell(Test-Path *)",
+      "PowerShell(& \"C:\\repos\\lorithantos\\JanetHome\\scripts\\git.ps1\" -C C:\\repos\\gamehub status *)",
+      "PowerShell(& \"C:\\repos\\lorithantos\\JanetHome\\scripts\\git.ps1\" -C C:\\repos\\gamehub log *)",
+      "PowerShell(& \"C:\\repos\\lorithantos\\JanetHome\\scripts\\git.ps1\" -C C:\\repos\\gamehub diff *)",
+      "PowerShell(& \"C:\\repos\\lorithantos\\JanetHome\\scripts\\git.ps1\" -C C:\\repos\\gamehub show *)"
+    ]
+  }
+}

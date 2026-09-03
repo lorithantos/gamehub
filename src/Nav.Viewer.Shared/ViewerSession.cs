@@ -8,12 +8,11 @@ namespace Nav.Viewer;
 /// The single owner of what is loaded and what the simulation says about it.
 /// </summary>
 /// <remarks>
-/// Before this type existed, "what is loaded" had no owner: it was smeared
-/// across constructor arguments, two near-duplicate <c>Program.Main</c>s, and
-/// <c>ViewerApp</c>'s private fields — and the replay-restart code was session
-/// management hand-rolled inside an input handler. The session is the reference
-/// point for everyone else: the app translates input into these commands and
-/// draws from these properties; the hosts present what the app draws.
+/// The session is the reference point for everyone else: the app translates
+/// input into these commands and draws from these properties; the hosts present
+/// what the app draws. Without one owner, "what is loaded" smears across
+/// constructor arguments, near-duplicate <c>Program.Main</c>s and
+/// <c>ViewerApp</c>'s private fields — see <c>docs/viewer.md</c>.
 /// <para>
 /// The line through the middle is deliberate. Content and simulation live here:
 /// the grid, the scenario, the movement system, the pending recorded orders,

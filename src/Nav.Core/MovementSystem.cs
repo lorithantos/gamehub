@@ -46,8 +46,8 @@ public sealed class MovementSystem
     /// How long a stalled agent waits before a timer-driven retry. Long,
     /// deliberately: retries are EVENT-driven now — an arrival, an order, a
     /// reconciliation — and the timer is only the backstop that turns a missed
-    /// wake into slow instead of frozen. The headon trace showed the old
-    /// 8-tick timer re-asking an unchanged question at 196 nodes a probe.
+    /// wake into slow instead of frozen. What a short timer cost:
+    /// <c>docs/search-and-movement.md</c>.
     /// </summary>
     private const int StallBackstopTicks = 64;
 
@@ -57,14 +57,11 @@ public sealed class MovementSystem
     /// round a parked fellow; the space-time search can.
     /// </summary>
     /// <remarks>
-    /// Measured on the settling report, 2 September 2026, everything else
-    /// equal: never -- the arena never settles, the throng deadlocks; 8 --
-    /// arena 326 ticks but a settled blob retreats 2 and the throng departs
-    /// over 26 ticks; 12 -- arena 388, every ceiling holds; 16 -- 446; 32 --
-    /// 523. The search is what unsticks a big crust, and every tick of waiting
-    /// for it is paid by two hundred units at once; too eager and the detours
-    /// it plans round a packed rim read as retreats. Twelve is where both
-    /// hold. The baseline this replaced settled the arena in 586.
+    /// The search is what unsticks a big crust, and every tick of waiting for it
+    /// is paid by two hundred units at once; too eager and the detours it plans
+    /// round a packed rim read as retreats. Twelve is where both hold. The swept
+    /// table is in <c>docs/search-and-movement.md</c>; re-run the settling report
+    /// before moving it.
     /// </remarks>
     private const int FollowBlockedTicks = 12;
 
@@ -704,13 +701,12 @@ public sealed class MovementSystem
     /// joining them where they are now.
     /// </summary>
     /// <remarks>
-    /// The formation's ring is regrown to its new member count, so the joiner
-    /// has a slot to claim on approach like anyone else. Without that it sat
-    /// beside a full ring for a very long time: a member with no slot that makes
-    /// no progress waits four backstops for its next attempt, on the premise that
-    /// a claim will wake it sooner -- and with every slot held, no claim ever
-    /// came. Measured at 256 ticks of nothing before this was written. A no-op on
-    /// an agent that is not away.
+    /// The formation's ring is regrown to its new member count, so the joiner has
+    /// a slot to claim on approach like anyone else. Without that it waits beside
+    /// a full ring indefinitely: a member with no slot that makes no progress
+    /// waits four backstops for its next attempt, on the premise that a claim will
+    /// wake it sooner -- and with every slot held, no claim ever comes. A no-op on
+    /// an agent that is not away. See <c>docs/search-and-movement.md</c>.
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException">No such agent, either of them.</exception>
     /// <exception cref="ArgumentException">The two ids are the same agent.</exception>
@@ -1164,11 +1160,9 @@ public sealed class MovementSystem
     /// A PLAN IS ASKED FOR BEFORE THE OLD ONE RUNS OUT, by exactly the run-up the
     /// next search will be given. Waiting for the plan to expire and only then
     /// starting a search means the agent stands for the whole anchor while a
-    /// finished plan waits to be allowed to begin: measured on the patrol's
-    /// approach, three units a single step from their places at tick 11, the last
-    /// of them not taking that step until tick 16. Asking a latency early means
-    /// the new plan is anchored to start where the old one ends, and the walk is
-    /// continuous.
+    /// finished plan waits to be allowed to begin (<c>docs/search-and-movement.md</c>
+    /// has what that cost the patrol). Asking a latency early means the new plan is
+    /// anchored to start where the old one ends, and the walk is continuous.
     /// <para>
     /// It does not make an agent replan more often in steady state -- a plan is
     /// still replaced once per plan -- only earlier, and <see cref="Commit"/>

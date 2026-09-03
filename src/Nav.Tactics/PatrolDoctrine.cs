@@ -49,8 +49,8 @@ public sealed class PatrolDoctrine : SquadDoctrine
     /// </param>
     /// <param name="repair">
     /// How the damaged are sent away and brought back. Null for the default
-    /// policy. A patrol had none at all before this and fought to the death;
-    /// it is the same rule the guard uses, which is why it is a component.
+    /// policy. Without one a patrol fights to the death; it is the same rule the
+    /// guard uses, which is why it is a component.
     /// </param>
     /// <exception cref="ArgumentException"><paramref name="waypoints"/> has fewer than two cells.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="leash"/> is not positive.</exception>

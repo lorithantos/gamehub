@@ -50,7 +50,8 @@ namespace Nav.Tactics;
 /// questions. The threshold asks who is worth pulling when there is room, and
 /// the answer is the veteran, because it cannot be replaced. The reserve asks
 /// who is worth pulling when there is NOT room, and the answer is the rookie --
-/// but the reason is about the veteran, not the rookie.
+/// but the reason is about the veteran, not the rookie. This ordering was once
+/// the other way round; <c>docs/scale-and-doctrine.md</c> says why it inverted.
 /// </para>
 /// <para>
 /// <b>A veteran's place is the line.</b> It earns faster where the enemy is,

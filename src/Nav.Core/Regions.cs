@@ -5,17 +5,16 @@ namespace Nav.Core;
 /// merged away, oversized rooms split.
 /// </summary>
 /// <remarks>
-/// Cutting at gates alone gives a decomposition, not a useful one. Measured on a
-/// generated 256-square: 90 regions, median size EIGHT, largest holding 46% of
-/// the open map. Two different faults wearing one number.
+/// Two faults that cutting at gates leaves behind, and the two passes that
+/// answer them.
 /// <list type="bullet">
 /// <item><description><b>Slivers.</b> Two gates near each other carve the strip
 /// between them into its own region. It is a region by the letter of the rule
-/// and nothing anybody would plan through.</description></item>
+/// and nothing anybody would plan through. <see cref="Merge"/> absorbs it.</description></item>
 /// <item><description><b>The room nothing cuts.</b> A gate is where the map is
 /// NARROW, so a large open space contains none by construction and survives
 /// whole. A search inside it is most of a flat search, which is the entire
-/// saving gone.</description></item>
+/// saving gone. <see cref="Split"/> halves it.</description></item>
 /// </list>
 /// <para>
 /// Merging fixes the first and cannot fix the second; splitting fixes the second
@@ -23,6 +22,7 @@ namespace Nav.Core;
 /// GEOMETRIC — there is no semantic cut to be found in an empty room, which is
 /// the honest reason the gate decomposition alone was never going to balance.
 /// </para>
+/// <para>What the two passes are worth: <c>docs/gates-and-regions.md</c>.</para>
 /// </remarks>
 public static class Regions
 {

@@ -47,8 +47,7 @@ public sealed class RegionGraphTests(ITestOutputHelper output)
             $"the largest region holds {100.0 * regions.Sizes.Max() / regions.Sizes.Sum():F0}% of the open map");
 
         // The two faults the merge and the split exist to fix, as assertions
-        // rather than as a printed apology. Before them: median size EIGHT and a
-        // single region holding 46% of the map.
+        // rather than as a printed apology.
         Assert.True(
             regions.Sizes.Max() <= 1024,
             $"largest region is {regions.Sizes.Max()} cells; a search inside it is most of a flat search");
@@ -184,14 +183,9 @@ public sealed class RegionGraphTests(ITestOutputHelper output)
     /// that is only "a region" cannot carry the cost — the natural state is the
     /// gate you are standing at, with an edge to every other gate of a region it
     /// touches. That is the line graph, and getting it wrong is how a
-    /// hierarchical planner quietly returns routes far worse than it should.
-    /// <para>
-    /// The first version of this took the single best gate directly joining the
-    /// two regions and gave up otherwise. Fine when regions were few and huge;
-    /// once balancing produced 108 of them it could not route 232 of 244 sampled
-    /// pairs, and the ratios it did report were measuring ITS limits rather than
-    /// the abstraction's.
-    /// </para>
+    /// hierarchical planner quietly returns routes far worse than it should —
+    /// which is what a stand-in did here, and it read as the abstraction being
+    /// bad. See <c>docs/gates-and-regions.md</c>.
     /// </remarks>
     private static double ThroughGates(Grid grid, RegionGraph regions, int from, int to, SearchWorkspace workspace)
     {

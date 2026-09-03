@@ -303,7 +303,7 @@ public sealed class FakeGroupOps : IGroupOps
 
     /// <summary>
     /// The member is back on station: aimed at the ring's innermost slot and
-    /// holding nothing, as <see cref="MovementSystem.Recall"/> leaves it.
+    /// holding nothing, as <see cref="MovementSystem.Recall(int)"/> leaves it.
     /// </summary>
     public FakeGroupOps Back(int id)
     {

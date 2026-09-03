@@ -10,14 +10,6 @@ namespace Nav.Core.Tests;
 /// this exists so a change to how a group picks and fills its parking ring can be
 /// judged BEFORE it is committed, instead of by reading which tests it broke.
 /// <para>
-/// It was written mid-spike, after two plausible changes to the claim pass were
-/// each reverted: the first showed up as units retreating from a settled blob,
-/// the second as a throng packing loosely, and in both cases the failing test
-/// named a symptom rather than the trade. Seeing arena settle time, packing
-/// tightness, ten route ratios and the benchmark boundary move together turns
-/// that into a decision.
-/// </para>
-/// <para>
 /// Run it alone with
 /// <c>dotnet test tests/Nav.Core.Tests --filter FullyQualifiedName~SettlingReport</c>,
 /// once before a change and once after. It takes a few seconds and passes
@@ -25,22 +17,11 @@ namespace Nav.Core.Tests;
 /// which it marks BROKEN so the table can be skimmed.
 /// </para>
 /// <para>
-/// <b>As of field following</b> (a group's members descend its distance field
-/// one step a tick and search only when a slotted member has stood blocked
-/// twelve ticks), on this machine: arena-200 settles at 388 ticks for 1.66M
-/// nodes; the throng packs to 3.41, which is the ideal exactly; route ratios
-/// run headon 1.000, group 1.076, crosscut 1.049, chokepoint 1.136, crossing
-/// 1.240, standing 1.122, staggered 1.085, throng 1.450, countermand 2.382,
-/// reconcile 1.099; blob retreats are 0, 1 and 0; the patrol approach settles
-/// at 7 ticks over 19 steps with one crossing; and the benchmark lands 126 of
-/// 128. Before field following the same table read arena 586 / 5.52M, group
-/// 1.396, chokepoint 1.248, reconcile 1.336, patrol 14 / 21 / 2.
-/// <b>Two figures are known trades</b>: crossing is 1.240 where 1.209 was
-/// reachable, and the arena would settle in 326 with a blocked-ticks threshold
-/// of 8 rather than 12 -- but at 8 a settled blob retreats 2 and the throng
-/// departs over 26 ticks, so 12 is what holds every ceiling. See the constant.
-/// Treat these as the last known good reading, not as a target: they are a
-/// machine and a moment, and the ceilings are what actually bind.
+/// <b>The last known good reading is not in here.</b> It is in
+/// <c>docs/search-and-movement.md</c>, with what the same table read before
+/// field following and which two figures are known trades. A number pasted into
+/// this comment would be a target, and it is not one: these are a machine and a
+/// moment, and the ceilings the tests pin are what actually bind.
 /// </para>
 /// </remarks>
 [Trait("kind", "report")]

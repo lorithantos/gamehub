@@ -18,7 +18,8 @@ namespace Nav.Core;
 /// a generated map buys instead is two things a downloaded one cannot. Nothing
 /// we show anybody carries someone else's level design. And the passages are
 /// KNOWN, because we cut them — so a chokepoint detector can be scored against
-/// ground truth rather than eyeballed against a screenshot.
+/// ground truth rather than eyeballed against a screenshot
+/// (<c>docs/gates-and-regions.md</c>).
 /// </para>
 /// <para>
 /// Deterministic from the seed, using its own generator rather than

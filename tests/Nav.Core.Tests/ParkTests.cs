@@ -45,7 +45,7 @@ public sealed class ParkTests
     }
 
     /// <summary>
-    /// Gathers normally, and from <paramref name="fromTick"/> on tries to park
+    /// Gathers normally, and from <see cref="FromTick"/> on tries to park
     /// <paramref name="member"/> on every pass, recording each answer.
     /// </summary>
     private sealed class ParkOne(int member) : GatherDoctrine

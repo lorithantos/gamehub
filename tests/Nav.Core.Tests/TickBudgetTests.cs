@@ -19,12 +19,14 @@ public sealed class TickBudgetTests(ITestOutputHelper output)
         IReadOnlyList<double> Milliseconds,
         IReadOnlyList<AgentPlan> Trajectories);
 
-    /// <param name="individually">
-    /// One order per agent rather than one order for all. A group of two or
-    /// more follows its field and spends no search nodes at all, so the tests
-    /// that are ABOUT the search budget -- spreading it, running out of it --
-    /// need units that actually search, which is what a single-unit order gets.
-    /// </param>
+    /// <summary>Agents on the arena map, ordered somewhere and ticked.</summary>
+    /// <remarks>
+    /// <paramref name="individually"/> gives one order per agent rather than one
+    /// order for all. A group of two or more follows its field and spends no
+    /// search nodes at all, so the tests that are ABOUT the search budget --
+    /// spreading it, running out of it -- need units that actually search, which
+    /// is what a single-unit order gets.
+    /// </remarks>
     private static Run Swarm(int agents = Agents, int budget = NodeBudget, bool individually = false)
     {
         var grid = Grid.FromMapFile(Fixtures.Map("arena.map"));

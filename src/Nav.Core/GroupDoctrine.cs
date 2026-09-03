@@ -85,14 +85,12 @@ public class GatherDoctrine : GroupDoctrine
     /// going, and the sum of distances travelled is zero.
     /// </summary>
     /// <remarks>
-    /// IT IS A CYCLE, NOT A PAIR, and reading it as a pair cost three units.
-    /// The first version matched a MUTUAL cross only -- A on B's slot and B on
-    /// A's. On 2 September 2026 a probe found three members of a twenty-four
-    /// permanently stalled in a sealed column: 3 stood on 8's slot, 8 on 5's,
-    /// and 5 on 3's. No pair of them crosses, so this pass saw nothing;
-    /// <see cref="SettleWhereYouStand"/> refused because every cell underfoot
-    /// was claimed; and the reconcile pass had no reachable vacated cell to
-    /// offer. The rotation was stable and permanent.
+    /// IT IS A CYCLE, NOT A PAIR. Matching a MUTUAL cross only -- A on B's slot
+    /// and B on A's -- misses a three-rotation entirely, and a three-rotation in
+    /// a sealed column is stable and permanent: this pass sees nothing,
+    /// <see cref="SettleWhereYouStand"/> refuses because every cell underfoot is
+    /// claimed, and the reconcile pass has no reachable vacated cell to offer.
+    /// The probe that found one is in <c>docs/search-and-movement.md</c>.
     /// <para>
     /// <b>The reading that fixes it is that this was never a failure.</b> Every
     /// one of the three had found an acceptable place -- the cells they occupied
@@ -678,12 +676,12 @@ public sealed class MeteredGatherDoctrine : GroupDoctrine
     /// AND IT TURNS ON AT CONTACT, NOT AT ORDER TIME. Metering is door
     /// discipline, and door discipline starts at the door: until somebody has
     /// actually reached the gate there is no queue to manage, and the march
-    /// across open ground is free. The first version engaged the moment the
-    /// order was issued and froze the tail half a chamber from the gate —
-    /// every batch then paid the full transit latency serially, which is where
-    /// its measured 4x slowdown lived. With contact activation the whole group
-    /// compresses to the doorway at scrum pace and the ordering applies to a
-    /// queue that exists.
+    /// across open ground is free. Engaging at order time instead freezes the
+    /// tail half a chamber from the gate, and every batch then pays the full
+    /// transit latency serially — a 4x slowdown, in
+    /// <c>docs/search-and-movement.md</c>. With contact activation the whole
+    /// group compresses to the doorway at scrum pace and the ordering applies to
+    /// a queue that exists.
     /// </remarks>
     private static void Meter(IGroupView ops, IGroupPacing pacing)
     {

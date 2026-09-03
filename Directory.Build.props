@@ -1,0 +1,18 @@
+<Project>
+
+  <!--
+    Doc comments are checked by the compiler rather than by eye. Generating the
+    XML is what turns a cref pointing at a renamed type, a <param> naming an
+    argument that no longer exists, and an unclosed tag into warnings; without
+    it they are just text that happens to sit above a member.
+
+    CS1591 is off because it demands a comment on every public member, which is
+    a different policy and not one this repository holds. The rest stay on: they
+    only fire on a comment that is already there and is wrong.
+  -->
+  <PropertyGroup>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+</Project>

@@ -4,19 +4,10 @@ namespace Nav.Core;
 /// Finds the gates by flooding the map and watching where the contour collapses.
 /// </summary>
 /// <remarks>
-/// The replacement for <see cref="ChokepointScan"/>, which asks a GLOBAL question
-/// about a LOCAL structure: it requires a cell to carry a tenth of all traffic on
-/// the whole map, which only happens where the map is nearly one corridor. On a
-/// 512x384 map that is 62% wall it found nothing at all, at any sampling density,
-/// because raising the terminal count raises the threshold in exact proportion to
-/// the counts it is compared against.
-/// <para>
 /// <b>The measure.</b> Flood from a point with <see cref="DistanceField"/>. In open
 /// ground the cells at distance <i>k</i> form a long arc; in a passage they are one
-/// or two, and they stay that way for a run of consecutive <i>k</i>. Narrow is
-/// narrow whatever share of the map's traffic uses it, which is the property the
-/// old criterion lacked.
-/// </para>
+/// or two, and they stay that way for a run of consecutive <i>k</i>. Narrowness is a
+/// property of the passage rather than of the map around it.
 /// <para>
 /// <b>The ranking.</b> Steepest descent over the field gives a forest rooted at the
 /// flood's origin, so a cell's subtree is everything whose route home passes
@@ -31,6 +22,11 @@ namespace Nav.Core;
 /// does NOT handle it landing on an island, which is a different failure needing a
 /// different answer. Hence both the extra origins and the check that an origin
 /// reached the main body before its opinion counts.
+/// </para>
+/// <para>
+/// Supersedes <see cref="ChokepointScan"/>, which is still what
+/// <see cref="MovementSystem"/> meters with. What that one got wrong, and how the
+/// two scored against known passages, is in <c>docs/gates-and-regions.md</c>.
 /// </para>
 /// </remarks>
 /// <param name="minimumCut">

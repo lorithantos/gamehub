@@ -101,15 +101,12 @@ public sealed class SearchWorkspace
     /// thousand. Bumping a counter instead makes a cell's staleness a comparison
     /// rather than a write.
     /// <para>
-    /// HOW MUCH THIS IS WORTH DEPENDS ENTIRELY ON PATH LENGTH, and the aggregate
-    /// hides it. Measured over the 155,620-record Moving AI corpus the whole
-    /// change is worth 3%, because 73% of that corpus is long cross-map problems
-    /// averaging 18,339 expansions -- only 20 cells cleared per node. Banding the
-    /// same measurement by the scenario files' own difficulty bucket tells a
-    /// different story: the shortest problems average three expanded nodes and
-    /// 44,306 cells cleared for each one. Restricted to short paths, which is
-    /// what most movement in a game actually is, this is ~4.9x faster --
-    /// 101,520 searches a second against 20,529.
+    /// HOW MUCH THIS IS WORTH DEPENDS ENTIRELY ON PATH LENGTH, and an aggregate
+    /// over a benchmark corpus hides it: long cross-map problems clear few cells
+    /// per expanded node and short ones clear tens of thousands. Restricted to
+    /// short paths, which is what most movement in a game actually is, it is
+    /// worth about 4.9x. The banded measurement is in
+    /// <c>docs/search-and-movement.md</c>.
     /// </para>
     /// <para>
     /// The cost is four bytes a cell held permanently, and one wrap-around case:

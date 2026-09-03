@@ -15,10 +15,10 @@ namespace Nav.Viewer.Tests;
 /// is sized from the cell, so units, ids, health bars and routes all collapse
 /// into that pixel. The map is visible and the simulation is not.
 /// <para>
-/// That matters more than a rendering nicety. Reading a replay tick by tick is
-/// how the group-movement defect was found, and that one change took arena-200
-/// from 5.52M search nodes to 1.66M. An instrument that goes dark at the scale
-/// the work is moving to costs more than it looks like it costs.
+/// That matters more than a rendering nicety: reading a replay tick by tick is
+/// how the largest movement win so far was found, so an instrument that goes
+/// dark at the scale the work is moving to costs more than it looks like it
+/// costs. See <c>docs/viewer.md</c>.
 /// </para>
 /// </remarks>
 public sealed class CameraTests(ITestOutputHelper output)

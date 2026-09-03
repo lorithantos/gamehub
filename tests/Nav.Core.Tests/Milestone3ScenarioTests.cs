@@ -159,12 +159,12 @@ public sealed class Milestone3ScenarioTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// One order is ONE movement. The rear of a group used to fail its first
-    /// replans against its own front, nap on the sixty-four-tick backstop, and
-    /// depart as a visibly second expedition after the first had crossed and
-    /// assembled — Lori's crosscut screenshot, and an outcome nobody wants.
-    /// The space-opened wake closes it: each rank replans the moment the rank
-    /// ahead pulls away, so the column accordions out together.
+    /// One order is ONE movement. The failure this guards against is a rear that
+    /// fails its first replans against its own front, naps on the
+    /// sixty-four-tick backstop, and departs as a visibly second expedition
+    /// after the first has crossed and assembled. The space-opened wake closes
+    /// it: each rank replans the moment the rank ahead pulls away, so the column
+    /// accordions out together. See <c>docs/search-and-movement.md</c>.
     /// </summary>
     [Theory]
     [InlineData("throng", 24)]
@@ -200,11 +200,11 @@ public sealed class Milestone3ScenarioTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Nobody walks away from a destination they have reached. Settled-looking
-    /// units used to turn around at the backstop and march outward — a squatter
-    /// on somebody else's claim had no legal way to stay, so reconciliation
-    /// sent it to the only unclaimed spot left, which by then lay behind the
-    /// settled rim. The squatter's swap replaced that with an instant arrival.
+    /// Nobody walks away from a destination they have reached. Without the
+    /// squatter's swap a unit on somebody else's claim has no legal way to stay,
+    /// so reconciliation sends it to the only unclaimed spot left — which by
+    /// then lies behind the settled rim, and it turns round at the backstop and
+    /// marches outward. The swap makes that an instant arrival instead.
     /// </summary>
     [Theory]
     [InlineData(18, 5)]

@@ -126,8 +126,7 @@ public interface IGroupView
     /// keeps clear of these so a group never seals its own way in, and a
     /// doctrine settling a member where it stands must keep clear of them too:
     /// a follower stopped in a gap behind a fellow reads as "not moving, close
-    /// enough", and the first version of the settle rule parked it there and
-    /// froze everyone behind it.
+    /// enough", and settling it there freezes everyone behind it.
     /// </summary>
     bool IsDoorway(int cell);
 

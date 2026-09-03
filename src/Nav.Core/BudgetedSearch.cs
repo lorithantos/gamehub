@@ -4,10 +4,10 @@ namespace Nav.Core;
 /// One space-time search, interruptible and resumable.
 /// </summary>
 /// <remarks>
-/// Milestone 1 measured a single search expanding 594,349 nodes on a
-/// 1,048,576-cell map. At any realistic node rate that is more than a 60Hz frame:
-/// one unit, one order, one dropped frame, before any multi-agent work is added.
-/// So a search has to be something a caller can stop and come back to.
+/// One search on a million-cell map can expand more nodes than a 60Hz frame
+/// affords — one unit, one order, one dropped frame, before any multi-agent work
+/// is added. So a search has to be something a caller can stop and come back to.
+/// The measurement is in <c>docs/search-and-movement.md</c>.
 /// <para>
 /// <b>This is the only implementation of the search.</b>
 /// <see cref="CooperativePlanner.FindPlan"/> is a wrapper that runs it to

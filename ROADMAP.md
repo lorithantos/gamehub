@@ -6,9 +6,11 @@ The goal is **tactical doctrine**: units that hold a position, fall back to
 repair, rotate, and get baited — the C&C behaviours that were missing. Movement
 is the substrate, not the point.
 
-This file is the short version. The working notes are janet thread items; the
-narrative versions are *Inside the Tick* and *The Road to Croatia*, both of which
-are now behind this file.
+This file is the short version, and it looks forward. [`docs/`](docs/) looks
+back: what each decision replaced, what was tried, and what the numbers were on
+the day. The working notes are janet thread items; the narrative versions are
+*Inside the Tick* and *The Road to Croatia*, both of which are now behind this
+file.
 
 ---
 

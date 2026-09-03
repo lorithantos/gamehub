@@ -5,12 +5,10 @@ namespace Nav.Core.Models;
 /// whole simulation was missing.
 /// </summary>
 /// <remarks>
-/// Unit speed used to be a DERIVED ACCIDENT rather than a chosen quantity.
-/// Movement is one cell per tick, a tick was a sixtieth of a second because that
-/// is what a render loop runs at, and nobody multiplied the two: units crossed
-/// ground at sixty cells a second. With a cell at two metres that is 432 km/h,
-/// and the whole guard demo — six promotions, four repair trips and a rotation —
-/// happened in five and a third seconds.
+/// Without these, unit speed is a DERIVED ACCIDENT rather than a chosen
+/// quantity: movement is one cell per tick, a tick is however long the render
+/// loop happens to be, and nobody multiplies the two.
+/// <c>docs/scale-and-doctrine.md</c> has what that came to.
 /// <para>
 /// <b>Pin any two and the third follows.</b> Here the two chosen are seconds per
 /// tick and metres per cell, and cells per second falls out of the movement rule

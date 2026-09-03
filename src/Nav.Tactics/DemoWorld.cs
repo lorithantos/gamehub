@@ -34,12 +34,21 @@ namespace Nav.Tactics;
 /// Exposure is proximity only — no line of sight, no facing, no fire — because
 /// the demo's hostiles do not shoot either.
 /// </para>
+/// <para>
+/// <b>Sides.</b> Every unit is on a side, 0 unless <see cref="Enlist"/> says
+/// otherwise, and <see cref="ViewFor"/> hands each side its own perception: the
+/// other sides' living units are its hostiles, alongside any scripted
+/// <see cref="HostileCells"/>, which are everybody's enemy. The world itself is
+/// side 0's view.
+/// </para>
 /// </remarks>
 public sealed class DemoWorld : IPerception
 {
     private readonly Dictionary<int, double> _health = [];
     private readonly Dictionary<int, int> _exposure = [];
     private readonly Dictionary<int, double> _contribution = [];
+    private readonly Dictionary<int, int> _side = [];
+    private readonly Dictionary<int, int> _cell = [];
     private readonly Grid _grid;
     private readonly int[] _rankAt;
 
@@ -142,17 +151,88 @@ public sealed class DemoWorld : IPerception
     /// <summary>Exposed-tick counts at which rank rises, ascending.</summary>
     public IReadOnlyList<int> RankAt => _rankAt;
 
-    /// <summary>Cells hostile units stand on. Mutable: a demo moves them.</summary>
+    /// <summary>
+    /// Cells scripted threats stand on. Mutable: a demo moves them. Hostile to
+    /// every side, and never a unit — nothing here has health or a side.
+    /// </summary>
     public List<int> HostileCells { get; } = [];
 
     /// <summary>Cells where a unit is repaired.</summary>
     public List<int> RepairCells { get; } = [];
 
+    /// <summary>Puts a unit on a side. Units nobody enlists are on side 0.</summary>
+    /// <exception cref="ArgumentOutOfRangeException">A negative id or side.</exception>
+    public void Enlist(int agent, int side)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(agent);
+        ArgumentOutOfRangeException.ThrowIfNegative(side);
+        _side[agent] = side;
+    }
+
+    /// <summary>Which side a unit is on; 0 for one never enlisted.</summary>
+    public int SideOf(int agent) => _side.GetValueOrDefault(agent);
+
+    /// <summary>
+    /// The world as one side perceives it: health and rank as anybody sees them,
+    /// and the OTHER sides' living units as hostiles.
+    /// </summary>
+    /// <remarks>
+    /// Where units stand is what the last <see cref="Settle"/> or
+    /// <see cref="Observe"/> recorded. Prime it with <see cref="Observe"/> before
+    /// the first pass, or a doctrine's first decision is taken blind.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">A negative side.</exception>
+    public IPerception ViewFor(int side)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(side);
+        return side == 0 ? this : new SideView(this, side);
+    }
+
+    /// <summary>
+    /// Cells hostile to <paramref name="side"/>: every scripted threat, and every
+    /// living unit on another side. Ascending, without repeats.
+    /// </summary>
+    public IReadOnlyList<int> HostilesFor(int side)
+    {
+        var cells = new SortedSet<int>(HostileCells);
+        foreach (var (agent, cell) in _cell)
+        {
+            if (SideOf(agent) != side)
+            {
+                cells.Add(cell);
+            }
+        }
+
+        return [.. cells];
+    }
+
+    /// <summary>
+    /// Records where the living stand, and that the dead no longer do, without
+    /// touching health or rank. <see cref="Settle"/> does this first; call it
+    /// alone before the opening pass so the sides can see each other at tick 0.
+    /// </summary>
+    public void Observe(IReadOnlyList<AgentState> agents)
+    {
+        ArgumentNullException.ThrowIfNull(agents);
+
+        foreach (var agent in agents)
+        {
+            if (agent.Alive)
+            {
+                _cell[agent.Id] = agent.Cell;
+            }
+            else
+            {
+                _cell.Remove(agent.Id);
+            }
+        }
+    }
+
     /// <inheritdoc/>
     public double HealthOf(int agent) => _health.TryGetValue(agent, out var health) ? health : 1.0;
 
     /// <inheritdoc/>
-    public IReadOnlyList<int> Hostiles => HostileCells;
+    public IReadOnlyList<int> Hostiles => HostilesFor(0);
 
     /// <inheritdoc/>
     public IReadOnlyList<int> RepairPoints => RepairCells;
@@ -312,6 +392,8 @@ public sealed class DemoWorld : IPerception
     {
         ArgumentNullException.ThrowIfNull(agents);
 
+        Observe(agents);
+
         foreach (var agent in agents)
         {
             if (!agent.Alive)
@@ -348,5 +430,17 @@ public sealed class DemoWorld : IPerception
                 SetHealth(agent.Id, HealthOf(agent.Id) + delta);
             }
         }
+    }
+
+    /// <summary>One side's window on the world. Everything but the enemy list is the world's own answer.</summary>
+    private sealed class SideView(DemoWorld world, int side) : IPerception
+    {
+        public double HealthOf(int agent) => world.HealthOf(agent);
+
+        public int RankOf(int agent) => world.RankOf(agent);
+
+        public IReadOnlyList<int> Hostiles => world.HostilesFor(side);
+
+        public IReadOnlyList<int> RepairPoints => world.RepairPoints;
     }
 }

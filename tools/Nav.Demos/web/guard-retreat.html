@@ -568,22 +568,109 @@
   const cols = data.w;
   const rows = data.h;
   let cell = 0;
-  let padX = 0;
-  let padY = 0;
+
+  /* ---------- terrain, baked once ----------
+     Walls and grid lines never change for the length of a replay, and redrawing
+     them cost one fillRect per cell per frame -- fine for a 25x17 map, and
+     262,144 of them for a 512x512 one. So they are painted ONCE into an
+     offscreen bitmap at exactly one pixel per cell, and every frame blits that
+     scaled up with smoothing off.
+     Nearest-neighbour upscaling is not a compromise here, it is the correct
+     filter: a cell is a square of one colour, so a scaled pixel IS the cell.
+     Zoom therefore costs nothing, and the bitmap stays 512x512 however far in
+     you go. */
+  /* Baked at SUPER pixels per cell rather than one. At one it is pixel-identical
+     to the fillRects it replaces, which is fine and looks like nothing -- the
+     walls are flat squares either way. Baking bigger costs a few megabytes once
+     and buys detail that was never affordable per frame: here, a lighter edge on
+     each wall face that reads as a lip rather than a silhouette. Blocky is the
+     correct filter for a grid; blocky AND flat was a choice nobody had to make. */
+  const SUPER = 4;
+  let terrain = null;
+  let terrainInk = "";
+
+  function solid(i) { return i >= 0 && i < data.walls.length && data.walls[i] !== "."; }
+
+  function bakeTerrain(wallColor, edgeColor) {
+    terrain = document.createElement("canvas");
+    terrain.width = cols * SUPER;
+    terrain.height = rows * SUPER;
+    const tctx = terrain.getContext("2d");
+
+    tctx.fillStyle = wallColor;
+    for (let i = 0; i < data.walls.length; i++) {
+      if (data.walls[i] !== ".") {
+        tctx.fillRect((i % cols) * SUPER, Math.floor(i / cols) * SUPER, SUPER, SUPER);
+      }
+    }
+
+    // A lip on faces that meet open ground, so a wall reads as having a top
+    // rather than being a hole. One pass at bake time; unaffordable per frame,
+    // free forever after.
+    tctx.fillStyle = edgeColor;
+    const lip = Math.max(1, SUPER / 4);
+    for (let i = 0; i < data.walls.length; i++) {
+      if (data.walls[i] === ".") { continue; }
+      const x = (i % cols) * SUPER;
+      const y = Math.floor(i / cols) * SUPER;
+      if (!solid(i - cols)) { tctx.fillRect(x, y, SUPER, lip); }
+      if (!solid(i - 1) && i % cols !== 0) { tctx.fillRect(x, y, lip, SUPER); }
+    }
+
+    terrainInk = wallColor;
+  }
+
+  /* ---------- camera ----------
+     The window and the map are two rectangles. The canvas is the window and
+     stays the size of its container; cell and origin say where the map sits
+     inside it. Matches the native viewer's GridLayout so the two do not drift
+     into disagreeing about what "centred on a cell" means. */
+  let viewW = 0;
+  let viewH = 0;
+  let fitCell = 8;
+  let focusX = Math.floor(cols / 2);
+  let focusY = Math.floor(rows / 2);
+
+  function anchor(extent, view, focus) {
+    if (extent <= view) { return Math.round((view - extent) / 2); }
+    return Math.max(view - extent, Math.min(0, Math.round(view / 2 - focus)));
+  }
+
+  function camera() {
+    const extentX = cols * cell;
+    const extentY = rows * cell;
+    return {
+      x: anchor(extentX, viewW, Math.round((focusX + .5) * cell)),
+      y: anchor(extentY, viewH, Math.round((focusY + .5) * cell)),
+      w: extentX,
+      h: extentY
+    };
+  }
 
   function resize() {
     const css = canvas.parentElement.clientWidth - 2 * 9;
     const dpr = window.devicePixelRatio || 1;
-    cell = Math.max(8, Math.floor(css / cols));
-    const w = cell * cols;
-    const h = cell * rows;
-    canvas.style.width = w + "px";
-    canvas.style.height = h + "px";
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
+
+    // The window: as wide as the container, and tall enough to show the whole
+    // map when the whole map fits. A big map gets a 3:2 window and is scrolled.
+    // Snap the scale so a cell is a whole number of DEVICE pixels. Windows at
+    // 125% makes dpr 1.25, and an unsnapped cell then covers 3 device pixels on
+    // one column and 4 on the next -- which is the actual ugliness people mean
+    // by nearest-neighbour, and it shimmers as you pan.
+    const step = dpr === 1 ? 1 : Math.round(1 / (dpr % 1 === 0 ? 1 : dpr % 1));
+    const snap = v => Math.max(step, Math.round(v / step) * step);
+
+    fitCell = snap(Math.max(1, Math.floor(css / cols)));
+    viewW = css;
+    viewH = Math.min(rows * Math.max(fitCell, 8), Math.round(css * 2 / 3));
+    if (rows * fitCell <= viewH) { viewH = rows * fitCell; }
+    if (!cell) { cell = snap(Math.max(fitCell, Math.min(24, Math.floor(viewH / rows) || 8))); }
+
+    canvas.style.width = viewW + "px";
+    canvas.style.height = viewH + "px";
+    canvas.width = Math.round(viewW * dpr);
+    canvas.height = Math.round(viewH * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    padX = 0;
-    padY = 0;
   }
 
   function token(name) {
@@ -637,28 +724,49 @@
       ground: token("--ground")
     };
 
-    const w = cell * cols;
-    const h = cell * rows;
+    const view = camera();
+    const w = view.w;
+    const h = view.h;
 
-    ctx.clearRect(0, 0, w, h);
+    ctx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
+    ctx.clearRect(0, 0, viewW, viewH);
+    ctx.fillStyle = colors.ground;
+    ctx.fillRect(0, 0, viewW, viewH);
+
+    // Terrain: one blit. Rebaked only if the theme changed the wall colour.
+    if (!terrain || terrainInk !== colors.wall) { bakeTerrain(colors.wall, colors.ink3); }
     ctx.fillStyle = colors.surface;
-    ctx.fillRect(0, 0, w, h);
+    ctx.fillRect(view.x, view.y, w, h);
 
-    // walls
-    ctx.fillStyle = colors.wall;
-    for (let i = 0; i < data.walls.length; i++) {
-      if (data.walls[i] !== ".") {
-        ctx.fillRect((i % cols) * cell, Math.floor(i / cols) * cell, cell, cell);
-      }
+    // Smoothing OFF below one device pixel per baked pixel and ON above it. A
+    // grid wants nearest-neighbour so cells stay square-edged; a bake being
+    // shrunk wants filtering or it aliases into moire.
+    ctx.imageSmoothingEnabled = cell < SUPER;
+    ctx.drawImage(terrain, 0, 0, cols * SUPER, rows * SUPER, view.x, view.y, w, h);
+
+    // Grid lines only when a cell is big enough for them to mean anything.
+    // At three pixels they are the map.
+    if (cell >= 6) {
+      ctx.save();
+      ctx.translate(view.x, view.y);
+      ctx.strokeStyle = colors.grid;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      const c0 = Math.max(1, Math.floor(-view.x / cell));
+      const c1 = Math.min(cols, Math.ceil((viewW - view.x) / cell));
+      const r0 = Math.max(1, Math.floor(-view.y / cell));
+      const r1 = Math.min(rows, Math.ceil((viewH - view.y) / cell));
+      for (let c = c0; c < c1; c++) { ctx.moveTo(c * cell + .5, 0); ctx.lineTo(c * cell + .5, h); }
+      for (let r = r0; r < r1; r++) { ctx.moveTo(0, r * cell + .5); ctx.lineTo(w, r * cell + .5); }
+      ctx.stroke();
+      ctx.restore();
     }
 
-    // grid
-    ctx.strokeStyle = colors.grid;
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let c = 1; c < cols; c++) { ctx.moveTo(c * cell + .5, 0); ctx.lineTo(c * cell + .5, h); }
-    for (let r = 1; r < rows; r++) { ctx.moveTo(0, r * cell + .5); ctx.lineTo(w, r * cell + .5); }
-    ctx.stroke();
+    // Everything below is drawn in MAP space. Translating once beats adding an
+    // origin to two hundred coordinates, and beats the bug where one of them
+    // gets missed.
+    ctx.save();
+    ctx.translate(view.x, view.y);
 
     const frame = frames[Math.min(last, Math.round(position))];
 
@@ -820,6 +928,8 @@
         ctx.fillRect(cx + inset, by, size * Math.max(0, Math.min(1, u.health)), 2.5);
       }
     }
+
+    ctx.restore();
   }
 
   function roundRect(c, x, y, w, h, r) {
@@ -956,7 +1066,61 @@
     if (e.key === " ") { e.preventDefault(); playBtn.click(); }
     else if (e.key === "ArrowLeft") { e.preventDefault(); backBtn.click(); }
     else if (e.key === "ArrowRight") { e.preventDefault(); fwdBtn.click(); }
+    // WASD pans, not the arrows: those already scrub time here, and time is the
+    // axis somebody reaches for first on a replay. The native viewer has the
+    // arrows free and uses them, so the two differ on purpose rather than by
+    // accident.
+    else if (e.key === "w" || e.key === "W") { pan(0, -1); }
+    else if (e.key === "s" || e.key === "S") { pan(0, 1); }
+    else if (e.key === "a" || e.key === "A") { pan(-1, 0); }
+    else if (e.key === "d" || e.key === "D") { pan(1, 0); }
+    else if (e.key === "+" || e.key === "=") { zoom(2); }
+    else if (e.key === "-" || e.key === "_") { zoom(.5); }
+    else if (e.key === "0" || e.key === "Home") { resetView(); }
   });
+
+  /* ---------- camera controls ---------- */
+
+  function pan(dx, dy) {
+    focusX = Math.max(0, Math.min(cols - 1, focusX + dx * Math.max(1, Math.floor(viewW / cell / 2))));
+    focusY = Math.max(0, Math.min(rows - 1, focusY + dy * Math.max(1, Math.floor(viewH / cell / 2))));
+    update();
+  }
+
+  function zoom(by) {
+    const next = by > 1 ? Math.min(48, cell * 2) : Math.max(fitCell, Math.floor(cell / 2));
+    if (next === cell) { return; }
+    cell = next;
+    update();
+  }
+
+  function resetView() {
+    cell = fitCell;
+    focusX = Math.floor(cols / 2);
+    focusY = Math.floor(rows / 2);
+    update();
+  }
+
+  // Drag to pan, which is the gesture people try first. Left button, because
+  // this page has no selection to conflict with.
+  let dragging = null;
+  canvas.addEventListener("pointerdown", function (e) {
+    dragging = { x: e.clientX, y: e.clientY, fx: focusX, fy: focusY };
+    canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener("pointermove", function (e) {
+    if (!dragging) { return; }
+    focusX = Math.max(0, Math.min(cols - 1, dragging.fx - Math.round((e.clientX - dragging.x) / cell)));
+    focusY = Math.max(0, Math.min(rows - 1, dragging.fy - Math.round((e.clientY - dragging.y) / cell)));
+    update();
+  });
+  canvas.addEventListener("pointerup", function () { dragging = null; });
+  canvas.addEventListener("pointercancel", function () { dragging = null; });
+
+  canvas.addEventListener("wheel", function (e) {
+    e.preventDefault();
+    zoom(e.deltaY < 0 ? 2 : .5);
+  }, { passive: false });
 
   /* ---------- loop ---------- */
 

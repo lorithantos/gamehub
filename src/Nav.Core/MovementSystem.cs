@@ -134,6 +134,12 @@ public sealed class MovementSystem
         /// and takes the nearest open spot once they are near.
         /// </summary>
         public bool HasSlot { get; set; } = true;
+
+        /// <summary>
+        /// False once removed. The record stays in the list so ids keep meaning
+        /// what they meant; every pass skips it.
+        /// </summary>
+        public bool Alive { get; set; } = true;
     }
 
     /// <summary>
@@ -305,7 +311,8 @@ public sealed class MovementSystem
         [.. _agents.Select(a => new AgentState(
             a.Id, a.Cell, a.Goal, a.Cell == a.Goal, a.StalledTicks, a.Search is not null,
             Waiting: a.Cell != a.Goal && a.Search is null && a.RetryAfterTick > CurrentTick,
-            Errand: a.Errand))];
+            Errand: a.Errand,
+            Alive: a.Alive))];
 
     /// <summary>Each live group's leader, for display and diagnostics.</summary>
     public IReadOnlyList<int> Leaders =>
@@ -563,6 +570,11 @@ public sealed class MovementSystem
                     nameof(agents), id, $"no such agent; this system has {_agents.Count}.");
             }
 
+            if (!_agents[id].Alive)
+            {
+                throw new InvalidOperationException($"agent {id} has been removed and cannot be ordered.");
+            }
+
             members[at++] = _agents[id];
         }
 
@@ -774,7 +786,82 @@ public sealed class MovementSystem
                 nameof(agent), agent, $"no such agent; this system has {_agents.Count}.");
         }
 
+        if (!_agents[agent].Alive)
+        {
+            throw new InvalidOperationException($"agent {agent} has been removed from the world.");
+        }
+
         return _agents[agent];
+    }
+
+    /// <summary>
+    /// Takes an agent out of the world for good: its cell is freed, its
+    /// reservations and any search in flight are dropped, and its formation
+    /// stops counting it. The id is never reused and the agent stays listed,
+    /// with <see cref="AgentState.Alive"/> false, so every caller indexing by id
+    /// keeps indexing the same list.
+    /// </summary>
+    /// <remarks>
+    /// What death is to this layer, and all it is: a unit that stops holding
+    /// ground. Why it died is a fact about the world above, where health lives.
+    /// <para>
+    /// Idempotent. Removing a removed agent changes nothing, because a casualty
+    /// reported twice is the ordinary case in a fight.
+    /// </para>
+    /// <para>
+    /// Its formation's ring is NOT regrown. A ring one slot too large costs
+    /// nobody anything; shrinking it under members already holding the outer
+    /// cells would send them walking inward for no reason anybody asked for.
+    /// </para>
+    /// <para>
+    /// Every other verb refuses a removed agent rather than quietly moving a
+    /// corpse.
+    /// </para>
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">No such agent.</exception>
+    public void Remove(int agent)
+    {
+        if (agent < 0 || agent >= _agents.Count)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(agent), agent, $"no such agent; this system has {_agents.Count}.");
+        }
+
+        var unit = _agents[agent];
+        if (!unit.Alive)
+        {
+            return;
+        }
+
+        Abandon(unit);
+        _table.Release(unit.Id);
+
+        unit.Plan = null;
+        unit.WantsPlan = false;
+        unit.StalledTicks = 0;
+        unit.BlockedTicks = 0;
+        unit.HasSlot = false;
+        unit.Errand = -1;
+        unit.FieldKey = -1;
+
+        // Nowhere left to walk to, so no pass ever asks to plan it.
+        unit.Goal = unit.Cell;
+
+        if (unit.Group is { } group)
+        {
+            group.Members.Remove(unit);
+            unit.Group = null;
+            if (group.Members.Count == 0)
+            {
+                _groups.Remove(group);
+            }
+            else
+            {
+                ElectLeader(group);
+            }
+        }
+
+        unit.Alive = false;
     }
 
     /// <summary>A goal changed under this agent: plan again, now, from scratch.</summary>
@@ -823,6 +910,11 @@ public sealed class MovementSystem
         _occupiedCells.Clear();
         foreach (var agent in _agents)
         {
+            if (!agent.Alive)
+            {
+                continue;
+            }
+
             _occupiedCells.Add(agent.Cell);
             if (agent.Cell == agent.Goal)
             {
@@ -920,7 +1012,9 @@ public sealed class MovementSystem
             var still = new HashSet<int>();
             for (var i = 0; i < _agents.Count; i++)
             {
-                if (!moving[i])
+                // The removed hold nothing, so a cell one died on is free to
+                // step into the same tick.
+                if (!moving[i] && _agents[i].Alive)
                 {
                     still.Add(_agents[i].Cell);
                 }

@@ -23,7 +23,10 @@ internal sealed class SquadOps : ISquadOps
         _perception = perception;
         _agents = system.Agents;
 
-        Members = [.. squad.Members];
+        // The dead are not listed. A doctrine never has to ask whether a member
+        // still exists: what it is handed is who can act, and a casualty simply
+        // stops appearing, on station and away alike.
+        Members = [.. squad.Members.Where(id => id >= _agents.Count || _agents[id].Alive)];
         Away = [.. Members.Where(id => id < _agents.Count && _agents[id].Away)];
         Hostiles = perception.Hostiles;
         RepairPoints = perception.RepairPoints;
@@ -73,7 +76,7 @@ internal sealed class SquadOps : ISquadOps
     public void Sortie(int destination)
     {
         var agents = _system.Agents;
-        var onStation = Members.Where(id => id < agents.Count && !agents[id].Away).ToArray();
+        var onStation = Members.Where(id => id < agents.Count && agents[id].Alive && !agents[id].Away).ToArray();
         if (onStation.Length == 0)
         {
             return;

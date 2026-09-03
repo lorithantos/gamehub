@@ -314,6 +314,11 @@ public sealed class DemoWorld : IPerception
 
         foreach (var agent in agents)
         {
+            if (!agent.Alive)
+            {
+                continue;
+            }
+
             var exposed = IsExposed(agent.Cell);
             if (exposed)
             {

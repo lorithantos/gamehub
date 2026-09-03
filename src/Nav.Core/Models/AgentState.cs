@@ -17,6 +17,10 @@ namespace Nav.Core.Models;
 /// <see cref="MovementSystem.Dispatch"/>, or -1 while it is with its formation.
 /// The formation still counts it as a member; see <see cref="Away"/>.
 /// </param>
+/// <param name="Alive">
+/// False once <see cref="MovementSystem.Remove"/> has taken the agent out of the
+/// world. It keeps its id and its last cell, holds nothing, and no verb accepts it.
+/// </param>
 /// <remarks>
 /// <see cref="Stuck"/> means NO PROGRESS, not "no plan".
 /// <para>
@@ -34,7 +38,8 @@ public readonly record struct AgentState(
     int StalledTicks,
     bool Thinking,
     bool Waiting,
-    int Errand = -1)
+    int Errand = -1,
+    bool Alive = true)
 {
     /// <summary>Has an order it is making no progress on.</summary>
     public bool Stuck => !Arrived && StalledTicks > 0;

@@ -85,7 +85,17 @@ public sealed class Squad
     public void MoveAll(MovementSystem system, int destination)
     {
         ArgumentNullException.ThrowIfNull(system);
-        system.Order([.. _members], destination);
+
+        // The dead stay members and stay behind. A squad that has taken losses
+        // is still one input to the engine; it is just a smaller one.
+        var agents = system.Agents;
+        var living = _members.Where(id => id >= agents.Count || agents[id].Alive).ToArray();
+        if (living.Length == 0)
+        {
+            return;
+        }
+
+        system.Order(living, destination);
         Anchor = destination;
     }
 

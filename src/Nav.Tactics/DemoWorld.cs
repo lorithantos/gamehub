@@ -41,6 +41,7 @@ public sealed class DemoWorld : IPerception
 {
     private readonly Dictionary<int, double> _health = [];
     private readonly Dictionary<int, int> _exposure = [];
+    private readonly Dictionary<int, double> _contribution = [];
     private readonly Grid _grid;
     private readonly int[] _rankAt;
 
@@ -198,8 +199,84 @@ public sealed class DemoWorld : IPerception
     /// <summary>Sets a unit's health, clamped to 0..1.</summary>
     public void SetHealth(int agent, double health) => _health[agent] = Math.Clamp(health, 0.0, 1.0);
 
-    /// <summary>Takes health off a unit, never below zero.</summary>
+    /// <summary>Takes health off a unit, never below zero. Nobody gets the credit.</summary>
+    /// <remarks>
+    /// For a demo staging an injury rather than modelling one. Use
+    /// <see cref="DamageBy"/> when an attacker exists; contribution earned this
+    /// way goes nowhere, which is right for a scripted wound and wrong for a
+    /// fight.
+    /// </remarks>
     public void Damage(int agent, double amount) => SetHealth(agent, HealthOf(agent) - amount);
+
+    /// <summary>
+    /// Damage with an attacker, which is what makes it count for something.
+    /// </summary>
+    /// <remarks>
+    /// <b>Credit is by last hit.</b> The attacker banks contribution in
+    /// proportion to the damage it actually did, and whoever was resolving
+    /// damage when the target reached zero takes the kill bonus as well, scaled
+    /// by what the victim was worth.
+    /// <para>
+    /// Exact damage-share credit would need a contributor map per target and
+    /// would agree with this in expectation anyway: deal sixty percent of the
+    /// damage and land about sixty percent of the killing blows. The per-kill
+    /// noise is the price of needing no bookkeeping, and the bias it leaves runs
+    /// usefully — a bigger hit is likelier to be the one that crosses zero, so
+    /// heavy units earn more than their damage share, which is the veterancy
+    /// loop reinforcing itself rather than a leak.
+    /// </para>
+    /// </remarks>
+    /// <param name="target">Who is hit.</param>
+    /// <param name="amount">Damage after armour and falloff. Not negative.</param>
+    /// <param name="attacker">Who dealt it.</param>
+    /// <returns>Contribution the attacker earned, damage and any kill bonus together.</returns>
+    public double DamageBy(int target, double amount, int attacker)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(amount);
+
+        var before = HealthOf(target);
+        if (before <= 0.0 || amount == 0.0)
+        {
+            return 0.0;
+        }
+
+        // Only damage that LANDED counts. Crediting the swing rather than the
+        // wound would pay a unit for overkill, and pay every unit still firing
+        // at something already dead.
+        var dealt = Math.Min(amount, before);
+        SetHealth(target, before - amount);
+
+        var earned = dealt * RankPerDamage;
+        if (HealthOf(target) <= 0.0)
+        {
+            earned += RankPerKill * (1.0 + (0.3 * RankOf(target)));
+        }
+
+        _contribution[attacker] = ContributionOf(attacker) + earned;
+        return earned;
+    }
+
+    /// <summary>Contribution a unit has banked from damage and kills.</summary>
+    /// <remarks>
+    /// Kept beside exposure rather than replacing it while both rules exist.
+    /// Exposure measures PRESENCE, which was only ever defensible because
+    /// nothing could deal damage; this measures contribution, which is what rank
+    /// is supposed to be for.
+    /// </remarks>
+    public double ContributionOf(int agent) => _contribution.GetValueOrDefault(agent);
+
+    /// <summary>Contribution earned per point of damage dealt.</summary>
+    public double RankPerDamage { get; init; } = 1.0;
+
+    /// <summary>
+    /// Contribution for a killing blow, before the victim's rank scales it.
+    /// </summary>
+    /// <remarks>
+    /// Scaled by what was killed, so a veteran is worth more to destroy than a
+    /// rookie. Rank then has a value to the enemy as well as to its owner, which
+    /// is a second-order incentive that costs one multiply.
+    /// </remarks>
+    public double RankPerKill { get; init; } = 25.0;
 
     /// <summary>
     /// One tick of the world happening to the units: exposure credited, then

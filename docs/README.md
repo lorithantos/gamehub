@@ -25,7 +25,26 @@ and it is finished. Leave it in a comment and it sits in the tooltip forever,
 describing a class that no longer exists, for a reader who wanted to know what
 the one in front of them does.
 
-The present-tense half is then small enough to be checked, and is checked —
+## Which comment marker
+
+A second split, by audience, and it decides `///` against `//`:
+
+- `///` is the **tooltip**. An IDE renders `<summary>` *and* `<remarks>` into
+  quick info, so everything there is paid for at every call site. It is for
+  somebody calling this: what it does, what they can get wrong.
+- `//` is for somebody reading or changing the file, and never appears in a
+  hover.
+
+The rule bites in proportion to how public the member is. A private constant is
+only ever hovered by the person changing it, so `///` on one costs nothing.
+
+Neither marker explains its own choice. A comment about where a comment lives is
+history about a comment, and repeated across a codebase it is a tic rather than
+help.
+
+## The check
+
+The present-tense half is small enough to be checked, and is checked —
 `Directory.Build.props` turns on XML doc generation, so a `cref` pointing at a
 renamed type or a `param` naming an argument that has gone is a build warning
 rather than prose that happens to sit above a member.

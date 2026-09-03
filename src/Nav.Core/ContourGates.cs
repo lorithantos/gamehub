@@ -4,30 +4,11 @@ namespace Nav.Core;
 /// Finds the gates by flooding the map and watching where the contour collapses.
 /// </summary>
 /// <remarks>
-/// <b>The measure.</b> Flood from a point with <see cref="DistanceField"/>. In open
-/// ground the cells at distance <i>k</i> form a long arc; in a passage they are one
-/// or two, and they stay that way for a run of consecutive <i>k</i>. Narrowness is a
-/// property of the passage rather than of the map around it.
-/// <para>
-/// <b>The ranking.</b> Steepest descent over the field gives a forest rooted at the
-/// flood's origin, so a cell's subtree is everything whose route home passes
-/// through it. A separator cuts the reached map into S and R-S, so its smaller
-/// side is <c>min(S, R-S)</c> — capped at half by construction, and about nothing
-/// for a cell beside the root, which is the truth about it.
-/// </para>
-/// <para>
-/// <b>Why several origins.</b> One flood gives one tree, and a passage awkwardly
-/// placed with respect to that tree is invisible from it. Each origin is snapped to
-/// the nearest open cell, which handles a nominal point landing in a wall — and
-/// does NOT handle it landing on an island, which is a different failure needing a
-/// different answer. Hence both the extra origins and the check that an origin
-/// reached the main body before its opinion counts.
-/// </para>
-/// <para>
-/// Supersedes <see cref="ChokepointScan"/>, which is still what
-/// <see cref="MovementSystem"/> meters with. What that one got wrong, and how the
-/// two scored against known passages, is in <c>docs/gates-and-regions.md</c>.
-/// </para>
+/// Narrowness is a property of the passage rather than of the share of the map's
+/// traffic that uses it, which is what makes this work where a traffic-share
+/// criterion cannot. Supersedes <see cref="ChokepointScan"/>, which is still what
+/// <see cref="MovementSystem"/> meters with; <c>docs/gates-and-regions.md</c> has
+/// what that one got wrong and how the two scored against known passages.
 /// </remarks>
 /// <param name="minimumCut">
 /// The share of the map a passage must separate before it is reported, as a
@@ -37,6 +18,23 @@ namespace Nav.Core;
 /// <param name="maximumWidth">A contour slice this wide or narrower is a passage.</param>
 public sealed class ContourGates(double minimumCut = 0.01, int maximumWidth = 2) : IChokepointSource
 {
+    // THE MEASURE. Flood from a point with DistanceField. In open ground the
+    // cells at distance k form a long arc; in a passage they are one or two, and
+    // they stay that way for a run of consecutive k.
+    //
+    // THE RANKING. Steepest descent over the field gives a forest rooted at the
+    // flood's origin, so a cell's subtree is everything whose route home passes
+    // through it. A separator cuts the reached map into S and R-S, so its smaller
+    // side is min(S, R-S) -- capped at half by construction, and about nothing
+    // for a cell beside the root, which is the truth about it.
+    //
+    // WHY SEVERAL ORIGINS. One flood gives one tree, and a passage awkwardly
+    // placed with respect to that tree is invisible from it. Each origin is
+    // snapped to the nearest open cell, which handles a nominal point landing in
+    // a wall -- and does NOT handle it landing on an island, which is a different
+    // failure needing a different answer. Hence both the extra origins and the
+    // check that an origin reached the main body before its opinion counts.
+
     /// <summary>
     /// Where to start the floods, as fractions of the map. Nine on a even grid,
     /// plus four between them: a bad origin costs one flood and a good one is all

@@ -121,18 +121,21 @@ public sealed class Combat
             }
 
             var range = ini.Number(section, "range", 0.0);
+            var sight = ini.Number(section, "sight", 0.0);
             var rate = ini.Number(section, "shotsPerSecond", -1.0);
             var hitPoints = ini.Number(section, "hitPoints", 0.0);
-            if (range <= 0.0 || rate < 0.0 || hitPoints <= 0.0)
+            if (range <= 0.0 || sight <= 0.0 || rate < 0.0 || hitPoints <= 0.0)
             {
                 // Zero reach or zero health is a unit that cannot fight or
-                // cannot die, and a missing key reads exactly like one.
+                // cannot die, and a missing key reads exactly like one. Sight is
+                // held to the same rule rather than defaulted off the range: a
+                // unit's eyes are a stated number or the config is wrong.
                 throw new ArgumentException(
-                    $"Unit '{unit}' needs a positive range, a non-negative shotsPerSecond and positive hitPoints.",
+                    $"Unit '{unit}' needs a positive range, a positive sight, a non-negative shotsPerSecond and positive hitPoints.",
                     nameof(ini));
             }
 
-            kits[unit] = new Kit(unit, weapon, armourName, range, rate, hitPoints);
+            kits[unit] = new Kit(unit, weapon, armourName, range, sight, rate, hitPoints);
         }
 
         return new Combat(

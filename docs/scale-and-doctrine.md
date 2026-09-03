@@ -2,7 +2,93 @@
 
 What a tick and a cell are worth, and how rank, retreat and repair got their
 rules. Current code: `WorldScale`, `Combat`, `RepairPolicy`, `DemoWorld`,
-`GuardDoctrine`, `PatrolDoctrine`.
+`GuardDoctrine`, `PatrolDoctrine`, `RadiusSight`.
+
+---
+
+## Fog as a filtered broadcast — 3 September 2026
+
+Roadmap step 1. A side is told only what its own units could have witnessed,
+and remembers what it can no longer see. Off by default; nothing is wired to
+it yet, and the last section here says why that is the honest state.
+
+### Decisions asked for before building
+
+- **Sight is its own number on the kit**, not a multiple of range. A unit that
+  sees further than it shoots is a scout; one that shoots further than it sees
+  needs a spotter. Neither is expressible if sight is derived from reach.
+  rifleman 6, buggy 9, tank 7, rocketbike 7, against ranges 4/5/6/6 — the
+  buggy is the scout and is the whole argument for the separate number.
+- **Plain distance, but behind a seam.** `ISight.CanSee(from, to, range)` with
+  `RadiusSight` shipping. Walls do not block sight yet, which is knowingly and
+  visibly wrong; a line-of-sight implementation drops in with no caller
+  changing, and the difference between the two is then measurable.
+- **A sighting is remembered, stamped with its tick**, and carries no "is it
+  stale" flag. How old is too old is a doctrine's decision, and a patrol and a
+  guard have every reason to answer differently.
+- **A unit with no kit has no eyes**, and a fog world refuses to settle with
+  one standing. Sight 0 is a real answer and almost never the intended one: a
+  side blinded by a forgotten `Enlist` looks exactly like a doctrine that has
+  stopped working.
+
+### The watcher's own movement is the event
+
+The first design here had a per-tick sweep, on the reasoning that a stationary
+unit broadcasts nothing and so could never be discovered from the stream. That
+was wrong, and the correction is the design:
+
+> The movement of a unit is the thing that allows it to see more. So a unit
+> discovered by movement is just normal events happening.
+
+Visibility changes only when the board changes, and every board change is
+broadcast — including the watcher's own step. The mistake was testing the
+filter against the *subject* of an event only. A `_stale` flag set in `Hear`
+on any event, resolved lazily on the first read, is the whole mechanism: a
+quiet tick costs nothing, and a tick that raises fifty steps looks once rather
+than fifty times.
+
+One exception is marked rather than hidden. `HostileCells` is a list a demo
+writes directly, with no event behind it, so a world holding any scripted
+threats is re-looked once per `Settle`. A world of real units alone is purely
+event-driven.
+
+### `Hostiles` is what I see; `Sightings` is what I know
+
+The split is what keeps every existing doctrine working unchanged. A doctrine
+reading only `Hostiles` forgets an enemy the instant it loses sight of it,
+which is exactly what every doctrine written before fog does.
+
+A sighting is dropped when the cell it names is in plain view and the unit is
+not on it — looking straight at where something was and finding it gone is
+knowledge too. **Under a plain radius that turns out to mean a ghost only
+survives if the *watcher* leaves.** Hold still while an enemy walks away and
+every cell it was ever seen on is a cell you are still watching, so there is
+nothing left to remember. The memory is real but largely dormant until
+line-of-sight lands and a corner can hide something; it cost nothing to build
+now, and it is precisely what LOS switches on.
+
+### It is built, and it changes nothing yet
+
+Measured rather than assumed, and worth knowing before anyone spends time
+wiring it in:
+
+- The guard demo with `fog: true` produced a headline **identical** to the
+  fog-off baseline — 4/6 standing, 15/15 destroyed, 3 veterans, worst overrun
+  0.26. The graph says why: `ISquadView.Hostiles` has exactly one production
+  reader, `PatrolDoctrine.NearestHostileWithin`. `GuardDoctrine` never reads
+  it, so fog cannot reach it.
+- The patrol demo needs no run at all. Its leash is 5.0 and every kit's sight
+  is 6 to 9, so anything inside the leash is already visible.
+
+So fog is inert until a doctrine reacts to something further away than it can
+see, or LOS makes cover real. Both are downstream.
+
+`FogTests.EveryKitSeesAtLeastAsFarAsItShoots` is pinned **so that it fails
+later**. While it holds, fog cannot make a unit fire at something it cannot
+see, which is why `TargetFor` is not fog-aware. A line-of-sight `ISight`
+breaks it — a wall blocks sight and not the range check — and that test going
+red is how the problem arrives, rather than a unit quietly shooting through a
+hill.
 
 ---
 

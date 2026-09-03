@@ -29,6 +29,7 @@ internal sealed class SquadOps : ISquadOps
         Members = [.. squad.Members.Where(id => id >= _agents.Count || _agents[id].Alive)];
         Away = [.. Members.Where(id => id < _agents.Count && _agents[id].Away)];
         Hostiles = perception.Hostiles;
+        Sightings = perception.Sightings;
         RepairPoints = perception.RepairPoints;
     }
 
@@ -48,6 +49,9 @@ internal sealed class SquadOps : ISquadOps
 
     /// <inheritdoc/>
     public IReadOnlyList<int> Hostiles { get; }
+
+    /// <inheritdoc/>
+    public IReadOnlyList<Sighting> Sightings { get; }
 
     /// <inheritdoc/>
     public IReadOnlyList<int> RepairPoints { get; }

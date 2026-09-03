@@ -45,8 +45,40 @@ public interface IPerception
     /// </remarks>
     int RankOf(int agent);
 
-    /// <summary>Cells hostile units currently occupy, ascending. Empty for a quiet map.</summary>
+    /// <summary>
+    /// Cells hostile units currently occupy, ascending. Empty for a quiet map.
+    /// </summary>
+    /// <remarks>
+    /// Under fog this is what this side can SEE this tick, and nothing else. An
+    /// enemy that has walked out of sight leaves here the moment it does, and is
+    /// remembered in <see cref="Sightings"/> instead.
+    /// </remarks>
     IReadOnlyList<int> Hostiles { get; }
+
+    /// <summary>
+    /// What this side knows about enemy units it has seen: where each was last
+    /// seen and when, by agent, ascending. Empty for a world without fog.
+    /// </summary>
+    /// <remarks>
+    /// The pair to <see cref="Hostiles"/>, and the split matters. Hostiles is
+    /// what I can see; this is what I know, which is a larger and older set. A
+    /// doctrine that reads only Hostiles behaves exactly as it did before fog
+    /// existed — it forgets an enemy the instant it loses sight of it — and one
+    /// that reads this can chase, hold a line against, or be baited by something
+    /// it can no longer see.
+    /// <para>
+    /// Empty is the honest answer for a world that does not model fog: such a
+    /// world sees everything, so everything it knows is already in
+    /// <see cref="Hostiles"/> and there is nothing left to remember.
+    /// </para>
+    /// <para>
+    /// A sighting is dropped when the cell it names is in plain view and the
+    /// unit is not on it: looking straight at where something was and finding it
+    /// gone is knowledge too, and without that rule every ghost would be
+    /// permanent.
+    /// </para>
+    /// </remarks>
+    IReadOnlyList<Sighting> Sightings => [];
 
     /// <summary>Cells where a unit standing there is repaired, ascending.</summary>
     IReadOnlyList<int> RepairPoints { get; }

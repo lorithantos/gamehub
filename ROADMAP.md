@@ -28,6 +28,7 @@ meaningless.
 | Scale | pinned — 0.25 s/tick, 2 m/cell |
 | Combat | **weapons fire** — kits, hit points, blast, highest-threat targeting; rank earned from damage |
 | Board | one shared grid, one reservation table per side; the movement system broadcasts placed, stepped, removed, and the world listens |
+| Perception | **fog built, and off** — sight per kit behind a seam, sightings remembered with their tick; nothing reads it yet |
 
 ---
 
@@ -69,16 +70,28 @@ meaningless.
   plan; conflicts between sides settle at the step. Enemies advance until
   they meet, a line of bodies holds a corridor, and one commander's world is
   untouched.
+- **Fog, as a filter on the broadcast.** Sight is its own number per kit
+  behind an `ISight` seam, so line-of-sight replaces a radius without a caller
+  changing. `Hostiles` is what a side can see; `Sightings` is what it knows,
+  stamped with the tick, with the forgetting policy left to doctrine. Driven
+  by events and not by a clock — the watcher's own step is what discovers a
+  unit that has been standing still all along.
 
 ---
 
 ## Next, in dependency order
 
-### 1. Fog as a filtered broadcast
+### 1. Give fog something to bite on
 
-Limited perception on the board. A side's view hears only the events its
-units could have witnessed. The broadcast is built; the filter is not, and
-neither is what a side does about a unit it last saw three ticks ago.
+The filter is built (see Done). It is switched off everywhere and changes no
+number if you switch it on, for two measured reasons: `GuardDoctrine` never
+reads `Hostiles`, and the patrol's leash is shorter than every kit's sight.
+So fog needs one of — a doctrine that reacts to something further away than
+it can see, a `LineOfSight` behind the `ISight` seam so a corner is cover, or
+a demo big enough that sight is a constraint rather than a formality.
+
+Repair points are the sharp end of it: a side that cannot see a pad cannot
+plan to reach one, so a pad needs sight of its own.
 
 ### 2. Balance the region partition
 

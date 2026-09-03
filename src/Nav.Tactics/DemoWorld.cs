@@ -51,11 +51,15 @@ public sealed class DemoWorld : IPerception
     private readonly SortedDictionary<int, int> _cell = [];
     private readonly Dictionary<int, Kit> _kit = [];
     private readonly List<Casualty> _fallen = [];
+    private readonly Dictionary<int, Dictionary<int, Sighting>> _memory = [];
+    private readonly Dictionary<int, SortedSet<int>> _visible = [];
     private readonly Grid _grid;
     private readonly double[] _rankAt;
     private readonly Combat? _combat;
+    private readonly ISight _sight;
     private readonly double _secondsPerTick;
     private MovementSystem? _system;
+    private bool _stale = true;
 
     /// <param name="grid">The map the cells are indices into. Needed to measure exposure.</param>
     /// <param name="repairPerTick">How much health one tick on a repair cell restores.</param>
@@ -84,6 +88,18 @@ public sealed class DemoWorld : IPerception
     /// What a tick is worth in seconds, which turns a kit's rate of fire into
     /// damage per tick. Defaults to <see cref="WorldScale.Default"/>.
     /// </param>
+    /// <param name="fog">
+    /// Whether a side is limited to what its own units can see. False, the
+    /// default, is the omniscient world everything before fog was written
+    /// against: every side is told about every unit, and
+    /// <see cref="IPerception.Sightings"/> is empty because there is nothing a
+    /// side knows that it cannot currently see.
+    /// </param>
+    /// <param name="sight">
+    /// How to decide whether one cell can see another. Defaults to
+    /// <see cref="RadiusSight"/> — plain distance, blind to walls. Only consulted
+    /// when <paramref name="fog"/> is on.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="grid"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">
     /// A rate or radius is negative, the repair rate or radius is not positive,
@@ -97,7 +113,9 @@ public sealed class DemoWorld : IPerception
         double damagePerTick = 0.0,
         double selfHealPerTick = 0.0,
         Combat? combat = null,
-        WorldScale? scale = null)
+        WorldScale? scale = null,
+        bool fog = false,
+        ISight? sight = null)
     {
         ArgumentNullException.ThrowIfNull(grid);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(repairPerTick);
@@ -107,6 +125,8 @@ public sealed class DemoWorld : IPerception
 
         _grid = grid;
         _combat = combat;
+        _sight = sight ?? new RadiusSight(grid);
+        Fog = fog;
         _secondsPerTick = (scale ?? WorldScale.Default).SecondsPerTick;
         _rankAt = [.. rankAt ?? [50.0, 150.0]];
         for (var i = 0; i < _rankAt.Length; i++)
@@ -170,6 +190,23 @@ public sealed class DemoWorld : IPerception
 
     /// <summary>Contribution points at which rank rises, ascending.</summary>
     public IReadOnlyList<double> RankAt => _rankAt;
+
+    /// <summary>
+    /// Whether a side is limited to what its own units can see.
+    /// </summary>
+    /// <remarks>
+    /// Off by default, and everything written before fog existed reads the same
+    /// with it off — an omniscient world is the special case where the filter
+    /// passes everything, not a separate code path.
+    /// <para>
+    /// With it on, a unit's eyes are its kit's <see cref="Kit.Sight"/>. A unit
+    /// nobody enlisted has no kit and so sees NOTHING, which is a defined answer
+    /// rather than a default; a fog world refuses to settle with one standing,
+    /// because a blind unit is far likelier to be a forgotten
+    /// <see cref="Enlist"/> than a deliberate choice.
+    /// </para>
+    /// </remarks>
+    public bool Fog { get; }
 
     /// <summary>
     /// Cells scripted threats stand on. Mutable: a demo moves them. Hostile to
@@ -247,6 +284,12 @@ public sealed class DemoWorld : IPerception
     /// </summary>
     public IReadOnlyList<int> HostilesFor(int side)
     {
+        if (Fog)
+        {
+            Look();
+            return _visible.TryGetValue(side, out var seen) ? [.. seen] : [];
+        }
+
         var cells = new SortedSet<int>(HostileCells);
         foreach (var (agent, cell) in _cell)
         {
@@ -257,6 +300,159 @@ public sealed class DemoWorld : IPerception
         }
 
         return [.. cells];
+    }
+
+    /// <summary>
+    /// What <paramref name="side"/> knows about enemy units it has seen, by
+    /// agent, ascending. Empty without <see cref="Fog"/>, which knows nothing
+    /// because it sees everything.
+    /// </summary>
+    public IReadOnlyList<Sighting> SightingsFor(int side)
+    {
+        if (!Fog)
+        {
+            return [];
+        }
+
+        Look();
+        if (!_memory.TryGetValue(side, out var known))
+        {
+            return [];
+        }
+
+        var sightings = new List<Sighting>(known.Values);
+        sightings.Sort((a, b) => a.Agent.CompareTo(b.Agent));
+        return sightings;
+    }
+
+    /// <summary>
+    /// Brings every side's view of the board up to date, if anything has
+    /// happened since the last one.
+    /// </summary>
+    /// <remarks>
+    /// <b>What a side can see changes only when the board changes, and every
+    /// board change is broadcast</b> — including the movement of the WATCHER,
+    /// which is what discovers a unit that has been standing still all along. So
+    /// there is nothing to do on a tick where nothing happened, and this is
+    /// driven by <see cref="Hear"/> rather than by the clock.
+    /// <para>
+    /// The exception is <see cref="HostileCells"/>: a scripted threat is a
+    /// position a demo writes directly, with no event behind it, so a world
+    /// holding any is re-looked once per <see cref="Settle"/>. A world of real
+    /// units alone does no work on a quiet tick.
+    /// </para>
+    /// <para>
+    /// Deferred to the first read rather than done as the events arrive. A tick
+    /// raises every step it took at once, and looking after each of them would
+    /// be the same answer computed once per moving unit.
+    /// </para>
+    /// <para>
+    /// Each side is computed from the same board and writes only its own
+    /// entries, so the loop is a set of independent workers over one snapshot
+    /// and nothing about it needs sides to run in order.
+    /// </para>
+    /// </remarks>
+    private void Look()
+    {
+        if (!_stale || _system is null)
+        {
+            return;
+        }
+
+        _stale = false;
+        var tick = _system.CurrentTick;
+
+        var sides = new SortedSet<int>(_side.Values);
+        foreach (var side in sides)
+        {
+            var watchers = new List<(int Cell, double Sight)>();
+            foreach (var (agent, cell) in _cell)
+            {
+                if (SideOf(agent) == side)
+                {
+                    watchers.Add((cell, KitOf(agent)?.Sight ?? 0.0));
+                }
+            }
+
+            var seen = new SortedSet<int>();
+            var known = _memory.TryGetValue(side, out var memory) ? memory : _memory[side] = [];
+
+            // Everybody's enemy, and nobody's memory: a scripted threat has no
+            // id to hang a sighting on, so it is here while it is watched and
+            // simply gone when it is not.
+            foreach (var cell in HostileCells)
+            {
+                if (Watched(watchers, cell))
+                {
+                    seen.Add(cell);
+                }
+            }
+
+            foreach (var (agent, cell) in _cell)
+            {
+                if (SideOf(agent) != side && Watched(watchers, cell))
+                {
+                    seen.Add(cell);
+                    known[agent] = new Sighting(agent, cell, tick);
+                }
+            }
+
+            // A sighting nobody refreshed, on ground somebody is looking at, has
+            // been refuted: the unit left, or died there and was carried off.
+            // Without this every ghost would be permanent, and a side could
+            // never learn that it had been baited.
+            foreach (var agent in known.Keys.ToList())
+            {
+                var ghost = known[agent];
+                if (ghost.Tick != tick && Watched(watchers, ghost.Cell))
+                {
+                    known.Remove(agent);
+                }
+            }
+
+            _visible[side] = seen;
+        }
+    }
+
+    /// <summary>
+    /// Refuses a fog world holding a unit that was never enlisted, and so has no
+    /// eyes.
+    /// </summary>
+    /// <remarks>
+    /// Sight 0 is a real answer — a unit with no kit sees nothing — but it is
+    /// almost never the answer anybody wanted, and a side quietly blinded by a
+    /// missing <see cref="Enlist"/> would look exactly like a doctrine that had
+    /// stopped working. So it is refused rather than obeyed.
+    /// <para>
+    /// This is the earliest moment the question can be asked. A unit is PLACED
+    /// before it can be enlisted, because enlisting needs the id that placing
+    /// hands back, so the check cannot live on the arrival itself.
+    /// </para>
+    /// </remarks>
+    private void RequireEyes()
+    {
+        foreach (var (agent, _) in _cell)
+        {
+            if (!_kit.ContainsKey(agent))
+            {
+                throw new InvalidOperationException(
+                    $"Unit {agent} has no kit, so it has no sight, and this world has fog. Enlist it, or turn fog off.");
+            }
+        }
+    }
+
+    /// <summary>Whether any of these watchers can see the cell.</summary>
+    private bool Watched(List<(int Cell, double Sight)> watchers, int cell)
+    {
+        foreach (var (from, range) in watchers)
+        {
+            if (_sight.CanSee(from, cell, range))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -293,6 +489,7 @@ public sealed class DemoWorld : IPerception
         }
 
         _system = system;
+        _stale = true;
         system.Happened += Hear;
         foreach (var agent in system.Agents)
         {
@@ -306,6 +503,10 @@ public sealed class DemoWorld : IPerception
 
     private void Hear(MovementEvent e)
     {
+        // Anything at all: what a side can see depends as much on where its own
+        // units are as on where the enemy's are, so a step by ANYBODY can change
+        // somebody's view.
+        _stale = true;
         _side[e.Agent] = e.Side;
         switch (e.Kind)
         {
@@ -324,6 +525,9 @@ public sealed class DemoWorld : IPerception
 
     /// <inheritdoc/>
     public IReadOnlyList<int> Hostiles => HostilesFor(0);
+
+    /// <inheritdoc/>
+    public IReadOnlyList<Sighting> Sightings => SightingsFor(0);
 
     /// <inheritdoc/>
     public IReadOnlyList<int> RepairPoints => RepairCells;
@@ -512,6 +716,19 @@ public sealed class DemoWorld : IPerception
             throw new InvalidOperationException("Listen to a movement system before settling; a world that hears nothing has nothing to settle.");
         }
 
+        if (Fog)
+        {
+            RequireEyes();
+
+            // A scripted threat moves by a demo writing to the list, with no
+            // event behind it, so its position cannot be trusted to be the one
+            // that was last looked at. Units alone cost nothing here.
+            if (HostileCells.Count > 0)
+            {
+                _stale = true;
+            }
+        }
+
         _fallen.Clear();
         Fire();
 
@@ -649,6 +866,8 @@ public sealed class DemoWorld : IPerception
         public int RankOf(int agent) => world.RankOf(agent);
 
         public IReadOnlyList<int> Hostiles => world.HostilesFor(side);
+
+        public IReadOnlyList<Sighting> Sightings => world.SightingsFor(side);
 
         public IReadOnlyList<int> RepairPoints => world.RepairPoints;
     }

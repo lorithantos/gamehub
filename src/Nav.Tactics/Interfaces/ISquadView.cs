@@ -54,7 +54,30 @@ public interface ISquadView
     int RankOf(int id);
 
     /// <summary>Cells hostile units occupy this tick, ascending. Empty on a quiet map.</summary>
+    /// <remarks>
+    /// Under fog, what this squad's side can SEE this tick. An enemy that walks
+    /// out of sight leaves this list at once and stays in
+    /// <see cref="Sightings"/>.
+    /// </remarks>
     IReadOnlyList<int> Hostiles { get; }
+
+    /// <summary>
+    /// What this squad's side knows about enemy units it has seen: where each
+    /// was last seen and when, by agent, ascending. Empty without fog.
+    /// </summary>
+    /// <remarks>
+    /// A doctrine reading only <see cref="Hostiles"/> forgets an enemy the
+    /// instant it loses sight of it, which is what every doctrine written before
+    /// fog does. Reading this is how one holds a line against, chases, or is
+    /// baited by something it can no longer see.
+    /// <para>
+    /// How old a sighting may be and still be worth acting on is the doctrine's
+    /// own decision — compare against <see cref="CurrentTick"/>. There is
+    /// deliberately no answer to that here, because a patrol and a guard have
+    /// every reason to give different ones.
+    /// </para>
+    /// </remarks>
+    IReadOnlyList<Sighting> Sightings { get; }
 
     /// <summary>Cells where a unit standing there is repaired, ascending.</summary>
     IReadOnlyList<int> RepairPoints { get; }

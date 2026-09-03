@@ -173,7 +173,7 @@ public static class MapGenerator
             var plugged = (bool[])open.Clone();
             var cx = grid.ColumnOf(cell);
             var cy = grid.RowOf(cell);
-            var plug = 0;
+            var plug = new List<int>();
             for (var dy = -corridorWidth; dy <= corridorWidth; dy++)
             {
                 for (var dx = -corridorWidth; dx <= corridorWidth; dx++)
@@ -188,7 +188,7 @@ public static class MapGenerator
                     if (plugged[(y * width) + x] && !InAnyRoom(rooms, x, y))
                     {
                         plugged[(y * width) + x] = false;
-                        plug++;
+                        plug.Add((y * width) + x);
                     }
                 }
             }
@@ -244,7 +244,7 @@ public static class MapGenerator
                 detour = after.Found && before.Found ? Math.Max(0, after.Cost - before.Cost) : 0;
             }
 
-            gates.Add(new KnownGate(cell, corridorWidth, stranded, detour));
+            gates.Add(new KnownGate(cell, plug, corridorWidth, stranded, detour));
         }
 
         return [.. gates.OrderBy(g => g.Cell)];

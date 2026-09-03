@@ -26,6 +26,13 @@ namespace Nav.Core.Models;
 /// </para>
 /// </remarks>
 /// <param name="Cell">A cell in the passage — the corner of what was carved.</param>
+/// <param name="Cells">
+/// Every cell that would be filled to close this passage, so a detector can be
+/// scored on position rather than only on count. Matching against
+/// <see cref="Cell"/> alone would be unfair: the corner of an L-shaped passage is
+/// not necessarily the narrowest part of it, and a detector that correctly names
+/// the throat would be marked wrong for not naming the elbow.
+/// </param>
 /// <param name="Width">How wide the passage was cut, in cells.</param>
 /// <param name="SmallerSide">
 /// Open cells stranded if this passage were filled, counting the smaller of the two
@@ -38,7 +45,8 @@ namespace Nav.Core.Models;
 /// A small value means the passage is redundant; a large one means it is a gate
 /// whether or not it separates anything.
 /// </param>
-public sealed record KnownGate(int Cell, int Width, int SmallerSide, double Detour);
+public sealed record KnownGate(
+    int Cell, IReadOnlyList<int> Cells, int Width, int SmallerSide, double Detour);
 
 /// <summary>
 /// A generated map together with the answers about it.

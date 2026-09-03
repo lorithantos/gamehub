@@ -83,6 +83,45 @@ wiring it in:
 So fog is inert until a doctrine reacts to something further away than it can
 see, or LOS makes cover real. Both are downstream.
 
+### A pad has to watch its own ground
+
+Then the demo was enlarged — 25×17 to 49×33, six guards to eight, pads moved
+to opposite corners twenty-two cells from the line, which is three times what
+a tank can see — and fog switched on. That surfaced the consequence the size
+had been hiding: **a side that cannot see a pad cannot plan a retreat to
+one.**
+
+Measured, because the failure is invisible otherwise. With pads granting no
+vision the demo reported *zero* rotations through repair and a worst overrun
+of 0.00, against four rotations and 0.20 with them; the rest of the headline
+was identical either way — 7/8 standing, 18/18 destroyed. No error and no
+warning. The entire repair mechanic simply stopped happening and the demo
+went on looking like it worked.
+
+So `PadSight` (5.0) makes a pad a watcher. Standing on its own ground is what
+keeps it known — losing sight of the approach is not losing the armory — and
+the reach above that is the disc it lights, which is what makes *where* a pad
+goes a decision. Vision from a pad currently goes to every side, because a
+pad belongs to nobody yet; when pads get an owner, the vision follows it.
+
+### What the enlargement cost and bought
+
+| | before | after |
+|---|---|---|
+| guards standing | 4/6 | 7/8 |
+| attackers destroyed | 15/15 | 18/18 |
+| veterans | 3 | 2 |
+| rotated through repair | 2 | 4 |
+| most away at once | 1 | 2 |
+| worst overrun | 0.26 | 0.20 |
+
+The rotation got real exercise — pads far enough away that a trip costs time
+is what the bigger map was for. The fight got easier, because eight guards
+against waves of six is a softer ratio than six against five, and fewer
+veterans follow from the fight ending before contribution is banked. The
+waves being too light is now unarguable rather than arguable, and is still
+not to be tuned until retreat and casualty response land.
+
 `FogTests.EveryKitSeesAtLeastAsFarAsItShoots` is pinned **so that it fails
 later**. While it holds, fog cannot make a unit fire at something it cannot
 see, which is why `TargetFor` is not fog-aware. A line-of-sight `ISight`

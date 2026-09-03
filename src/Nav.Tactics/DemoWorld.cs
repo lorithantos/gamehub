@@ -53,6 +53,7 @@ public sealed class DemoWorld : IPerception
     private readonly List<Casualty> _fallen = [];
     private readonly Dictionary<int, Dictionary<int, Sighting>> _memory = [];
     private readonly Dictionary<int, SortedSet<int>> _visible = [];
+    private readonly Dictionary<int, List<int>> _pads = [];
     private readonly Grid _grid;
     private readonly double[] _rankAt;
     private readonly Combat? _combat;
@@ -218,6 +219,30 @@ public sealed class DemoWorld : IPerception
     public List<int> RepairCells { get; } = [];
 
     /// <summary>
+    /// How far a repair pad can see, in octile step cost.
+    /// </summary>
+    /// <remarks>
+    /// <b>A pad is a watcher, not just a destination.</b> Under fog a side that
+    /// cannot see a pad cannot plan a retreat to one, so a pad that had no eyes
+    /// would be a pad nobody could ever use — and the pad standing on its own
+    /// ground is what makes it known. Everything above zero is the disc of map
+    /// it lights around itself, which is the ground a hurt unit retreats
+    /// THROUGH and the ground an enemy creeping up on the armory is caught on.
+    /// <para>
+    /// Vision from a pad currently goes to EVERY side, because a pad currently
+    /// belongs to nobody: <see cref="RepairCells"/> is a list of ground, and
+    /// <see cref="RepairPolicy"/> lets anyone who reaches one use it. When pads
+    /// get an owner, this is the number that follows the owner.
+    /// </para>
+    /// <para>
+    /// Small on purpose. A pad is an installation, not a radar, and the point of
+    /// the number is to make placing one a decision — a pad in a hollow lights
+    /// nothing and a pad on a shoulder watches the approach.
+    /// </para>
+    /// </remarks>
+    public double PadSight { get; init; } = 5.0;
+
+    /// <summary>
     /// Hands a unit a kit. Units nobody enlists have none: they can be shot,
     /// as unarmoured, and never shoot.
     /// </summary>
@@ -374,6 +399,14 @@ public sealed class DemoWorld : IPerception
                 }
             }
 
+            // The pads watch too, for everybody, because a pad belongs to
+            // nobody yet. A side with every unit dead still sees the ground its
+            // armory stands on.
+            foreach (var pad in RepairCells)
+            {
+                watchers.Add((pad, PadSight));
+            }
+
             var seen = new SortedSet<int>();
             var known = _memory.TryGetValue(side, out var memory) ? memory : _memory[side] = [];
 
@@ -411,6 +444,20 @@ public sealed class DemoWorld : IPerception
             }
 
             _visible[side] = seen;
+
+            // A pad is seen if anything watching for this side can see it, its
+            // own eyes included — which is why a pad is never lost, and why a
+            // pad with no sight at all would be a pad nobody could retreat to.
+            var pads = new List<int>();
+            foreach (var pad in RepairCells)
+            {
+                if (Watched(watchers, pad))
+                {
+                    pads.Add(pad);
+                }
+            }
+
+            _pads[side] = pads;
         }
     }
 
@@ -530,7 +577,22 @@ public sealed class DemoWorld : IPerception
     public IReadOnlyList<Sighting> Sightings => SightingsFor(0);
 
     /// <inheritdoc/>
-    public IReadOnlyList<int> RepairPoints => RepairCells;
+    public IReadOnlyList<int> RepairPoints => RepairPointsFor(0);
+
+    /// <summary>
+    /// Pads <paramref name="side"/> can see, and so can plan to reach. Every pad
+    /// without <see cref="Fog"/>.
+    /// </summary>
+    public IReadOnlyList<int> RepairPointsFor(int side)
+    {
+        if (!Fog)
+        {
+            return RepairCells;
+        }
+
+        Look();
+        return _pads.TryGetValue(side, out var pads) ? pads : [];
+    }
 
     /// <inheritdoc/>
     /// <remarks>
@@ -869,6 +931,6 @@ public sealed class DemoWorld : IPerception
 
         public IReadOnlyList<Sighting> Sightings => world.SightingsFor(side);
 
-        public IReadOnlyList<int> RepairPoints => world.RepairPoints;
+        public IReadOnlyList<int> RepairPoints => world.RepairPointsFor(side);
     }
 }

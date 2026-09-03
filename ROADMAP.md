@@ -28,7 +28,7 @@ meaningless.
 | Scale | pinned — 0.25 s/tick, 2 m/cell |
 | Combat | **weapons fire** — kits, hit points, blast, highest-threat targeting; rank earned from damage |
 | Board | one shared grid, one reservation table per side; the movement system broadcasts placed, stepped, removed, and the world listens |
-| Perception | **fog built, and off** — sight per kit behind a seam, sightings remembered with their tick; nothing reads it yet |
+| Perception | **fog, on in the guard demo** — sight per kit behind a seam, pads that watch their own ground, sightings remembered with their tick |
 
 ---
 
@@ -81,17 +81,24 @@ meaningless.
 
 ## Next, in dependency order
 
-### 1. Give fog something to bite on
+### 1. A plan through fog should be tentative
 
-The filter is built (see Done). It is switched off everywhere and changes no
-number if you switch it on, for two measured reasons: `GuardDoctrine` never
-reads `Hostiles`, and the patrol's leash is shorter than every kit's sight.
-So fog needs one of — a doctrine that reacts to something further away than
-it can see, a `LineOfSight` behind the `ISight` seam so a corner is cover, or
-a demo big enough that sight is a constraint rather than a formality.
+The filter is built and the guard demo runs under it. What is still wrong is
+the *planner*: `MovementSystem.SideView` treats every cell another side
+occupies as blocked, read from true occupancy, whether or not the planning
+side can see the unit standing there. So perception is honest and planning is
+omniscient, and the two disagree.
 
-Repair points are the sharp end of it: a side that cannot see a pad cannot
-plan to reach one, so a pad needs sight of its own.
+A unit should be able to aim at a destination in or beyond the fog and hold
+only a tentative plan through it, corrected on contact — which is the same
+bump-stop-replan the reservation work already points at. `Nav.Core` must not
+learn what perception is, so the filter is handed **down** as a per-side
+predicate rather than reached for upward.
+
+Terrain is a separate question and nobody has answered it: walls are fully
+known today. That is the ordinary fog split, as against shroud. Do not make
+the planner terrain-blind by accident — the published-optimal-cost validation
+is measured against a fully known map.
 
 ### 2. Balance the region partition
 
@@ -160,9 +167,17 @@ health. Medium to build, open-ended to tune, which is the point.
   weights by cost.
 - **Damage is a continuous rate.** No burst, no cooldown, so the rocket bike
   that motivated threat targeting cannot actually spike.
-- **The waves are too light and the reserve too tight** in the guard demo:
-  every wave dies in under five seconds, and the reserve of four killed a
-  buggy on its way to the pad.
+- **The waves are too light**, and the enlarged demo makes it unarguable:
+  18/18 attackers destroyed for one guard lost. Still not to be tuned until
+  retreat and casualty response land, because both change the answer.
+- **A side plans around enemies it cannot see.** `SideView` blocks on true
+  occupancy, so fog limits what a doctrine knows and not what a planner uses.
+  This is next.
+- **The guard replay page's prose is two generations stale** — it describes
+  six guards on the old map, and health lost by *standing in reach*, which is
+  the exposure rank that was retired. The page's data is refreshed by every
+  run; only the words are wrong. Worth deciding against the parked
+  "pages → app or server" call rather than rewriting twice.
 - **`ChokepointScan`** is still what `MovementSystem` uses. `ContourGates` is
   better on every measure and is not wired in.
 - **Both published artifacts are stale**, and the guard replay page's prose

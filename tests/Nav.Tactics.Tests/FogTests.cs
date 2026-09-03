@@ -245,6 +245,52 @@ public sealed class FogTests
         Assert.Empty(world.ViewFor(1).Sightings);
     }
 
+    [Fact]
+    public void APadIsKnownWhereverItIsBecauseItStandsOnItsOwnGround()
+    {
+        // A side that cannot see a pad cannot plan a retreat to one, and would
+        // simply stop retreating -- no error, no complaint, a whole mechanic
+        // gone. Measured on the guard demo: pads that grant no vision took it
+        // from 4 rotations through repair to ZERO, with the headline otherwise
+        // unchanged, which is the silent degradation this project keeps
+        // meeting. A pad watches the ground it stands on, so it is never lost.
+        var (_, grid, world) = Scene(at: [(1, 1, 0, "rifleman")]);
+        var far = grid.Index(27, 11);
+        world.RepairCells.Add(far);
+
+        Assert.Equal([far], world.ViewFor(0).RepairPoints);
+    }
+
+    [Theory]
+    [InlineData(5.0, true)]
+    [InlineData(1.0, false)]
+    public void APadWatchesTheGroundAroundIt(double padSight, bool spotted)
+    {
+        // The reason a pad's reach is a number and not a boolean. An enemy
+        // creeping up on the armory is seen BY THE ARMORY, with no unit of ours
+        // anywhere near it -- and a pad that sees only its own doorstep is not,
+        // which is what makes where a pad goes a decision rather than a
+        // formality.
+        var grid = Grid.FromMapText(Room);
+        var system = new MovementSystem(grid);
+        var world = new DemoWorld(grid, combat: Shipped(), fog: true) { PadSight = padSight };
+        var pad = grid.Index(24, 11);
+        world.RepairCells.Add(pad);
+
+        // Ours is twenty-three cells away and sees six, so nothing it can see
+        // is in play. The creeper is three from the pad.
+        world.Enlist(system.AddAgent(grid.Index(1, 1), side: 0), "rifleman");
+        var creeper = grid.Index(24, 8);
+        world.Enlist(system.AddAgent(creeper, side: 1), "rifleman");
+        world.Listen(system);
+
+        Assert.Equal(spotted ? [creeper] : (int[])[], world.ViewFor(0).Hostiles);
+
+        // Either way the pad itself is known, because it stands on its own
+        // ground. Losing sight of the approach is not losing the armory.
+        Assert.Equal([pad], world.ViewFor(0).RepairPoints);
+    }
+
     /// <summary>Sees nothing, ever. Not even the ground underfoot.</summary>
     private sealed class Blindfold : ISight
     {

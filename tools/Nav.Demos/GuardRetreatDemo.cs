@@ -31,33 +31,55 @@ namespace Nav.Demos;
 /// </remarks>
 internal sealed class GuardRetreatDemo : Demo
 {
+    /// <summary>
+    /// Big enough that sight is a constraint. A guard on the station cannot see
+    /// either pad — twenty-two cells against a tank's seven — so the retreat is
+    /// planned to ground the pad itself reveals, and four blockhouses give the
+    /// approaches something to bend around.
+    /// </summary>
     private const string Map =
         """
         type octile
-        height 17
-        width 25
+        height 33
+        width 49
         map
-        .........................
-        .........................
-        ....@@@@@@@@.....@@@@....
-        ....@......@.....@..@....
-        ....@......@.....@..@....
-        ....@......@.....@@@@....
-        ....@@@@@@@@.............
-        .........................
-        .........................
-        .........................
-        ....@@@@.................
-        ....@..@.....@@@@@@@@....
-        ....@..@.....@......@....
-        ....@@@@.....@......@....
-        .............@@@@@@@@....
-        .........................
-        .........................
+        .................................................
+        .................................................
+        .................................................
+        .................................................
+        ........@@@@@@@@@@@...........@@@@@@@@@@@........
+        ........@.........@...........@.........@........
+        ........@.........@...........@.........@........
+        ........@.........@...........@.........@........
+        ........@@@@@@@@@@@...........@@@@@@@@@@@........
+        .................................................
+        .................................................
+        .................................................
+        .................................................
+        .................................................
+        ....@@@@@@@@@.......................@@@@@@@@@....
+        ....@.......@.......................@.......@....
+        ....@.......@.......................@.......@....
+        ....@.......@.......................@.......@....
+        ....@.......@.......................@.......@....
+        ....@@@@@@@@@.......................@@@@@@@@@....
+        .................................................
+        .................................................
+        .................................................
+        .................................................
+        ........@@@@@@@@@@@...........@@@@@@@@@@@........
+        ........@.........@...........@.........@........
+        ........@.........@...........@.........@........
+        ........@.........@...........@.........@........
+        ........@@@@@@@@@@@...........@@@@@@@@@@@........
+        .................................................
+        .................................................
+        .................................................
+        .................................................
         """;
 
-    private const int Guards = 6;
-    private const int Reserve = 4;
+    private const int Guards = 8;
+    private const int Reserve = 5;
 
     /// <summary>Retreat thresholds by rank: rookie, regular, veteran.</summary>
     /// <remarks>
@@ -67,20 +89,27 @@ internal sealed class GuardRetreatDemo : Demo
     private static readonly double[] RetreatByRank = [0.4, 0.55, 0.7];
 
     /// <summary>What each guard carries, by id. Tanks hold the plate; buggies carry the answer to infantry.</summary>
-    private static readonly string[] GuardKits = ["tank", "buggy", "tank", "tank", "buggy", "tank"];
+    /// <remarks>
+    /// Two buggies rather than one now that the map is wide. A buggy sees nine
+    /// against a tank's seven, so the line's own picture of the approach is
+    /// mostly what the buggies are looking at.
+    /// </remarks>
+    private static readonly string[] GuardKits =
+        ["tank", "buggy", "tank", "tank", "buggy", "tank", "tank", "buggy"];
 
-    /// <summary>One wave: two fast anti-armour units, two infantry, and a buggy.</summary>
-    private static readonly string[] Wave = ["rocketbike", "rocketbike", "rifleman", "rifleman", "buggy"];
+    /// <summary>One wave: two fast anti-armour units, three infantry, and a buggy.</summary>
+    private static readonly string[] Wave =
+        ["rocketbike", "rocketbike", "rifleman", "rifleman", "rifleman", "buggy"];
 
-    private static readonly int[] WaveTicks = [0, 110, 220];
+    private static readonly int[] WaveTicks = [0, 160, 320];
 
     public override string Name => "guard-retreat";
 
     public override string Description =>
-        "Six guards hold a position against three waves that shoot back. Rank is earned from damage dealt, "
-            + "and rank decides who rotates through repair and who holds.";
+        "Eight guards hold a position against three waves that shoot back, under fog. Rank is earned from "
+            + "damage dealt, and rank decides who rotates through repair and who holds.";
 
-    public override int Ticks => 320;
+    public override int Ticks => 520;
 
     public override Run Play(TextWriter trace)
     {
@@ -89,14 +118,19 @@ internal sealed class GuardRetreatDemo : Demo
         var combat = Combat.From(Ini.FromFile(ConfigPath("combat.ini")));
         var scale = WorldScale.From(Ini.FromFile(ConfigPath("scale.ini")));
 
-        var station = grid.Index(12, 8);
-        var padNorth = grid.Index(2, 1);
-        var padSouth = grid.Index(22, 15);
+        var station = grid.Index(24, 16);
+
+        // Opposite corners, and twenty-two cells from the station -- three times
+        // what a tank can see. Under fog the guards know these are here only
+        // because a pad watches its own ground; nothing on the line can see
+        // either of them.
+        var padNorth = grid.Index(2, 2);
+        var padSouth = grid.Index(46, 30);
 
         // Where a wave goes to stand: the mouth of the north corridor, in reach
         // of the ring's front arc. A wave that holds there is a wave that is
         // shot at from the line and shoots back, which is the whole fight.
-        var attackStation = grid.Index(14, 4);
+        var attackStation = grid.Index(24, 11);
 
         // Rank at a kill's worth and three kills' worth, given the credit rates
         // in the config. Self-healing so a full-rank guard mends on the walk;
@@ -108,7 +142,8 @@ internal sealed class GuardRetreatDemo : Demo
             rankAt: [50, 150],
             selfHealPerTick: 0.002,
             combat: combat,
-            scale: scale)
+            scale: scale,
+            fog: true)
         {
             RankPerDamage = combat.RankPerDamage,
             RankPerKill = combat.RankPerKill,
@@ -116,12 +151,13 @@ internal sealed class GuardRetreatDemo : Demo
         world.RepairCells.Add(padNorth);
         world.RepairCells.Add(padSouth);
 
-        // Six guards, starting scattered on the left so the march to station is
-        // itself worth watching.
+        // Eight guards, starting scattered down the west edge so the march to
+        // station is itself worth watching -- and long enough now that they
+        // arrive having seen almost nothing of the map they crossed.
         int[] starts =
         [
-            grid.Index(1, 4), grid.Index(1, 6), grid.Index(2, 9),
-            grid.Index(1, 11), grid.Index(2, 13), grid.Index(1, 15),
+            grid.Index(1, 10), grid.Index(2, 12), grid.Index(1, 14), grid.Index(2, 16),
+            grid.Index(1, 18), grid.Index(2, 20), grid.Index(1, 22), grid.Index(2, 24),
         ];
         for (var i = 0; i < starts.Length; i++)
         {
@@ -135,8 +171,12 @@ internal sealed class GuardRetreatDemo : Demo
             new GuardDoctrine(station, new RepairPolicy(RetreatByRank, returnAbove: 0.8, reserve: Reserve)));
         var waves = new List<Squad>();
 
+        // RepairCells, not RepairPoints: the header describes the MAP, and the
+        // replay draws what is there rather than what a side has noticed. Under
+        // fog the two differ, and asking a perception here would have written a
+        // header with no pads at all, because nothing has been observed yet.
         DemoTrace.WriteHeader(
-            trace, Name, Description, grid, world.RepairPoints, Ticks, exposureRadius: world.ExposureRadius);
+            trace, Name, Description, grid, world.RepairCells, Ticks, exposureRadius: world.ExposureRadius);
 
         var wasAway = new bool[Guards];
         var wasArrived = new bool[Guards];
@@ -164,7 +204,7 @@ internal sealed class GuardRetreatDemo : Demo
                 var ids = new List<int>();
                 for (var k = 0; k < Wave.Length; k++)
                 {
-                    var id = system.AddAgent(grid.Index(10 + k, 0), side: 1);
+                    var id = system.AddAgent(grid.Index(21 + k, 0), side: 1);
                     world.Enlist(id, Wave[k]);
                     ids.Add(id);
                 }
@@ -174,7 +214,7 @@ internal sealed class GuardRetreatDemo : Demo
                     $"wave {waveIndex + 1}", ids,
                     new GuardDoctrine(attackStation, retreatBelow: 0.0, returnAbove: 0.5)));
                 world.Listen(system);
-                events.Add($"wave {waveIndex + 1} enters from the north: two rocket bikes, two riflemen, a buggy");
+                events.Add($"wave {waveIndex + 1} enters from the north: two rocket bikes, three riflemen, a buggy");
             }
 
             guard.Advance(system, world.ViewFor(0));

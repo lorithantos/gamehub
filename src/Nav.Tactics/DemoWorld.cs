@@ -48,9 +48,13 @@ public sealed class DemoWorld : IPerception
     private readonly Dictionary<int, int> _exposure = [];
     private readonly Dictionary<int, double> _contribution = [];
     private readonly Dictionary<int, int> _side = [];
-    private readonly Dictionary<int, int> _cell = [];
+    private readonly SortedDictionary<int, int> _cell = [];
+    private readonly Dictionary<int, Kit> _kit = [];
+    private readonly List<int> _fallen = [];
     private readonly Grid _grid;
     private readonly int[] _rankAt;
+    private readonly Combat? _combat;
+    private readonly double _secondsPerTick;
 
     /// <param name="grid">The map the cells are indices into. Needed to measure exposure.</param>
     /// <param name="repairPerTick">How much health one tick on a repair cell restores.</param>
@@ -68,6 +72,15 @@ public sealed class DemoWorld : IPerception
     /// wherever it is standing. Zero, the default, means nobody heals except on
     /// a repair cell.
     /// </param>
+    /// <param name="combat">
+    /// The damage table and the kits, for a world where units shoot. Null, the
+    /// default, is a world where nothing can be enlisted with a kit and nobody
+    /// fires.
+    /// </param>
+    /// <param name="scale">
+    /// What a tick is worth in seconds, which turns a kit's rate of fire into
+    /// damage per tick. Defaults to <see cref="WorldScale.Default"/>.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="grid"/> is null.</exception>
     /// <exception cref="ArgumentOutOfRangeException">
     /// A rate or radius is negative, the repair rate or radius is not positive,
@@ -79,7 +92,9 @@ public sealed class DemoWorld : IPerception
         double exposureRadius = 6.0,
         IReadOnlyList<int>? rankAt = null,
         double damagePerTick = 0.0,
-        double selfHealPerTick = 0.0)
+        double selfHealPerTick = 0.0,
+        Combat? combat = null,
+        WorldScale? scale = null)
     {
         ArgumentNullException.ThrowIfNull(grid);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(repairPerTick);
@@ -88,6 +103,8 @@ public sealed class DemoWorld : IPerception
         ArgumentOutOfRangeException.ThrowIfNegative(selfHealPerTick);
 
         _grid = grid;
+        _combat = combat;
+        _secondsPerTick = (scale ?? WorldScale.Default).SecondsPerTick;
         _rankAt = [.. rankAt ?? [60, 160]];
         for (var i = 0; i < _rankAt.Length; i++)
         {
@@ -160,17 +177,56 @@ public sealed class DemoWorld : IPerception
     /// <summary>Cells where a unit is repaired.</summary>
     public List<int> RepairCells { get; } = [];
 
-    /// <summary>Puts a unit on a side. Units nobody enlists are on side 0.</summary>
+    /// <summary>
+    /// Puts a unit on a side, carrying a kit if named. Units nobody enlists are
+    /// on side 0 with no kit: they can be shot, as unarmoured, and never shoot.
+    /// </summary>
+    /// <param name="agent">Who.</param>
+    /// <param name="side">Whose side. Non-negative.</param>
+    /// <param name="kit">A unit type from the combat config, or null for none.</param>
     /// <exception cref="ArgumentOutOfRangeException">A negative id or side.</exception>
-    public void Enlist(int agent, int side)
+    /// <exception cref="ArgumentException">No such unit type.</exception>
+    /// <exception cref="InvalidOperationException">A kit is named and this world has no combat table.</exception>
+    public void Enlist(int agent, int side, string? kit = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(agent);
         ArgumentOutOfRangeException.ThrowIfNegative(side);
+
+        if (kit is not null)
+        {
+            if (_combat is null)
+            {
+                throw new InvalidOperationException("This world has no combat table, so nothing can carry a kit.");
+            }
+
+            _kit[agent] = _combat.KitFor(kit);
+        }
+
         _side[agent] = side;
     }
 
     /// <summary>Which side a unit is on; 0 for one never enlisted.</summary>
     public int SideOf(int agent) => _side.GetValueOrDefault(agent);
+
+    /// <summary>What a unit carries, or null for one enlisted without a kit.</summary>
+    public Kit? KitOf(int agent) => _kit.GetValueOrDefault(agent);
+
+    /// <summary>
+    /// How much there is to lose: the kit's hit points, or one for a unit with
+    /// no kit — so for those, damage in hit points IS damage as a fraction, and
+    /// everything written before kits existed still reads the same.
+    /// </summary>
+    public double HitPointsOf(int agent) => KitOf(agent)?.HitPoints ?? 1.0;
+
+    /// <summary>The armour class a shot at this unit is judged against. Unarmoured without a kit.</summary>
+    public string ArmourOf(int agent) => KitOf(agent)?.Armour ?? "unarmoured";
+
+    /// <summary>
+    /// Who reached zero health under fire since the last <see cref="Settle"/>
+    /// began, in the order they fell. The layer above decides what to do about
+    /// it; typically <see cref="MovementSystem.Remove"/>.
+    /// </summary>
+    public IReadOnlyList<int> Fallen => _fallen;
 
     /// <summary>
     /// The world as one side perceives it: health and rank as anybody sees them,
@@ -308,7 +364,10 @@ public sealed class DemoWorld : IPerception
     /// </para>
     /// </remarks>
     /// <param name="target">Who is hit.</param>
-    /// <param name="amount">Damage after armour and falloff. Not negative.</param>
+    /// <param name="amount">
+    /// Damage in HIT POINTS, after armour and falloff. Not negative. A unit with
+    /// no kit has one hit point, so for it this is a fraction as it always was.
+    /// </param>
     /// <param name="attacker">Who dealt it.</param>
     /// <returns>Contribution the attacker earned, damage and any kill bonus together.</returns>
     public double DamageBy(int target, double amount, int attacker)
@@ -321,16 +380,23 @@ public sealed class DemoWorld : IPerception
             return 0.0;
         }
 
+        // Credit is in FRACTIONS of the victim, whatever it weighs: taking a
+        // tank from full to dead is worth what taking a rifleman is. Weighting
+        // by what the victim cost is the C&C3 rule, and waits on units having a
+        // cost.
+        var fraction = amount / HitPointsOf(target);
+
         // Only damage that LANDED counts. Crediting the swing rather than the
         // wound would pay a unit for overkill, and pay every unit still firing
         // at something already dead.
-        var dealt = Math.Min(amount, before);
-        SetHealth(target, before - amount);
+        var dealt = Math.Min(fraction, before);
+        SetHealth(target, before - fraction);
 
         var earned = dealt * RankPerDamage;
         if (HealthOf(target) <= 0.0)
         {
             earned += RankPerKill * (1.0 + (0.3 * RankOf(target)));
+            _fallen.Add(target);
         }
 
         _contribution[attacker] = ContributionOf(attacker) + earned;
@@ -360,14 +426,31 @@ public sealed class DemoWorld : IPerception
     public double RankPerKill { get; init; } = 25.0;
 
     /// <summary>
-    /// One tick of the world happening to the units: exposure credited, then
-    /// every rate that touches health applied together. Call it once per tick,
-    /// after the world has moved.
+    /// One tick of the world happening to the units: positions observed, every
+    /// armed unit's shot resolved, exposure credited, then every rate that
+    /// touches health applied together. Call it once per tick, after the world
+    /// has moved.
     /// </summary>
     /// <remarks>
+    /// <b>Shots are decided before any lands.</b> Every shooter picks its
+    /// target from where things stood at the start of the pass, then the shots
+    /// resolve in shooter order. Two units that would kill each other both die;
+    /// nobody is spared by having a lower id.
+    /// <para>
+    /// A shooter takes the highest THREAT in range: the enemy that can hurt it
+    /// fastest right now, by the table, not the one with the most to lose.
+    /// Ties go to the nearer, then the lower id.
+    /// </para>
+    /// <para>
+    /// A blast hits every unit within the weapon's radius of the target's cell,
+    /// friend and foe alike, with falloff; only the shooter is spared its own
+    /// shot.
+    /// </para>
+    /// <para>
     /// Exposure is credited AFTER the move, so a unit is judged on where it
     /// ended the tick rather than where it started -- the cell it chose, not the
     /// cell it was leaving.
+    /// </para>
     /// <para>
     /// The three rates are SUMMED and applied once, which is the whole design. A
     /// veteran in the open loses <see cref="DamagePerTick"/> and regains
@@ -393,6 +476,8 @@ public sealed class DemoWorld : IPerception
         ArgumentNullException.ThrowIfNull(agents);
 
         Observe(agents);
+        _fallen.Clear();
+        Fire();
 
         foreach (var agent in agents)
         {
@@ -428,6 +513,99 @@ public sealed class DemoWorld : IPerception
             if (delta != 0.0)
             {
                 SetHealth(agent.Id, HealthOf(agent.Id) + delta);
+            }
+        }
+    }
+
+    /// <summary>Every armed unit shoots once: targets chosen from the start of the pass, shots landed in id order.</summary>
+    private void Fire()
+    {
+        if (_combat is null || _kit.Count == 0)
+        {
+            return;
+        }
+
+        var shots = new List<(int Shooter, int Target)>();
+        foreach (var (shooter, cell) in _cell)
+        {
+            if (KitOf(shooter) is { ShotsPerSecond: > 0.0 } kit && HealthOf(shooter) > 0.0)
+            {
+                var target = TargetFor(shooter, cell, kit);
+                if (target >= 0)
+                {
+                    shots.Add((shooter, target));
+                }
+            }
+        }
+
+        foreach (var (shooter, target) in shots)
+        {
+            Land(shooter, target);
+        }
+    }
+
+    /// <summary>The living enemy in range that can hurt this unit fastest; -1 for none.</summary>
+    private int TargetFor(int shooter, int cell, Kit kit)
+    {
+        var side = SideOf(shooter);
+        var x = _grid.ColumnOf(cell);
+        var y = _grid.RowOf(cell);
+
+        var best = -1;
+        var bestThreat = double.NegativeInfinity;
+        var bestDistance = double.PositiveInfinity;
+
+        foreach (var (other, at) in _cell)
+        {
+            if (SideOf(other) == side || HealthOf(other) <= 0.0)
+            {
+                continue;
+            }
+
+            var distance = Movement.OctileDistance(x, y, _grid.ColumnOf(at), _grid.RowOf(at));
+            if (distance > kit.Range)
+            {
+                continue;
+            }
+
+            var threat = KitOf(other) is { } theirs ? _combat!.ThreatPerSecond(theirs, kit.Armour) : 0.0;
+            if (threat > bestThreat || (threat == bestThreat && distance < bestDistance))
+            {
+                best = other;
+                bestThreat = threat;
+                bestDistance = distance;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>One tick of fire from a shooter at a target's cell, spread over everyone the blast reaches.</summary>
+    private void Land(int shooter, int target)
+    {
+        var kit = KitOf(shooter)!;
+        var centre = _cell[target];
+        var cx = _grid.ColumnOf(centre);
+        var cy = _grid.RowOf(centre);
+        var perShot = kit.ShotsPerSecond * _secondsPerTick;
+
+        foreach (var (victim, at) in _cell)
+        {
+            if (victim == shooter)
+            {
+                continue;
+            }
+
+            var distance = Movement.OctileDistance(cx, cy, _grid.ColumnOf(at), _grid.RowOf(at));
+            if (distance > kit.Weapon.BlastCells)
+            {
+                continue;
+            }
+
+            var amount = _combat!.Damage(kit, ArmourOf(victim), distance) * perShot;
+            if (amount > 0.0)
+            {
+                DamageBy(victim, amount, shooter);
             }
         }
     }

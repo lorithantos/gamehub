@@ -44,8 +44,17 @@ public sealed class RegionGraphTests(ITestOutputHelper output)
         output.WriteLine(
             $"region sizes: smallest {regions.Sizes.Min()}, median {Median(regions.Sizes)}, largest {regions.Sizes.Max()}");
         output.WriteLine(
-            $"the largest region holds {100.0 * regions.Sizes.Max() / regions.Sizes.Sum():F0}% of the open map -- "
-                + "a search inside it is still most of a flat search, which is the part this does not yet fix");
+            $"the largest region holds {100.0 * regions.Sizes.Max() / regions.Sizes.Sum():F0}% of the open map");
+
+        // The two faults the merge and the split exist to fix, as assertions
+        // rather than as a printed apology. Before them: median size EIGHT and a
+        // single region holding 46% of the map.
+        Assert.True(
+            regions.Sizes.Max() <= 1024,
+            $"largest region is {regions.Sizes.Max()} cells; a search inside it is most of a flat search");
+        Assert.True(
+            Median(regions.Sizes) > 32,
+            $"median region is {Median(regions.Sizes)} cells, which is a sliver rather than a place");
 
         Assert.True(regions.Count > 1, "the map did not divide at all");
         Assert.True(
@@ -142,7 +151,7 @@ public sealed class RegionGraphTests(ITestOutputHelper output)
         ratios.Sort();
         output.WriteLine(
             $"{ratios.Count} cross-region pairs measured; {sameRegion} skipped as same-region, "
-                + $"{noSharedGate} as not sharing a gate (the stand-in does not search the graph)");
+                + $"{noSharedGate} unroutable over the region graph");
         if (ratios.Count > 0)
         {
             output.WriteLine(
@@ -153,48 +162,123 @@ public sealed class RegionGraphTests(ITestOutputHelper output)
 
         Assert.NotEmpty(ratios);
         Assert.True(ratios[0] >= 0.999, "a route through gates cannot be shorter than the optimum");
+        Assert.Equal(0, noSharedGate);
+
+        // The cost of hierarchy, pinned. This is UNREFINED -- the route is forced
+        // through one representative cell per gate, exactly. A real planner uses
+        // the gate sequence to shape a window and reruns the flat search inside
+        // it, which recovers most of the loss; the worst case here (a route two
+        // and a half times the optimum) is what refinement is for.
+        Assert.True(
+            ratios[ratios.Count / 2] < 1.15,
+            $"median route is {ratios[ratios.Count / 2]:F3} of optimal; hierarchy is costing too much");
     }
 
     /// <summary>
-    /// The cost of walking to the gate an abstract route would use, then on. A
-    /// deliberately naive stand-in for a hierarchical planner: it takes the
-    /// single best gate between the two regions rather than searching the region
-    /// graph, which is enough to measure what forcing a route through a gate
-    /// costs. Zero when the two regions share no gate.
+    /// A real hierarchical route: search the region graph for a sequence of
+    /// gates, then walk it. Returns the walked cost, or zero if no route exists.
     /// </summary>
+    /// <remarks>
+    /// <b>Dijkstra over LINKS, not over regions.</b> What a region costs to cross
+    /// depends on which gate you came in by and which you leave by, so a node
+    /// that is only "a region" cannot carry the cost — the natural state is the
+    /// gate you are standing at, with an edge to every other gate of a region it
+    /// touches. That is the line graph, and getting it wrong is how a
+    /// hierarchical planner quietly returns routes far worse than it should.
+    /// <para>
+    /// The first version of this took the single best gate directly joining the
+    /// two regions and gave up otherwise. Fine when regions were few and huge;
+    /// once balancing produced 108 of them it could not route 232 of 244 sampled
+    /// pairs, and the ratios it did report were measuring ITS limits rather than
+    /// the abstraction's.
+    /// </para>
+    /// </remarks>
     private static double ThroughGates(Grid grid, RegionGraph regions, int from, int to, SearchWorkspace workspace)
     {
-        var a = regions.At(from);
-        var b = regions.At(to);
-        var best = 0.0;
-
-        foreach (var link in regions.Links)
+        var start = regions.At(from);
+        var goal = regions.At(to);
+        if (start < 0 || goal < 0)
         {
-            if ((link.A != a || link.B != b) && (link.A != b || link.B != a))
-            {
-                continue;
-            }
+            return 0;
+        }
 
-            var first = PathFinder.FindPath(grid, from, link.Cell, workspace);
-            if (!first.Found)
+        // Which links touch each region.
+        var byRegion = new Dictionary<int, List<int>>();
+        for (var i = 0; i < regions.Links.Count; i++)
+        {
+            foreach (var side in new[] { regions.Links[i].A, regions.Links[i].B })
             {
-                continue;
-            }
+                if (!byRegion.TryGetValue(side, out var list))
+                {
+                    byRegion[side] = list = [];
+                }
 
-            var second = PathFinder.FindPath(grid, link.Cell, to, workspace);
-            if (!second.Found)
-            {
-                continue;
-            }
-
-            var total = first.Cost + second.Cost;
-            if (best == 0.0 || total < best)
-            {
-                best = total;
+                list.Add(i);
             }
         }
 
-        return best;
+        double Walk(int a, int b)
+        {
+            var path = PathFinder.FindPath(grid, a, b, workspace);
+            return path.Found ? path.Cost : double.PositiveInfinity;
+        }
+
+        // Seed: the cost of reaching each gate out of the starting region.
+        var best = new Dictionary<int, double>();
+        var queue = new PriorityQueue<int, double>();
+        foreach (var i in byRegion.GetValueOrDefault(start, []))
+        {
+            var cost = Walk(from, regions.Links[i].Cell);
+            if (double.IsFinite(cost))
+            {
+                best[i] = cost;
+                queue.Enqueue(i, cost);
+            }
+        }
+
+        var answer = double.PositiveInfinity;
+
+        // Straight there, if both ends are in the same region.
+        if (start == goal)
+        {
+            answer = Walk(from, to);
+        }
+
+        while (queue.Count > 0)
+        {
+            var link = queue.Dequeue();
+            var cost = best[link];
+            if (cost > answer)
+            {
+                break;
+            }
+
+            var here = regions.Links[link];
+            foreach (var side in new[] { here.A, here.B })
+            {
+                if (side == goal)
+                {
+                    answer = Math.Min(answer, cost + Walk(here.Cell, to));
+                }
+
+                foreach (var next in byRegion.GetValueOrDefault(side, []))
+                {
+                    if (next == link)
+                    {
+                        continue;
+                    }
+
+                    var step = cost + Walk(here.Cell, regions.Links[next].Cell);
+                    if (double.IsFinite(step) && (!best.TryGetValue(next, out var held) || step < held))
+                    {
+                        best[next] = step;
+                        queue.Enqueue(next, step);
+                    }
+                }
+            }
+        }
+
+        return double.IsFinite(answer) ? answer : 0;
     }
 
     private static int Median(IReadOnlyList<int> values)

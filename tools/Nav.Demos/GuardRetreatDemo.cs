@@ -175,8 +175,15 @@ internal sealed class GuardRetreatDemo : Demo
         // replay draws what is there rather than what a side has noticed. Under
         // fog the two differ, and asking a perception here would have written a
         // header with no pads at all, because nothing has been observed yet.
+        // No exposure radius. The replay drew a dashed ring at that radius round
+        // every enemy and the legend called it "rank is earned inside it", which
+        // was true of the model exposure-rank replaced and is not true of this
+        // one: rank comes from damage dealt, and reach is per kit, four to six
+        // rather than a uniform six. A circle that means nothing is worse than
+        // no circle. What belongs here instead is each unit's own weapon range,
+        // which needs the kit in the trace.
         DemoTrace.WriteHeader(
-            trace, Name, Description, grid, world.RepairCells, Ticks, exposureRadius: world.ExposureRadius);
+            trace, Name, Description, grid, world.RepairCells, Ticks);
 
         var wasAway = new bool[Guards];
         var wasArrived = new bool[Guards];

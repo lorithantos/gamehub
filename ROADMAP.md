@@ -173,15 +173,20 @@ health. Medium to build, open-ended to tune, which is the point.
 - **A side plans around enemies it cannot see.** `SideView` blocks on true
   occupancy, so fog limits what a doctrine knows and not what a planner uses.
   This is next.
-- **The guard replay page's prose is two generations stale** — it describes
-  six guards on the old map, and health lost by *standing in reach*, which is
-  the exposure rank that was retired. The page's data is refreshed by every
-  run; only the words are wrong. Worth deciding against the parked
-  "pages → app or server" call rather than rewriting twice.
+- **The patrol-bait page and its artifact are stale.** The guard page was
+  rewritten from its own trace and republished; the patrol one has not been.
+  A demo is not updated until its prose is: the refresher rewrites only the
+  `trace-data` block, so every readout and paragraph outlives a demo that no
+  longer resembles it, with live numbers under wrong words.
 - **`ChokepointScan`** is still what `MovementSystem` uses. `ContourGates` is
   better on every measure and is not wired in.
-- **Both published artifacts are stale**, and the guard replay page's prose
-  describes the demo before it had an enemy that shoots.
+- **A replay draws the true board, not either side's view of it.** The units
+  are under fog; the camera is not. Drawing what a side actually knows is the
+  next thing that would make a replay worth reading on a map this size.
+- **The enemy ring is gone rather than replaced.** It drew the exposure radius
+  and the legend called it the ring rank is earned inside, which stopped being
+  true when exposure-rank was retired. What belongs there is each unit's own
+  weapon reach, which needs the kit in the trace.
 
 ---
 

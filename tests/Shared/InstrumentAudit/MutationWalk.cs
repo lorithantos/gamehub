@@ -25,6 +25,15 @@ namespace Nav.InstrumentAudit;
 /// <see cref="Origin.Field"/> and reported.
 /// </para>
 /// <para>
+/// <b>A delegate is followed to what it was built from, not to what it is.</b>
+/// Every body in an owned assembly is read once up front for the shape
+/// <c>ldftn M</c> into a delegate <c>newobj</c> into a field, and a later
+/// <c>Invoke</c> on that field expands to what was recorded. The store and the
+/// call are almost never the same method -- a handler subscribed in a
+/// constructor fires ten files away -- so nothing reachable from an instrument
+/// would ever show it.
+/// </para>
+/// <para>
 /// <b>The stack machine is linear and does not merge branches.</b> A value that
 /// arrives at a join from two arms is whatever the last arm left, and a value
 /// returned by a call is <see cref="Origin.Unknown"/> rather than traced into the
@@ -44,8 +53,10 @@ public sealed class MutationWalk
 
     private readonly HashSet<Assembly> _own;
     private readonly Dictionary<(Guid Module, int Token), List<MethodBase>> _overrides = [];
+    private readonly Dictionary<(Guid Module, int Token), HashSet<Landing>> _delegates = [];
     private readonly List<string> _notes = [];
 
+    private bool _indexing;
     private int _visited;
     private int _ownedDropped;
 
@@ -61,6 +72,11 @@ public sealed class MutationWalk
         foreach (var assembly in own)
         {
             Index(assembly);
+        }
+
+        foreach (var assembly in own)
+        {
+            IndexDelegates(assembly);
         }
     }
 
@@ -227,6 +243,71 @@ public sealed class MutationWalk
     }
 
     /// <summary>
+    /// Reads every body in the assembly for delegates being built and put
+    /// somewhere, so that an <c>Invoke</c> met later has a set to expand to.
+    /// </summary>
+    /// <remarks>
+    /// Nothing here is reported and nothing is counted. It is the same walk with
+    /// its findings thrown away, because a subscription written in a constructor
+    /// is not reachable from the instrument that eventually fires it, and a pass
+    /// that only read what the instrument reaches would find no delegates at all.
+    /// </remarks>
+    private void IndexDelegates(Assembly assembly)
+    {
+        _indexing = true;
+        var sink = new List<Mutation>();
+        try
+        {
+            foreach (var type in assembly.GetTypes())
+            {
+                foreach (var method in type.GetMethods(Declared).Cast<MethodBase>()
+                                           .Concat(type.GetConstructors(Declared)))
+                {
+                    Scan(method, string.Empty, string.Empty, sink, static (_, _) => { });
+                }
+
+                if (type.TypeInitializer is { } initializer)
+                {
+                    Scan(initializer, string.Empty, string.Empty, sink, static (_, _) => { });
+                }
+            }
+        }
+        finally
+        {
+            _indexing = false;
+        }
+    }
+
+    /// <summary>
+    /// Adds what a delegate value can land on to what <paramref name="field"/> is
+    /// already known to hold.
+    /// </summary>
+    /// <remarks>
+    /// A UNION, NOT A SLOT. A field written in a constructor and pointed
+    /// somewhere else later holds either at runtime, and <c>+=</c> makes it hold
+    /// both at once. The walk cannot tell which, so it answers for all of them.
+    /// </remarks>
+    private void Remember(FieldInfo? field, Val value)
+    {
+        if (field is null || value.Lands is not { Count: > 0 } lands)
+        {
+            return;
+        }
+
+        var key = Key(field);
+        if (!_delegates.TryGetValue(key, out var set))
+        {
+            _delegates[key] = set = [];
+        }
+
+        set.UnionWith(lands);
+    }
+
+    /// <summary>Everything a load of <paramref name="field"/> could be holding.</summary>
+    private IReadOnlyList<Landing>? Lands(FieldInfo? field) =>
+        field is not null && _delegates.TryGetValue(Key(field), out var set) ? [.. set] : null;
+
+    /// <summary>
     /// The method itself and, when the call could land elsewhere, every
     /// implementation of it in an owned assembly.
     /// </summary>
@@ -282,7 +363,7 @@ public sealed class MutationWalk
         }
         catch (Exception e) when (e is InvalidOperationException or NotSupportedException or BadImageFormatException)
         {
-            _notes.Add($"no body for {Name(method)}: {e.GetType().Name}");
+            Note($"no body for {Name(method)}: {e.GetType().Name}");
             return;
         }
 
@@ -291,7 +372,10 @@ public sealed class MutationWalk
             return;
         }
 
-        _visited++;
+        if (!_indexing)
+        {
+            _visited++;
+        }
 
         var module = method.Module;
         var typeArgs = method.DeclaringType is { IsGenericType: true } declaring
@@ -352,7 +436,7 @@ public sealed class MutationWalk
 
             if (!Ops.TryGetValue(code, out var op))
             {
-                _notes.Add($"unknown opcode 0x{code:X4} in {Name(method)}; stopped reading it");
+                Note($"unknown opcode 0x{code:X4} in {Name(method)}; stopped reading it");
                 return;
             }
 
@@ -446,20 +530,24 @@ public sealed class MutationWalk
                     var owner = Pop();
                     var field = Field(operand);
                     Push(owner.Origin == Origin.Owned
-                        ? new Val(Origin.Owned, $"{owner.Text}.{field?.Name}")
-                        : new Val(Origin.Field, field?.Name ?? "?"));
+                        ? new Val(Origin.Owned, $"{owner.Text}.{field?.Name}", Lands(field))
+                        : new Val(Origin.Field, field?.Name ?? "?", Lands(field)));
                     break;
                 }
 
                 case "ldsfld" or "ldsflda":
-                    Push(new Val(Origin.StaticField, Field(operand)?.Name ?? "?"));
+                {
+                    var field = Field(operand);
+                    Push(new Val(Origin.StaticField, field?.Name ?? "?", Lands(field)));
                     break;
+                }
 
                 case "stfld":
                 {
-                    Pop();
+                    var value = Pop();
                     var owner = Pop();
                     var field = Field(operand);
+                    Remember(field, value);
                     var suppressed = isConstructor && owner.Origin == Origin.This
                         ? "a constructor writing its own fields"
                         : Compiler(field);
@@ -469,8 +557,9 @@ public sealed class MutationWalk
 
                 case "stsfld":
                 {
-                    Pop();
+                    var value = Pop();
                     var field = Field(operand);
+                    Remember(field, value);
                     Record(
                         $"{field?.Name ?? "?"} =",
                         new Val(Origin.StaticField, field?.DeclaringType?.Name ?? "?"),
@@ -481,13 +570,13 @@ public sealed class MutationWalk
                 case "newobj":
                 {
                     var made = Resolve(operand);
-                    Take(made is null ? 0 : made.GetParameters().Length);
+                    var args = Take(made is null ? 0 : made.GetParameters().Length);
                     if (made is not null && IsOwn(made))
                     {
                         enqueue(made, $"{path} -> {Name(made)}");
                     }
 
-                    Push(new Val(Origin.Owned, $"new {made?.DeclaringType?.Name ?? "?"}"));
+                    Push(new Val(Origin.Owned, $"new {made?.DeclaringType?.Name ?? "?"}", Bind(made, args)));
                     break;
                 }
 
@@ -507,12 +596,17 @@ public sealed class MutationWalk
                         Pop();
                     }
 
-                    if (Resolve(operand) is { } target && IsOwn(target))
+                    var target = Resolve(operand);
+                    if (target is not null && IsOwn(target))
                     {
                         enqueue(target, $"{path} -> {Name(target)}");
                     }
 
-                    Push(Unknown);
+                    // What it is bound to is still underneath, so the pair is only
+                    // whole at the newobj that makes the delegate out of them.
+                    Push(target is null
+                        ? Unknown
+                        : new Val(Origin.Unknown, $"ftn {Name(target)}", [new Landing(target, Unknown)]));
                     break;
                 }
 
@@ -532,13 +626,24 @@ public sealed class MutationWalk
                         Record($"{callee.Name}()", receiver, Compiler(receiver));
                     }
 
+                    if (IsInvoke(callee))
+                    {
+                        Land(receiver);
+                    }
+                    else if (args.Length > 0 && Backing(callee) is { } backing)
+                    {
+                        Remember(backing, args[^1]);
+                    }
+
                     if (callee is MethodInfo { ReturnType: var returns } && returns != typeof(void))
                     {
                         // A fluent member hands back what it was called on, so the
                         // second Append of a chain is the same object as the first.
-                        Push(returns == callee.DeclaringType && args.Length > 0
-                            ? receiver
-                            : new Val(Origin.Unknown, $"{Name(callee)}()"));
+                        Push(IsCombine(callee)
+                            ? new Val(Origin.Owned, "combined", Union(args))
+                            : returns == callee.DeclaringType && args.Length > 0
+                                ? receiver
+                                : new Val(Origin.Unknown, $"{Name(callee)}()"));
                     }
 
                     if (IsOwn(callee))
@@ -664,7 +769,7 @@ public sealed class MutationWalk
                 return;
             }
 
-            locals[slot] = known[slot] && locals[slot] != value ? Unknown : value;
+            locals[slot] = known[slot] ? Join(locals[slot], value) : value;
             known[slot] = true;
         }
 
@@ -676,7 +781,7 @@ public sealed class MutationWalk
             }
             catch (Exception e) when (e is ArgumentException or BadImageFormatException)
             {
-                _notes.Add($"unresolved field token in {Name(method)}");
+                Note($"unresolved field token in {Name(method)}");
                 return null;
             }
         }
@@ -689,13 +794,44 @@ public sealed class MutationWalk
             }
             catch (Exception e) when (e is ArgumentException or BadImageFormatException)
             {
-                _notes.Add($"unresolved method token in {Name(method)}");
+                Note($"unresolved method token in {Name(method)}");
                 return null;
+            }
+        }
+
+        // A DELEGATE CALL, EXPANDED TO WHAT THE FIELD WAS EVER SEEN HOLDING. Where
+        // that is nothing the walk says so out loud: Invoke has no body to read
+        // and no name on the mutator list, so silence here is the one answer that
+        // would be indistinguishable from clean.
+        void Land(Val target)
+        {
+            if (target.Lands is not { Count: > 0 } lands)
+            {
+                Note($"unresolved delegate {target.Text}.Invoke in {Name(method)}");
+                return;
+            }
+
+            foreach (var landing in lands)
+            {
+                if (IsMutator(landing.Method))
+                {
+                    Record($"{landing.Method.Name}()", landing.On, Compiler(landing.On));
+                }
+
+                if (IsOwn(landing.Method))
+                {
+                    enqueue(landing.Method, $"{path} -> {Name(landing.Method)}");
+                }
             }
         }
 
         void Record(string what, Val target, string? suppressed)
         {
+            if (_indexing)
+            {
+                return;
+            }
+
             if (target.Origin == Origin.Owned)
             {
                 _ownedDropped++;
@@ -737,6 +873,74 @@ public sealed class MutationWalk
     private static string? Compiler(Val receiver) =>
         receiver.Text.StartsWith('<') ? "compiler-generated" : null;
 
+    /// <summary>
+    /// A delegate's constructor takes the object it is bound to and the method it
+    /// will land on, so the two values it pops are the whole answer.
+    /// </summary>
+    private static IReadOnlyList<Landing>? Bind(MethodBase? made, Val[] args) =>
+        made?.DeclaringType is { } type &&
+        typeof(Delegate).IsAssignableFrom(type) &&
+        args.Length == 2 &&
+        args[1].Lands is { Count: > 0 } lands
+            ? [.. lands.Select(l => l with { On = args[0] })]
+            : null;
+
+    /// <summary>Everything any of these values could land on, counted once each.</summary>
+    private static IReadOnlyList<Landing>? Union(params Val[] values)
+    {
+        List<Landing>? all = null;
+        foreach (var value in values)
+        {
+            if (value.Lands is not { Count: > 0 } lands)
+            {
+                continue;
+            }
+
+            all ??= [];
+            foreach (var landing in lands)
+            {
+                if (!all.Contains(landing))
+                {
+                    all.Add(landing);
+                }
+            }
+        }
+
+        return all;
+    }
+
+    private static bool IsInvoke(MethodBase method) =>
+        method.Name == "Invoke" &&
+        method.DeclaringType is { } declaring &&
+        typeof(Delegate).IsAssignableFrom(declaring);
+
+    /// <summary>
+    /// <c>+=</c> and <c>-=</c> on a delegate, which the compiler writes as a
+    /// combine and a store. Removal unions too: which arm ran is a runtime
+    /// question, and dropping the target would be the answer that lies.
+    /// </summary>
+    private static bool IsCombine(MethodBase method) =>
+        method.DeclaringType == typeof(Delegate) && method.Name is "Combine" or "Remove" or "RemoveAll";
+
+    /// <summary>
+    /// The backing field of a field-like event, so a subscription through the
+    /// accessor lands where a plain assignment to the field would.
+    /// </summary>
+    private static FieldInfo? Backing(MethodBase method) =>
+        method.Name.StartsWith("add_", StringComparison.Ordinal) &&
+        method.DeclaringType?.GetField(method.Name[4..], Declared) is { } field &&
+        typeof(Delegate).IsAssignableFrom(field.FieldType)
+            ? field
+            : null;
+
+    private void Note(string text)
+    {
+        if (!_indexing)
+        {
+            _notes.Add(text);
+        }
+    }
+
     private static bool IsMutator(MethodBase method)
     {
         var declaring = method.DeclaringType;
@@ -753,7 +957,7 @@ public sealed class MutationWalk
     private bool IsOwn(MethodBase method) =>
         method.DeclaringType is { } declaring && _own.Contains(declaring.Assembly);
 
-    private static (Guid, int) Key(MethodBase method) => (method.Module.ModuleVersionId, method.MetadataToken);
+    private static (Guid, int) Key(MemberInfo member) => (member.Module.ModuleVersionId, member.MetadataToken);
 
     private static string Name(MethodBase method)
     {
@@ -775,10 +979,28 @@ public sealed class MutationWalk
         var merged = new List<Val>(depth);
         for (var i = 0; i < depth; i++)
         {
-            merged.Add(left[i] == right[i] ? left[i] : Unknown);
+            merged.Add(Join(left[i], right[i]));
         }
 
         return merged;
+    }
+
+    /// <summary>
+    /// Two values for one slot. Where they disagree the slot is unknown, but what
+    /// each could land on survives the disagreement: a delegate chosen by a
+    /// ternary still gets invoked, and both arms are answerable for it.
+    /// </summary>
+    private static Val Join(Val left, Val right)
+    {
+        if (left == right)
+        {
+            return left;
+        }
+
+        var lands = Union(left, right);
+        return left.Origin == right.Origin && left.Text == right.Text
+            ? new Val(left.Origin, left.Text, lands)
+            : new Val(Origin.Unknown, "?", lands);
     }
 
     /// <summary>Every offset something branches to, found by decoding once.</summary>
@@ -834,7 +1056,20 @@ public sealed class MutationWalk
 
     private static readonly Val Unknown = new(Origin.Unknown, "?");
 
-    private readonly record struct Val(Origin Origin, string Text);
+    /// <summary>
+    /// One value on the abstract stack. <c>Lands</c> is what it can be invoked
+    /// into, when it is a delegate the walk followed back to an <c>ldftn</c>, and
+    /// null everywhere else.
+    /// </summary>
+    private readonly record struct Val(Origin Origin, string Text, IReadOnlyList<Landing>? Lands = null);
+
+    /// <summary>One method a delegate can land on, and what it was bound to.</summary>
+    /// <remarks>
+    /// The receiver travels with the method because it is the whole finding for a
+    /// framework target: <c>_seen.Add</c> as an <see cref="Action{T}"/> mutates
+    /// <c>_seen</c>, and which list that is cannot be read off <c>List.Add</c>.
+    /// </remarks>
+    private sealed record Landing(MethodBase Method, Val On);
 
     private static int OperandSize(OpCode op, byte[] il, int operand) => op.OperandType switch
     {

@@ -18,6 +18,7 @@
     <Using Include="Nav.Core.Models" />
     <Using Include="Nav.Tactics" />
     <Using Include="Nav.Tactics.Interfaces" />
+    <Using Include="Nav.Tactics.Models" />
   </ItemGroup>
 
 </Project>

@@ -22,6 +22,27 @@ internal abstract class Demo
 
     /// <summary>Builds the world, then plays it, writing a line per tick.</summary>
     public abstract Run Play(TextWriter trace);
+
+    /// <summary>
+    /// A file under the repository's <c>config/</c>, found by walking up from
+    /// the binary, so a demo run from the root and one run from bin read the
+    /// same numbers. Throws rather than falling back: a demo on numbers nobody
+    /// chose is the failure the config files exist to prevent.
+    /// </summary>
+    /// <exception cref="FileNotFoundException">No <c>config/</c> holding the file above the binary.</exception>
+    protected static string ConfigPath(string file)
+    {
+        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); dir is not null; dir = dir.Parent)
+        {
+            var candidate = Path.Combine(dir.FullName, "config", file);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        throw new FileNotFoundException($"No config/{file} above {AppContext.BaseDirectory}.", file);
+    }
 }
 
 /// <summary>What a demo produced: the state at the end, and what it amounted to.</summary>

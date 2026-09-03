@@ -127,27 +127,20 @@ public sealed class CombatTests(ITestOutputHelper output)
         // second-order incentive costing one multiply: a veteran is a better
         // target, so protecting one is a real decision rather than sentiment.
         var grid = Room();
-        var system = new MovementSystem(grid);
-        system.AddAgent(grid.Index(5, 5));
-
-        var world = new DemoWorld(grid, exposureRadius: 4.0, rankAt: [3])
+        var world = new DemoWorld(grid, rankAt: [5])
         {
             RankPerKill = 10.0,
             RankPerDamage = 0.0,
         };
 
-        // Kill a rookie first, before anybody has stood anywhere.
+        // Kill a rookie first, before it has done anything.
         world.SetHealth(0, 0.5);
         world.DamageBy(0, 0.5, attacker: 7);
         var forARookie = world.ContributionOf(7);
 
-        // Now let the same unit earn rank by standing in reach, and kill it again.
-        world.HostileCells.Add(grid.Index(5, 3));
-        for (var tick = 0; tick < 5; tick++)
-        {
-            system.Tick();
-            world.Settle(system.Agents);
-        }
+        // Now let the same unit earn rank with a kill of its own, and kill it again.
+        world.SetHealth(5, 0.5);
+        world.DamageBy(5, 0.5, attacker: 0);
 
         Assert.True(world.RankOf(0) > 0, "the target never ranked up, so the test proves nothing");
 

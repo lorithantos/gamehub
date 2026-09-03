@@ -1,54 +1,32 @@
 namespace Nav.Demos;
 
 /// <summary>
-/// The guard that does not die beside the cannon: six units hold a position an
-/// enemy is wearing down, earn rank for standing in it, and rotate through
-/// repair in the order their rank says -- without ever leaving it unheld.
+/// The guard that does not die beside the cannon, under fire that shoots
+/// back: six units hold a position against three waves of attackers, earn
+/// rank from the damage they deal, and rotate through repair in the order
+/// their rank says -- without ever leaving the position unheld.
 /// </summary>
 /// <remarks>
 /// The C&amp;C behaviour this project was started over.
 /// <para>
-/// <b>Nothing here is scripted.</b> There is no <c>SetHealth</c> in this demo.
-/// Standing within the enemy's reach costs 0.004 a tick and earns rank at the
-/// same time, so every casualty is a consequence of where a unit stood and how
-/// long it stayed, and every decision below is the doctrine meeting a situation
-/// nobody arranged for it. The one scripted thing is the enemy, and it does one
-/// thing once: at tick 100 it advances a single cell, from a position whose
-/// reach covered the ring's front arc to one that covers all six. It hurts
-/// nobody by moving. The line simply stops having a sheltered half.
+/// <b>Both sides are doctrine.</b> The attackers are a <see cref="GuardDoctrine"/>
+/// too: each wave is ordered to a station in the north corridor within reach
+/// of the line and holds it, every unit shooting whatever in range can hurt it
+/// fastest, with no pad to fall back to and a retreat threshold of zero. The
+/// only scripted thing is when a wave arrives.
 /// </para>
 /// <para>
-/// <b>Being good at the job is what gets you sent to the rear.</b> Units 0, 2
-/// and 3 are in reach from the start, so they are the ones who bleed AND the
-/// ones who are promoted, and at ticks 57 and 59 their retreat threshold rises
-/// from 0.40 to 0.55 along with the rank. They fall back at 0.54. As rookies
-/// they would have stood there for another fourteen hundredths of health first.
-/// The promotion is what pulled them out.
+/// <b>Rank is earned from damage, not from standing.</b> A guard that shells
+/// a rocket bike banks contribution; landing the killing blow banks more; and
+/// the retreat threshold rises with the rank, so the guard that has done the
+/// most is the one pulled at a scratch. The reserve keeps four standing whoever
+/// is hurt, so a unit past its threshold waits for a place -- the overrun the
+/// headline reports is that wait, in health.
 /// </para>
 /// <para>
-/// <b>The reserve has a price, and the demo now puts a number on it.</b> A unit
-/// is meant to leave the moment it falls under its own threshold; it actually
-/// leaves when a place comes free, and the gap is health spent standing in the
-/// line waiting for one. Unit 3 goes at 0.44, eleven hundredths past its
-/// threshold, because two were already away. Then the real one: <b>unit 5 goes
-/// at 0.42 against a threshold of 0.70 -- 0.28 past it</b> -- because by then it
-/// was the highest-ranked unit in the queue, and the reserve spends its places
-/// on the LOWEST rank first. Two rookies at 0.51 and 0.50 went ahead of it.
-/// </para>
-/// <para>
-/// That is the doctrine arriving on its own rather than being staged. A
-/// veteran's place is the line: it earns faster where the enemy is, at full
-/// rank it mends itself and needs a pad least, and its standing there is what
-/// makes the position survivable for the rookies beside it. Here that rule
-/// costs one specific veteran 0.28 of health, and the demo neither arranged it
-/// nor hid it.
-/// </para>
-/// <para>
-/// <b>Then it settles into a rotation, which is the whole point.</b> Veterans
-/// cycle at their 0.70 threshold on trips of about twenty ticks -- out, mend,
-/// back -- while the line goes on holding. All six finish as veterans, all six
-/// earned it under fire, and the position was never held by fewer than four.
-/// That last number is the original failure prevented from the other direction.
+/// <b>Nothing is scripted but the waves.</b> There is no <c>SetHealth</c>.
+/// Every casualty on either side is a consequence of where a unit stood, what
+/// it carried, and what chose to shoot it.
 /// </para>
 /// </remarks>
 internal sealed class GuardRetreatDemo : Demo
@@ -78,13 +56,8 @@ internal sealed class GuardRetreatDemo : Demo
         .........................
         """;
 
-    public override string Name => "guard-retreat";
-
-    public override string Description =>
-        "Six guards hold a position an enemy is wearing down. Nothing is scripted: exposure both "
-            + "earns rank and costs health, and rank decides who rotates through repair and who holds.";
-
-    public override int Ticks => 320;
+    private const int Guards = 6;
+    private const int Reserve = 4;
 
     /// <summary>Retreat thresholds by rank: rookie, regular, veteran.</summary>
     /// <remarks>
@@ -93,143 +66,179 @@ internal sealed class GuardRetreatDemo : Demo
     /// </remarks>
     private static readonly double[] RetreatByRank = [0.4, 0.55, 0.7];
 
+    /// <summary>What each guard carries, by id. Tanks hold the plate; buggies carry the answer to infantry.</summary>
+    private static readonly string[] GuardKits = ["tank", "buggy", "tank", "tank", "buggy", "tank"];
+
+    /// <summary>One wave: two fast anti-armour units, two infantry, and a buggy.</summary>
+    private static readonly string[] Wave = ["rocketbike", "rocketbike", "rifleman", "rifleman", "buggy"];
+
+    private static readonly int[] WaveTicks = [0, 110, 220];
+
+    public override string Name => "guard-retreat";
+
+    public override string Description =>
+        "Six guards hold a position against three waves that shoot back. Rank is earned from damage dealt, "
+            + "and rank decides who rotates through repair and who holds.";
+
+    public override int Ticks => 320;
+
     public override Run Play(TextWriter trace)
     {
         var grid = Grid.FromMapText(Map);
         var system = new MovementSystem(grid);
+        var combat = Combat.From(Ini.FromFile(ConfigPath("combat.ini")));
+        var scale = WorldScale.From(Ini.FromFile(ConfigPath("scale.ini")));
 
         var station = grid.Index(12, 8);
         var padNorth = grid.Index(2, 1);
         var padSouth = grid.Index(22, 15);
 
-        // The enemy sits in the corridor between the two northern compounds,
-        // looking down at the guard position. It never fires and never moves:
-        // its whole job is to be somewhere, so that standing on the near side of
-        // the line costs something and standing on the far side does not.
-        var enemy = grid.Index(12, 3);
+        // Where a wave goes to stand: the mouth of the north corridor, in reach
+        // of the ring's front arc. A wave that holds there is a wave that is
+        // shot at from the line and shoots back, which is the whole fight.
+        var attackStation = grid.Index(14, 4);
 
-        // Five step costs of reach. The parked ring for six spans three cells,
-        // and at this distance the boundary falls between its front arc and its
-        // back -- the three nearest the corridor earn, the three behind them do
-        // not. Ranks at 50 and 140 exposed ticks, so the promotions land inside
-        // this demo's 320 rather than being asserted in a footnote.
+        // Rank at a kill's worth and three kills' worth, given the credit rates
+        // in the config. Self-healing so a full-rank guard mends on the walk;
+        // no exposure damage, because the enemy has weapons now.
         var world = new DemoWorld(
             grid,
             repairPerTick: 0.03,
-            exposureRadius: 5.0,
-            rankAt: [50, 140],
-            damagePerTick: 0.004,
-            selfHealPerTick: 0.002);
+            exposureRadius: 6.0,
+            rankAt: [50, 150],
+            selfHealPerTick: 0.002,
+            combat: combat,
+            scale: scale)
+        {
+            RankPerDamage = combat.RankPerDamage,
+            RankPerKill = combat.RankPerKill,
+        };
         world.RepairCells.Add(padNorth);
         world.RepairCells.Add(padSouth);
-        world.HostileCells.Add(enemy);
 
         // Six guards, starting scattered on the left so the march to station is
-        // itself worth watching. Six rather than four because the parking ring
-        // for four is a plus one cell across, and a formation that tight cannot
-        // be split by anything measured in distance -- every unit is the same
-        // distance from the enemy, so nobody could out-earn anybody.
+        // itself worth watching.
         int[] starts =
         [
             grid.Index(1, 4), grid.Index(1, 6), grid.Index(2, 9),
             grid.Index(1, 11), grid.Index(2, 13), grid.Index(1, 15),
         ];
-        foreach (var cell in starts)
+        for (var i = 0; i < starts.Length; i++)
         {
-            system.AddAgent(cell);
+            var id = system.AddAgent(starts[i]);
+            world.Enlist(id, side: 0, kit: GuardKits[i]);
         }
 
-        // Four of six stay standing whatever happens.
-        const int Reserve = 4;
-        var squad = new Squad(
+        var guard = new Squad(
             "guard",
-            [0, 1, 2, 3, 4, 5],
+            Enumerable.Range(0, Guards),
             new GuardDoctrine(station, new RepairPolicy(RetreatByRank, returnAbove: 0.8, reserve: Reserve)));
+        var waves = new List<Squad>();
 
         DemoTrace.WriteHeader(
             trace, Name, Description, grid, world.RepairPoints, Ticks, exposureRadius: world.ExposureRadius);
 
-        var wasAway = new bool[6];
-        var wasArrived = new bool[6];
-        var ticksAway = new int[6];
-        var wasRank = new int[6];
+        var wasAway = new bool[Guards];
+        var wasArrived = new bool[Guards];
+        var ticksAway = new int[Guards];
+        var wasRank = new int[Guards];
         var mostAwayAtOnce = 0;
         var worstOverrun = 0.0;
+        var attackersSent = 0;
+        var attackersDestroyed = 0;
+        var guardsLost = 0;
 
-        // A LIST, not a string. Two units are promoted within a tick of each
-        // other and two are detached in the same pass, and a single slot loses
-        // whichever happened first -- which is how the first run of this demo
-        // came to narrate three veterans it had only announced two of.
+        // A LIST, not a string: several things happen in one tick and a single
+        // slot loses whichever happened first.
         var events = new List<string>();
+
+        world.Observe(system);
 
         for (var tick = 0; tick < Ticks; tick++)
         {
             events.Clear();
 
-            // NOTHING IS SCRIPTED. There is no SetHealth in this demo any more.
-            // The enemy's reach costs 0.004 a tick to whoever is standing in it
-            // and earns them rank at the same time, so every casualty below is a
-            // consequence of where a unit chose to stand and how long it stayed.
-            // Whatever the doctrine does with that, it is doing to a situation
-            // nobody arranged for it.
-            //
-            // The one thing that IS scripted is the enemy, and it is scripted to
-            // do one thing once: advance a single cell. From (12,3) its reach
-            // covered the ring's front arc and not its back; from (12,4) it
-            // covers all six. Nobody is hurt by the move and nothing is done to
-            // any unit -- the line simply stops having a sheltered half, and
-            // every consequence of that is the doctrine's.
-            if (tick == 100)
+            var waveIndex = Array.IndexOf(WaveTicks, tick);
+            if (waveIndex >= 0)
             {
-                world.HostileCells[0] = grid.Index(12, 4);
-                events.Add("the enemy advances a cell -- the whole line is in reach now");
+                var ids = new List<int>();
+                for (var k = 0; k < Wave.Length; k++)
+                {
+                    var id = system.AddAgent(grid.Index(10 + k, 0));
+                    world.Enlist(id, side: 1, kit: Wave[k]);
+                    ids.Add(id);
+                }
+
+                attackersSent += ids.Count;
+                waves.Add(new Squad(
+                    $"wave {waveIndex + 1}", ids,
+                    new GuardDoctrine(attackStation, retreatBelow: 0.0, returnAbove: 0.5)));
+                world.Observe(system);
+                events.Add($"wave {waveIndex + 1} enters from the north: two rocket bikes, two riflemen, a buggy");
             }
 
-            squad.Advance(system, world);
+            guard.Advance(system, world.ViewFor(0));
+            foreach (var wave in waves)
+            {
+                wave.Advance(system, world.ViewFor(1));
+            }
+
             system.Tick();
+            world.Settle(system);
+
+            foreach (var (victim, killer) in world.Fallen)
+            {
+                system.Remove(victim);
+                var kit = world.KitOf(victim)!.Name;
+                if (world.SideOf(victim) == 0)
+                {
+                    guardsLost++;
+                    events.Add($"guard {victim}, a {kit}, is destroyed by unit {killer}");
+                }
+                else
+                {
+                    attackersDestroyed++;
+                    events.Add($"unit {victim}, a {kit}, is destroyed by guard {killer}");
+                }
+            }
 
             var agents = system.Agents;
-            world.Settle(agents);
-
-            // Narrate the doctrine's decisions as they become visible.
             foreach (var agent in agents)
             {
-                // Promotion first: it is the only thing happening for the first
-                // half, and a viewer who does not see it earned will not believe
-                // it later when it decides who leaves.
+                if (agent.Id >= Guards || !agent.Alive)
+                {
+                    continue;
+                }
+
                 var rank = world.RankOf(agent.Id);
                 if (rank != wasRank[agent.Id])
                 {
                     events.Add(rank == 1
-                        ? $"unit {agent.Id} has held the near side long enough to be a regular"
-                        : $"unit {agent.Id} is a veteran now");
+                        ? $"guard {agent.Id} has done enough damage to be a regular"
+                        : $"guard {agent.Id} is a veteran now");
                     wasRank[agent.Id] = rank;
                 }
 
                 if (agent.Away && !wasAway[agent.Id])
                 {
                     // Rank and health together, because this is the line a
-                    // viewer stops on to ask why THIS unit and not that one.
-                    //
-                    // And the OVERRUN, which is the price of the reserve stated
-                    // as a number. A unit is meant to leave the moment it falls
-                    // under its own rank's threshold; it actually leaves when a
-                    // place comes free, and the gap is health it spent standing
-                    // in the line waiting for one. Nothing chose that gap.
+                    // viewer stops on to ask why THIS unit and not that one --
+                    // and the OVERRUN, the reserve's price stated as a number:
+                    // health spent standing past a threshold waiting for a place.
                     var health = world.HealthOf(agent.Id);
                     var overrun = RetreatByRank[Math.Min(rank, RetreatByRank.Length - 1)] - health;
                     worstOverrun = Math.Max(worstOverrun, overrun);
                     events.Add(overrun > 0.02
-                        ? $"unit {agent.Id} falls back at {health:F2}, rank {rank} -- {overrun:F2} past its threshold, waiting for a place"
-                        : $"unit {agent.Id} falls back to repair at {health:F2}, rank {rank}");
+                        ? $"guard {agent.Id} falls back at {health:F2}, rank {rank} -- {overrun:F2} past its threshold, waiting for a place"
+                        : $"guard {agent.Id} falls back to repair at {health:F2}, rank {rank}");
                 }
                 else if (!agent.Away && wasAway[agent.Id])
                 {
-                    events.Add($"unit {agent.Id} rejoins the line at {world.HealthOf(agent.Id):F2}");
+                    events.Add($"guard {agent.Id} rejoins the line at {world.HealthOf(agent.Id):F2}");
                 }
                 else if (agent.Away && agent.Arrived && !wasArrived[agent.Id])
                 {
-                    events.Add($"unit {agent.Id} reaches the pad");
+                    events.Add($"guard {agent.Id} reaches the pad");
                 }
 
                 if (agent.Away)
@@ -241,36 +250,30 @@ internal sealed class GuardRetreatDemo : Demo
                 wasArrived[agent.Id] = agent.Arrived;
             }
 
-            mostAwayAtOnce = Math.Max(mostAwayAtOnce, agents.Count(a => a.Away));
+            mostAwayAtOnce = Math.Max(mostAwayAtOnce, agents.Count(a => a.Id < Guards && a.Alive && a.Away));
 
             if (events.Count == 0 && tick == 0)
             {
-                events.Add("the squad is ordered to hold the centre, with the enemy in the north corridor");
+                events.Add("the squad is ordered to hold the centre");
             }
 
             var note = events.Count == 0 ? null : string.Join("; ", events);
 
-            DemoTrace.WriteTick(trace, grid, tick, agents, world, squad.Anchor, note);
+            DemoTrace.WriteTick(trace, grid, tick, agents, world, guard.Anchor, note);
         }
 
-        // What this doctrine is judged on, and none of it is final health: a unit
-        // that comes back at 0.8 is the intended outcome, and counting units "at
-        // full health" would score that as a failure. Time off the line, the rank
-        // the line earned, and the overrun -- the last being the reserve's price,
-        // health spent standing past a threshold because no place was free.
+        // What this doctrine is judged on: did the position hold, at what cost,
+        // and what did the line earn. Time off the line and the overrun are the
+        // reserve's price; the ranks are what standing there bought.
         var final = system.Agents;
-        var veterans = final.Count(a => world.RankOf(a.Id) >= 2);
+        var standing = final.Count(a => a.Id < Guards && a.Alive);
+        var veterans = final.Count(a => a.Id < Guards && a.Alive && world.RankOf(a.Id) >= 2);
         var everLeft = ticksAway.Count(t => t > 0);
-        var worstStanding = final
-            .Where(a => !a.Away)
-            .Select(a => world.HealthOf(a.Id))
-            .DefaultIfEmpty(1.0)
-            .Min();
 
         return new Run(
             Ticks, final, world,
-            $"{veterans}/{final.Count} veterans, all earned under fire; {everLeft} rotated through repair, "
-                + $"never more than {mostAwayAtOnce} away against a reserve of {Reserve}; "
-                + $"worst overrun {worstOverrun:F2} past a threshold, worst unit standing at {worstStanding:F2}");
+            $"{standing}/{Guards} guards standing, {guardsLost} lost; {attackersDestroyed}/{attackersSent} attackers destroyed; "
+                + $"{veterans} veterans; {everLeft} rotated through repair, never more than {mostAwayAtOnce} away "
+                + $"against a reserve of {Reserve}; worst overrun {worstOverrun:F2}");
     }
 }

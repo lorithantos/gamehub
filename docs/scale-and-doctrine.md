@@ -6,6 +6,112 @@ rules. Current code: `WorldScale`, `Combat`, `RepairPolicy`, `DemoWorld`,
 
 ---
 
+## Weapons that fire — 3 September 2026
+
+Roadmap step 2, built in four commits, each green before the next: a death
+verb in Nav.Core, sides in the world, kits and a fire pass, then rank read
+from contribution and the guard demo replayed as two doctrines shooting at
+each other.
+
+### Decisions asked for before building
+
+- **Hostiles are a second population** in the one movement system, not
+  static emplacements. Both sides move under doctrine; that is what makes
+  it AI against AI.
+- **Blast hits everyone in radius**, own side included. Only the shooter is
+  spared its own shot.
+- **A unit shoots the highest threat in range**, where threat is how fast the
+  target can hurt *me* right now: "a rocket bike is a better target than a
+  level 6 tank — the tank may do more damage over the long run, but the
+  rocket bike can do more damage quickly." So threat is the table lookup
+  `Damage(theirWeapon, myArmour) × theirRate`, per observer. Writing the
+  tests found that the same pair flips: to a tank the rocket bike is the
+  danger over the buggy (57.8 against 10.5 hit points a second); to a
+  rifleman the buggy is (21.0 against 15.8).
+
+### Exposure-rank retired
+
+Rank had climbed a count of ticks spent within a radius of a hostile cell.
+That measured presence, and was only ever defensible because nothing could
+deal damage. `RankOf` now reads contribution: damage dealt through
+`DamageBy`, plus a bonus for the killing blow scaled by the victim's rank.
+The exposure count is still kept, because the aura damage keys off it and a
+replay can ask it; it earns nothing. The `perExposedSecond` key is gone.
+
+### Hit points arrived with the kits, not as their own item
+
+`baseDamage` had been 1.0 to 3.5 against health that was a 0..1 fraction, so
+every weapon killed everything in one shot and the versus table was
+decoration. Each kit carries `hitPoints`; `DamageBy` takes hit points and
+divides by the target's; a unit with no kit has one, so every earlier test
+is exact. `HealthOf` on the seam stays a fraction and every threshold keeps
+working. Credit is still in fractions of the victim — a tank kill is worth
+what a rifleman kill is — until units have a cost to weight it by.
+
+The per-shot numbers were chosen for a legible table and nothing else. From
+`FireTests.TimeToKillForTheRecord`, seconds to kill at a direct hit:
+
+| shooter \ target | rifleman | buggy | tank | rocketbike |
+|---|---|---|---|---|
+| rifleman | 4.2 | 28.6 | 333.3 | 21.4 |
+| buggy | 2.4 | 4.0 | 38.1 | 3.0 |
+| tank | 4.2 | 5.3 | 13.3 | 4.0 |
+| rocketbike | 3.2 | 3.8 | 6.9 | 2.9 |
+
+Damage is a **continuous rate** — shots per second times seconds per tick —
+rather than discrete shots with a cooldown. Cheaper and deterministic, and it
+loses the burst that made the rocket bike the user's example. Noted, not
+built.
+
+### Shots are decided before any lands
+
+Every shooter picks its target from where things stood at the start of the
+pass; the shots then resolve in shooter order. Two units that would kill each
+other both die, and `Fallen` lists them in landing order. This is also what
+keeps last-hit attribution deterministic: the same tick always resolves the
+same way.
+
+### The world learns the board from a broadcast
+
+The first version of sides had `DemoWorld` copy every agent's cell out of the
+system each settle, with a priming rule at tick zero. That was a second copy
+of the truth. Asked whether the seam wanted reconsidering, Lori: "we want
+broadcast events. This is better than opening up seams. The grid can remain
+shared, but consider that we will want fog later."
+
+`MovementSystem.Journal` is an append-only list of `(tick, kind, agent,
+cell, from)` — placed, stepped, removed. No callbacks: a reader keeps a
+cursor and reads what is new in the system's own order, so two readers agree
+and a replay agrees with both. `DemoWorld` reads nothing else from the
+system. Fog is the same stream with the events a side could not have
+witnessed left out.
+
+### Measured on the day
+
+The guard demo: six guards (four tanks, two buggies) against three waves of
+two rocket bikes, two riflemen and a buggy, at ticks 0, 110 and 220.
+
+    4/6 guards standing, 2 lost; 15/15 attackers destroyed; 3 veterans;
+    2 rotated through repair, never more than 1 away against a reserve of 4;
+    worst overrun 0.26
+
+Every wave was destroyed within 13–17 ticks of arriving. Both guards lost were
+the buggies. Guard 1 fell back at 0.14 health, 0.26 past its threshold,
+because two were already away against a reserve of four, and died on the
+walk. The waves are too light and the reserve too tight; both are numbers.
+
+### Found and left open
+
+Two sides in one movement system **cooperate in pathing**. There is one
+reservation table with no owner, so an attacker plans against the guards'
+reservations up to 32 ticks ahead and yields to them. Two armies here can
+never block each other: a position is held by fire only, never by body. It
+did not show in this demo because the waves stand off and shoot. It will
+show the first time an attacker tries to push through a line, and Croatia
+is nothing but lines across outlets. The journal does not address it.
+
+---
+
 ## Calibration — 2 September 2026 (`05a91f9`)
 
 Unit speed was a **derived accident** rather than a chosen quantity. Movement is

@@ -47,7 +47,7 @@ public sealed class SidesTests
         var world = new DemoWorld(grid);
         world.Enlist(2, side: 1);
         world.Enlist(3, side: 1);
-        world.Observe(system.Agents);
+        world.Observe(system);
 
         Assert.Equal([grid.Index(20, 8), grid.Index(20, 9)], world.ViewFor(0).Hostiles);
         Assert.Equal([grid.Index(1, 1), grid.Index(1, 2)], world.ViewFor(1).Hostiles);
@@ -67,7 +67,7 @@ public sealed class SidesTests
         var (system, grid) = Scene((1, 1), (20, 8));
         var world = new DemoWorld(grid);
         world.Enlist(1, side: 1);
-        world.Observe(system.Agents);
+        world.Observe(system);
         var threat = grid.Index(10, 10);
         world.HostileCells.Add(threat);
 
@@ -82,12 +82,12 @@ public sealed class SidesTests
         var (system, grid) = Scene((1, 1), (20, 8));
         var world = new DemoWorld(grid);
         world.Enlist(1, side: 1);
-        world.Observe(system.Agents);
+        world.Observe(system);
         Assert.Contains(grid.Index(20, 8), world.ViewFor(0).Hostiles);
 
         system.Remove(1);
         system.Tick();
-        world.Settle(system.Agents);
+        world.Settle(system);
 
         Assert.Empty(world.ViewFor(0).Hostiles);
     }
@@ -104,7 +104,7 @@ public sealed class SidesTests
 
         Assert.Empty(world.ViewFor(0).Hostiles);
 
-        world.Observe(system.Agents);
+        world.Observe(system);
         Assert.Single(world.ViewFor(0).Hostiles);
     }
 
@@ -122,13 +122,13 @@ public sealed class SidesTests
         var patrol = new Squad("patrol", [0, 1, 2], doctrine);
         var world = new DemoWorld(grid);
         world.Enlist(3, side: 1);
-        world.Observe(system.Agents);
+        world.Observe(system);
 
         for (var tick = 0; tick < 150; tick++)
         {
             patrol.Advance(system, world.ViewFor(0));
             system.Tick();
-            world.Settle(system.Agents);
+            world.Settle(system);
         }
 
         Assert.Equal(bait, doctrine.Target);

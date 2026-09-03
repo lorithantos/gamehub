@@ -33,11 +33,17 @@ public static class DemoTrace
     /// is an outcome with its cause left out.
     /// </para>
     /// <para>
+    /// 4 added <c>side</c> and <c>alive</c> to every unit. Two sides shooting
+    /// each other drawn in one colour is a brawl with no story, and a unit that
+    /// died at tick 90 and stands there to tick 320 is a lie the reader would
+    /// build a theory around.
+    /// </para>
+    /// <para>
     /// Bumped rather than added quietly: two different shapes both called version
     /// 2 is exactly what the number exists to stop.
     /// </para>
     /// </remarks>
-    public const int Version = 3;
+    public const int Version = 4;
 
     private static readonly JsonSerializerOptions Options = new()
     {
@@ -86,7 +92,9 @@ public static class DemoTrace
         bool Arrived,
         bool Thinking,
         bool Waiting,
-        int Stalled);
+        int Stalled,
+        int Side,
+        bool Alive);
 
     private sealed record TickLine(
         int Tick,
@@ -144,8 +152,8 @@ public static class DemoTrace
     /// <param name="writer">Where the line goes.</param>
     /// <param name="grid">The map, for turning cells into coordinates.</param>
     /// <param name="tick">Which tick this is.</param>
-    /// <param name="agents">Every unit, as the movement system reports it.</param>
-    /// <param name="world">The world this tick, for health and hostiles.</param>
+    /// <param name="agents">Every unit, as the movement system reports it, both sides and the dead included.</param>
+    /// <param name="world">The world this tick, for health, rank, side and the scripted hostiles.</param>
     /// <param name="anchor">Where the squad is stationed, or -1.</param>
     /// <param name="note">
     /// What just happened, in the demo's own words -- "unit 2 falls back to
@@ -156,7 +164,7 @@ public static class DemoTrace
         Grid grid,
         int tick,
         IReadOnlyList<AgentState> agents,
-        IPerception world,
+        DemoWorld world,
         int anchor,
         string? note = null)
     {
@@ -174,7 +182,8 @@ public static class DemoTrace
                 world.RankOf(a.Id),
                 a.Away ? grid.ColumnOf(a.Errand) : -1,
                 a.Away ? grid.RowOf(a.Errand) : -1,
-                a.Arrived, a.Thinking, a.Waiting, a.StalledTicks))
+                a.Arrived, a.Thinking, a.Waiting, a.StalledTicks,
+                world.SideOf(a.Id), a.Alive))
             .ToArray();
 
         writer.WriteLine(JsonSerializer.Serialize(

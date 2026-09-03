@@ -167,6 +167,7 @@ public sealed class MovementSystem
     private readonly Grid _grid;
     private readonly ReservationTable _table;
     private readonly List<Agent> _agents = [];
+    private readonly List<MovementEvent> _journal = [];
     private readonly Stack<SearchWorkspace> _workspacePool = new();
     private readonly int _nodeBudgetPerTick;
     private readonly int _maxSearchesInFlight;
@@ -314,6 +315,23 @@ public sealed class MovementSystem
             Errand: a.Errand,
             Alive: a.Alive))];
 
+    /// <summary>
+    /// Everything that has happened to every agent, in the order it happened:
+    /// placed, stepped, removed. Append-only for the life of the system.
+    /// </summary>
+    /// <remarks>
+    /// The broadcast. A layer above reads from a cursor it keeps and learns
+    /// where things are from what happened, never by copying this system's
+    /// state -- so there is one truth about the board and any number of
+    /// readers of it, and what a reader is allowed to know is a filter on the
+    /// stream rather than a hole in the seam.
+    /// <para>
+    /// A tick in which nobody stepped writes nothing, so a quiet run costs no
+    /// memory; a busy one costs one entry per step taken.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<MovementEvent> Journal => _journal;
+
     /// <summary>Each live group's leader, for display and diagnostics.</summary>
     public IReadOnlyList<int> Leaders =>
         [.. _groups.Where(g => g.Leader >= 0).Select(g => g.Leader)];
@@ -348,6 +366,7 @@ public sealed class MovementSystem
 
         // It is standing here, and everyone planning after this must see that.
         _table.Reserve([cell], CurrentTick, agent.Id);
+        _journal.Add(new MovementEvent(CurrentTick, MovementEventKind.Added, agent.Id, cell));
         return agent.Id;
     }
 
@@ -862,6 +881,7 @@ public sealed class MovementSystem
         }
 
         unit.Alive = false;
+        _journal.Add(new MovementEvent(CurrentTick, MovementEventKind.Removed, unit.Id, unit.Cell));
     }
 
     /// <summary>A goal changed under this agent: plan again, now, from scratch.</summary>
@@ -1045,6 +1065,7 @@ public sealed class MovementSystem
                 {
                     vacated.Add(agent.Cell);
                     entered.Add(at);
+                    _journal.Add(new MovementEvent(CurrentTick, MovementEventKind.Moved, agent.Id, at, agent.Cell));
                 }
 
                 var wasArrived = agent.Cell == agent.Goal;

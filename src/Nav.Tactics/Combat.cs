@@ -1,5 +1,6 @@
 using Nav.Core;
 using Nav.Core.Models;
+using Nav.Tactics.Models;
 
 namespace Nav.Tactics;
 
@@ -204,19 +205,3 @@ public sealed class Combat
     private static string[] Split(string csv) =>
         csv.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
 }
-
-/// <summary>A weapon as the table knows it: what it does per shot, how far a hit spreads, and its row.</summary>
-/// <param name="Name">The config section's name.</param>
-/// <param name="BaseDamage">Hit points per shot against 100% armour at the centre.</param>
-/// <param name="BlastCells">Cells from the centre still hit, with falloff. Zero is a single target.</param>
-/// <param name="Versus">Fraction of base damage per armour class, in <see cref="Combat.ArmourClasses"/> order.</param>
-public sealed record Weapon(string Name, double BaseDamage, int BlastCells, IReadOnlyList<double> Versus);
-
-/// <summary>What a unit type carries into a fight.</summary>
-/// <param name="Name">The unit type, as sectioned in the config.</param>
-/// <param name="Weapon">What it fires.</param>
-/// <param name="Armour">What it wears; a class from the table.</param>
-/// <param name="Range">How far it can shoot, in octile step cost.</param>
-/// <param name="ShotsPerSecond">Rate of fire. Zero is a unit that cannot shoot.</param>
-/// <param name="HitPoints">How much there is to lose. Health on the seam is a fraction of this.</param>
-public sealed record Kit(string Name, Weapon Weapon, string Armour, double Range, double ShotsPerSecond, double HitPoints);

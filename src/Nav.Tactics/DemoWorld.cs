@@ -9,13 +9,21 @@ namespace Nav.Tactics;
 /// library rather than in the test project because the demos need it too, and
 /// two copies of "the world, faked" would drift.
 /// <para>
-/// Everything it enforces turns on one idea: a unit within
-/// <see cref="ExposureRadius"/> of a hostile is EXPOSED for that tick.
+/// <b>Rank is earned, not assigned.</b> There is no SetRank, on purpose. Rank
+/// climbs a table of contribution points, and contribution comes from one
+/// place: damage dealt through <see cref="DamageBy"/>, with a bonus for the
+/// killing blow. A viewer can go back through the trace and see every point.
 /// </para>
 /// <para>
-/// Exposure both earns rank and costs <see cref="DamagePerTick"/>, so the
-/// standing that teaches a unit is the standing that hurts it — a demo cannot
-/// arrange one without the other.
+/// Units with a kit shoot each tick at whatever in range can hurt them fastest;
+/// see <see cref="Settle"/>. A world without a combat table fires nothing, and
+/// rank there is earned only by what a test deals by hand.
+/// </para>
+/// <para>
+/// A unit within <see cref="ExposureRadius"/> of a scripted threat is EXPOSED
+/// for that tick: it loses <see cref="DamagePerTick"/>, and the ticks are
+/// counted. Exposure never earns rank — it measured presence, which was only
+/// ever a stand-in until something could deal damage.
 /// </para>
 /// <para>
 /// Two rates give health back: <see cref="RepairPerTick"/> on a repair cell, and
@@ -24,15 +32,6 @@ namespace Nav.Tactics;
 /// <para>
 /// The rates are summed and applied once per tick, so <em>overwhelmed</em> is
 /// not a case anybody wrote — it is the sign of the sum.
-/// </para>
-/// <para>
-/// <b>Rank is earned, not assigned.</b> There is no SetRank, on purpose: the
-/// unit that outranks the others is the one that stood on the hot side of the
-/// line and lived, and a viewer can go back through the trace and see it happen.
-/// </para>
-/// <para>
-/// Exposure is proximity only — no line of sight, no facing, no fire — because
-/// the demo's hostiles do not shoot either.
 /// </para>
 /// <para>
 /// <b>Sides.</b> Every unit is on a side, 0 unless <see cref="Enlist"/> says
@@ -50,22 +49,25 @@ public sealed class DemoWorld : IPerception
     private readonly Dictionary<int, int> _side = [];
     private readonly SortedDictionary<int, int> _cell = [];
     private readonly Dictionary<int, Kit> _kit = [];
-    private readonly List<int> _fallen = [];
+    private readonly List<Casualty> _fallen = [];
     private readonly Grid _grid;
-    private readonly int[] _rankAt;
+    private readonly double[] _rankAt;
     private readonly Combat? _combat;
     private readonly double _secondsPerTick;
+    private int _read;
 
     /// <param name="grid">The map the cells are indices into. Needed to measure exposure.</param>
     /// <param name="repairPerTick">How much health one tick on a repair cell restores.</param>
     /// <param name="exposureRadius">Octile distance to a hostile within which a unit counts as exposed.</param>
     /// <param name="rankAt">
-    /// Exposed-tick counts at which rank rises, ascending. The default costs a
-    /// unit a sustained spell in contact per rank. Empty means rank never rises.
+    /// Contribution points at which rank rises, ascending. With the shipped
+    /// credit rates a solo kill is worth about fifty, so the default asks for
+    /// roughly one kill and then three. Empty means rank never rises.
     /// </param>
     /// <param name="damagePerTick">
-    /// How much health a unit loses for each tick it stands exposed. Zero, the
-    /// default, leaves damage entirely to the caller as it always was.
+    /// How much health a unit loses for each tick it stands exposed to a
+    /// scripted threat. Zero, the default, leaves damage to fire and to the
+    /// caller.
     /// </param>
     /// <param name="selfHealPerTick">
     /// How much health a unit at the TOP of the rank table recovers each tick,
@@ -90,7 +92,7 @@ public sealed class DemoWorld : IPerception
         Grid grid,
         double repairPerTick = 0.05,
         double exposureRadius = 6.0,
-        IReadOnlyList<int>? rankAt = null,
+        IReadOnlyList<double>? rankAt = null,
         double damagePerTick = 0.0,
         double selfHealPerTick = 0.0,
         Combat? combat = null,
@@ -105,12 +107,12 @@ public sealed class DemoWorld : IPerception
         _grid = grid;
         _combat = combat;
         _secondsPerTick = (scale ?? WorldScale.Default).SecondsPerTick;
-        _rankAt = [.. rankAt ?? [60, 160]];
+        _rankAt = [.. rankAt ?? [50.0, 150.0]];
         for (var i = 0; i < _rankAt.Length; i++)
         {
             // Ascending and positive, or RankOf's climb is not a climb: a
             // repeated or falling entry would make two ranks the same rank.
-            var floor = i == 0 ? 0 : _rankAt[i - 1];
+            var floor = i == 0 ? 0.0 : _rankAt[i - 1];
             if (_rankAt[i] <= floor)
             {
                 throw new ArgumentOutOfRangeException(
@@ -165,8 +167,8 @@ public sealed class DemoWorld : IPerception
     /// </remarks>
     public bool IsFullRank(int agent) => _rankAt.Length > 0 && RankOf(agent) >= _rankAt.Length;
 
-    /// <summary>Exposed-tick counts at which rank rises, ascending.</summary>
-    public IReadOnlyList<int> RankAt => _rankAt;
+    /// <summary>Contribution points at which rank rises, ascending.</summary>
+    public IReadOnlyList<double> RankAt => _rankAt;
 
     /// <summary>
     /// Cells scripted threats stand on. Mutable: a demo moves them. Hostile to
@@ -222,20 +224,20 @@ public sealed class DemoWorld : IPerception
     public string ArmourOf(int agent) => KitOf(agent)?.Armour ?? "unarmoured";
 
     /// <summary>
-    /// Who reached zero health under fire since the last <see cref="Settle"/>
-    /// began, in the order they fell. The layer above decides what to do about
-    /// it; typically <see cref="MovementSystem.Remove"/>.
+    /// Who reached zero health since the last <see cref="Settle"/> began, in the
+    /// order they fell, with who did it. The layer above decides what to do
+    /// about it; typically <see cref="MovementSystem.Remove"/>.
     /// </summary>
-    public IReadOnlyList<int> Fallen => _fallen;
+    public IReadOnlyList<Casualty> Fallen => _fallen;
 
     /// <summary>
     /// The world as one side perceives it: health and rank as anybody sees them,
     /// and the OTHER sides' living units as hostiles.
     /// </summary>
     /// <remarks>
-    /// Where units stand is what the last <see cref="Settle"/> or
-    /// <see cref="Observe"/> recorded. Prime it with <see cref="Observe"/> before
-    /// the first pass, or a doctrine's first decision is taken blind.
+    /// Where units stand is what the journal has said so far -- read by
+    /// <see cref="Settle"/>, or by <see cref="Observe"/> alone. Read it once
+    /// before the first pass, or a doctrine's first decision is taken blind.
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException">A negative side.</exception>
     public IPerception ViewFor(int side)
@@ -263,23 +265,35 @@ public sealed class DemoWorld : IPerception
     }
 
     /// <summary>
-    /// Records where the living stand, and that the dead no longer do, without
-    /// touching health or rank. <see cref="Settle"/> does this first; call it
-    /// alone before the opening pass so the sides can see each other at tick 0.
+    /// Reads what the movement system has broadcast since this world last
+    /// looked: who was placed where, who stepped where, who is gone. Touches
+    /// nothing but where things are. <see cref="Settle"/> does this first;
+    /// call it alone before the opening pass so the sides can see each other
+    /// at tick 0.
     /// </summary>
-    public void Observe(IReadOnlyList<AgentState> agents)
+    /// <remarks>
+    /// The world's whole knowledge of the board comes through here, from
+    /// <see cref="MovementSystem.Journal"/>, and nothing else is read from the
+    /// system. That is what makes a limited perception possible later: leave
+    /// events out of what a side is told and it does not know them.
+    /// </remarks>
+    public void Observe(MovementSystem system)
     {
-        ArgumentNullException.ThrowIfNull(agents);
+        ArgumentNullException.ThrowIfNull(system);
 
-        foreach (var agent in agents)
+        var journal = system.Journal;
+        for (; _read < journal.Count; _read++)
         {
-            if (agent.Alive)
+            var e = journal[_read];
+            switch (e.Kind)
             {
-                _cell[agent.Id] = agent.Cell;
-            }
-            else
-            {
-                _cell.Remove(agent.Id);
+                case MovementEventKind.Added:
+                case MovementEventKind.Moved:
+                    _cell[e.Agent] = e.Cell;
+                    break;
+                case MovementEventKind.Removed:
+                    _cell.Remove(e.Agent);
+                    break;
             }
         }
     }
@@ -294,11 +308,16 @@ public sealed class DemoWorld : IPerception
     public IReadOnlyList<int> RepairPoints => RepairCells;
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Contribution only climbs, so rank is never lost by leaving the fight: a
+    /// veteran at a repair pad is still a veteran, which is the case the rank
+    /// table has to survive because it is consulted while the unit is away.
+    /// </remarks>
     public int RankOf(int agent)
     {
-        var ticks = ExposureTicksOf(agent);
+        var points = ContributionOf(agent);
         var rank = 0;
-        while (rank < _rankAt.Length && ticks >= _rankAt[rank])
+        while (rank < _rankAt.Length && points >= _rankAt[rank])
         {
             rank++;
         }
@@ -306,15 +325,14 @@ public sealed class DemoWorld : IPerception
         return rank;
     }
 
-    /// <summary>How many ticks this unit has spent exposed. Never falls.</summary>
+    /// <summary>How many ticks this unit has spent exposed to a scripted threat. Never falls.</summary>
     /// <remarks>
-    /// Rank is not lost by walking away from the fight, so this only climbs. A
-    /// unit at a repair pad simply stops earning, which it does on its own --
-    /// the pads are nowhere near the hostiles.
+    /// A measure of presence, kept because a replay can ask it and because
+    /// <see cref="DamagePerTick"/> keys off the same fact. It earns nothing.
     /// </remarks>
     public int ExposureTicksOf(int agent) => _exposure.GetValueOrDefault(agent);
 
-    /// <summary>Whether a unit standing on this cell is within reach of a hostile right now.</summary>
+    /// <summary>Whether a unit standing on this cell is within reach of a scripted threat right now.</summary>
     public bool IsExposed(int cell)
     {
         var column = _grid.ColumnOf(cell);
@@ -396,20 +414,14 @@ public sealed class DemoWorld : IPerception
         if (HealthOf(target) <= 0.0)
         {
             earned += RankPerKill * (1.0 + (0.3 * RankOf(target)));
-            _fallen.Add(target);
+            _fallen.Add(new Casualty(target, attacker));
         }
 
         _contribution[attacker] = ContributionOf(attacker) + earned;
         return earned;
     }
 
-    /// <summary>Contribution a unit has banked from damage and kills.</summary>
-    /// <remarks>
-    /// Kept beside exposure rather than replacing it while both rules exist.
-    /// Exposure measures PRESENCE, which was only ever defensible because
-    /// nothing could deal damage; this measures contribution, which is what rank
-    /// is supposed to be for.
-    /// </remarks>
+    /// <summary>Contribution a unit has banked from damage and kills: what its rank is read from.</summary>
     public double ContributionOf(int agent) => _contribution.GetValueOrDefault(agent);
 
     /// <summary>Contribution earned per point of damage dealt.</summary>
@@ -426,10 +438,10 @@ public sealed class DemoWorld : IPerception
     public double RankPerKill { get; init; } = 25.0;
 
     /// <summary>
-    /// One tick of the world happening to the units: positions observed, every
+    /// One tick of the world happening to the units: the journal read, every
     /// armed unit's shot resolved, exposure credited, then every rate that
-    /// touches health applied together. Call it once per tick, after the world
-    /// has moved.
+    /// touches health applied together, for every unit the journal has
+    /// placed and not removed. Call it once per tick, after the system has.
     /// </summary>
     /// <remarks>
     /// <b>Shots are decided before any lands.</b> Every shooter picks its
@@ -471,36 +483,29 @@ public sealed class DemoWorld : IPerception
     /// those would be a true thing about that map.
     /// </para>
     /// </remarks>
-    public void Settle(IReadOnlyList<AgentState> agents)
+    public void Settle(MovementSystem system)
     {
-        ArgumentNullException.ThrowIfNull(agents);
-
-        Observe(agents);
+        Observe(system);
         _fallen.Clear();
         Fire();
 
-        foreach (var agent in agents)
+        foreach (var (agent, cell) in _cell)
         {
-            if (!agent.Alive)
-            {
-                continue;
-            }
-
-            var exposed = IsExposed(agent.Cell);
+            var exposed = IsExposed(cell);
             if (exposed)
             {
-                _exposure[agent.Id] = ExposureTicksOf(agent.Id) + 1;
+                _exposure[agent] = ExposureTicksOf(agent) + 1;
             }
 
-            // Rank is read AFTER this tick's exposure is credited, so the tick
+            // Rank is read AFTER this tick's shots have landed, so the tick
             // that promotes a unit is also the first tick it heals itself.
             var delta = 0.0;
-            if (RepairCells.Contains(agent.Cell))
+            if (RepairCells.Contains(cell))
             {
                 delta += RepairPerTick;
             }
 
-            if (IsFullRank(agent.Id))
+            if (IsFullRank(agent))
             {
                 delta += SelfHealPerTick;
             }
@@ -512,7 +517,7 @@ public sealed class DemoWorld : IPerception
 
             if (delta != 0.0)
             {
-                SetHealth(agent.Id, HealthOf(agent.Id) + delta);
+                SetHealth(agent, HealthOf(agent) + delta);
             }
         }
     }

@@ -38,10 +38,10 @@ internal static class ReplayPage
     /// left -- a page that draws confidently and wrongly, which is worse than
     /// one that refuses.
     /// </remarks>
-    private const int ExpectedVersion = 3;
+    private const int ExpectedVersion = 4;
 
     /// <summary>Numbers per unit in the packed frame array. Must match the reader's STRIDE.</summary>
-    private const int Stride = 13;
+    private const int Stride = 15;
 
     private const string Marker = "id=\"trace-data\"";
 
@@ -207,7 +207,9 @@ internal static class ReplayPage
             json.Append(Flag(unit, "arrived")).Append(',');
             json.Append(Flag(unit, "thinking")).Append(',');
             json.Append(Flag(unit, "waiting")).Append(',');
-            json.Append(unit.GetProperty("stalled").GetInt32());
+            json.Append(unit.GetProperty("stalled").GetInt32()).Append(',');
+            json.Append(unit.GetProperty("side").GetInt32()).Append(',');
+            json.Append(Flag(unit, "alive"));
         }
 
         json.Append("],");

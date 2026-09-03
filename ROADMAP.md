@@ -1,6 +1,6 @@
 # Roadmap
 
-`main` at `a420653` · 597 tests green · 2 September 2026
+`main` · 623 tests green · 3 September 2026
 
 The goal is **tactical doctrine**: units that hold a position, fall back to
 repair, rotate, and get baited — the C&C behaviours that were missing. Movement
@@ -24,9 +24,10 @@ meaningless.
 |---|---|
 | Pathfinding | optimal, validated against published costs on real StarCraft maps |
 | Group movement | field following — arena-200 went 5.52M search nodes → 1.66M |
-| Doctrine | guard and patrol; retreat, rank, reserve, all playing unscripted |
-| Scale | **pinned today** — 0.25 s/tick, 2 m/cell |
-| Combat | damage table and attribution exist; nothing fires a weapon yet |
+| Doctrine | guard and patrol; retreat, rank, reserve, all playing unscripted, on both sides |
+| Scale | pinned — 0.25 s/tick, 2 m/cell |
+| Combat | **weapons fire** — kits, hit points, blast, highest-threat targeting; rank earned from damage |
+| Board | one shared grid; the movement system broadcasts a journal and the world reads nothing else |
 
 ---
 
@@ -54,58 +55,70 @@ meaningless.
 - **Region graph.** 26,208 cells → 90 regions; routing through gates costs a
   median 1.8% over optimal.
 - **Viewport.** The viewer no longer goes blind above about 100×100.
+- **Weapons that fire.** Kits from config, hit points per type, a shot per
+  tick at whatever in range can hurt *you* fastest, blast that spares nobody
+  but the shooter. Rank reads contribution; exposure accrual retired.
+- **Death, sides, and the journal.** A unit can leave the world and the
+  living carry on; each side perceives the other's living units as hostiles;
+  the movement system broadcasts placed, stepped, removed, and the world
+  learns the board from that alone.
+- **The guard demo is AI against AI.** Three waves under GuardDoctrine
+  against a line under GuardDoctrine. 4/6 standing, 15/15 destroyed, 3
+  veterans, all of it earned.
 
 ---
 
 ## Next, in dependency order
 
-### 1. Balance the region partition
+### 1. Reservation ownership
+
+Two sides in one movement system cooperate in pathing: one table, no owner,
+so an attacker plans against the guards' futures and yields. A line can be
+held by fire and never by body. Give the table an owner, let other sides
+enter planning as observed occupancy only, and resolve conflicts at
+execution time, where the step check already refuses an occupied cell.
+Croatia is lines across outlets; this comes first.
+
+### 2. Fog as a filtered journal
+
+Limited perception on the board. A side's view is the journal with the
+events its units could not have witnessed left out. The stream is built;
+the filter is not, and neither is what a side does about a unit it last saw
+three ticks ago.
+
+### 3. Balance the region partition
 
 90 regions sounds like a partition and is mostly slivers plus **one region
 holding 46% of the map** — a search inside it is still most of a flat search.
 Probably wants cutting only at gates that divide evenly, rather than at every
 gate found. Everything hierarchical waits on this being worth having.
 
-### 2. Weapons that fire
+### 4. The disengage verb
 
-The table exists and nothing consumes it. Units need a weapon and an armour
-class, a range, and something that decides what to shoot. This is what turns
-`DamageBy` from a tested function into the thing rank is actually earned from.
+Specified, cheap, and now affordable: step outside the threat's reach and
+hold, rather than errand to a pad. No pad contention, and it makes a high
+retreat threshold cheap. Self-heal already exists as a rate.
 
-**It also retires a stand-in**: exposure-tick accrual measures *presence*, which
-was only ever defensible because nothing could deal damage.
-
-### 3. Self-heal, and the disengage verb
-
-Both are specified, both are cheap, both were blocked on damage being a rate —
-which it now is.
-
-- **Self-heal** is a few lines in `DemoWorld.Settle`. It will delete the demo's
-  tick-180 beat, so the script moves in the same pass.
-- **Disengage** is a doctrine verb distinct from repair: step outside the threat
-  radius and hold, rather than errand to a pad. Cheap, no pad contention, and it
-  makes a high retreat threshold affordable.
-
-### 4. Shielding
+### 5. Shielding
 
 A veteran makes the rookies beside it safer and slower to earn. The tactical
 trade the whole rank system implies. **Do not build half of it** — the
 earn-slower half alone makes a veteran a pure penalty to everyone near it.
 
-### 5. Hierarchical planning
+### 6. Hierarchical planning
 
 Abstract A* over regions, refined locally. Cheap once the partition is balanced.
 **Keep the two claims apart**: flat search is optimal and is validated against
 published optimal costs; region routes are near-optimal by design. If those merge,
 the first hierarchical path reads as a regression in a test green since milestone 1.
 
-### 6. Speeds
+### 7. Speeds
 
 `Movement` becomes per-unit; the fastest unit moves a cell per tick and others
 wait. Note this solves the ~3× spread between unit types and **not** absolute
 pace — that was the 10× error, and calibration already fixed it.
 
-### 7. The Croatia fixture
+### 8. The Croatia fixture
 
 A map with room, scripted waves, and a hold-verdict over defended objects with
 health. Medium to build, open-ended to tune, which is the point.
@@ -130,12 +143,20 @@ health. Medium to build, open-ended to tune, which is the point.
 
 ## Known wrong
 
-- **Health is a fraction, not a quantity.** Units do not differ in how much there
-  is to lose, which is why two config numbers have to know about each other.
+- **Enemies cooperate in pathing.** One reservation table, no owner. See
+  item 1.
+- **Credit is per fraction of the victim.** A tank kill earns what a rifleman
+  kill earns. Units have hit points now but no cost, and the C&C3 rule
+  weights by cost.
+- **Damage is a continuous rate.** No burst, no cooldown, so the rocket bike
+  that motivated threat targeting cannot actually spike.
+- **The waves are too light and the reserve too tight** in the guard demo:
+  every wave dies in under five seconds, and the reserve of four killed a
+  buggy on its way to the pad.
 - **`ChokepointScan`** is still what `MovementSystem` uses. `ContourGates` is
   better on every measure and is not wired in.
-- **Both published artifacts are stale.** They describe the rotation demo as
-  finished and predate everything from tonight.
+- **Both published artifacts are stale**, and the guard replay page's prose
+  describes the demo before it had an enemy that shoots.
 
 ---
 
@@ -153,3 +174,7 @@ health. Medium to build, open-ended to tune, which is the point.
 - **Own nothing borrowed.** Prior art is read for shape and never for values;
   benchmark maps stay downloaded, never committed; nothing we publish carries
   someone else's level design.
+- **Broadcast rather than open a seam.** When a layer above needed to know
+  the board, the answer was a journal it reads from a cursor, not a hole in
+  the movement system and not a second copy of its state. Fog falls out of
+  the same shape.

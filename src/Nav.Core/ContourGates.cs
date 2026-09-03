@@ -56,7 +56,20 @@ public sealed class ContourGates(double minimumCut = 0.01, int maximumWidth = 2)
     ];
 
     /// <inheritdoc/>
-    public IReadOnlyList<Chokepoint> For(Grid grid)
+    public IReadOnlyList<Chokepoint> For(Grid grid) => [.. Slices(grid).Select(s => new Chokepoint(s.Cell, s.Cells.Count))];
+
+    /// <summary>
+    /// The same gates, with every cell of each rather than one representative.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="IChokepointSource"/> answers with a <see cref="Chokepoint"/>,
+    /// which names a single cell — enough for metering, which asks "is traffic
+    /// squeezing here". It is not enough to CUT with: a passage two cells wide
+    /// still connects when one of them is removed, so a caller deriving regions
+    /// by deleting gates would delete nothing and find one region. Hence both
+    /// shapes, from one computation.
+    /// </remarks>
+    public IReadOnlyList<(int Cell, IReadOnlyList<int> Cells)> Slices(Grid grid)
     {
         ArgumentNullException.ThrowIfNull(grid);
 
@@ -78,14 +91,14 @@ public sealed class ContourGates(double minimumCut = 0.01, int maximumWidth = 2)
         var runs = origins.Select(o => Score(grid, o)).ToList();
         var mainBody = runs.Max(r => r.Reached);
 
-        var best = new Dictionary<int, (double Cut, int Width)>();
+        var best = new Dictionary<int, (double Cut, IReadOnlyList<int> Cells)>();
         foreach (var run in runs.Where(r => r.Reached >= mainBody / 2))
         {
-            foreach (var (cell, width, cut) in run.Gates)
+            foreach (var (cell, cells, cut) in run.Gates)
             {
                 if (!best.TryGetValue(cell, out var held) || cut > held.Cut)
                 {
-                    best[cell] = (cut, width);
+                    best[cell] = (cut, cells);
                 }
             }
         }
@@ -102,8 +115,8 @@ public sealed class ContourGates(double minimumCut = 0.01, int maximumWidth = 2)
             .ThenBy(kv => kv.Key)
             .ToList();
 
-        var kept = new List<Chokepoint>();
-        foreach (var (cell, (_, width)) in ranked)
+        var kept = new List<(int Cell, IReadOnlyList<int> Cells)>();
+        foreach (var (cell, (_, cells)) in ranked)
         {
             var x = grid.ColumnOf(cell);
             var y = grid.RowOf(cell);
@@ -113,17 +126,17 @@ public sealed class ContourGates(double minimumCut = 0.01, int maximumWidth = 2)
 
             if (!crowded)
             {
-                kept.Add(new Chokepoint(cell, width));
+                kept.Add((cell, cells));
             }
         }
 
-        return [.. kept.OrderBy(c => c.Cell)];
+        return [.. kept.OrderBy(k => k.Cell)];
     }
 
     /// <summary>Cells within this of a stronger gate are the same passage as it.</summary>
     private const int Merge = 4;
 
-    private (List<(int Cell, int Width, double Cut)> Gates, int Reached) Score(Grid grid, int origin)
+    private (List<(int Cell, IReadOnlyList<int> Cells, double Cut)> Gates, int Reached) Score(Grid grid, int origin)
     {
         var field = DistanceField.Build(grid, origin);
 
@@ -172,7 +185,7 @@ public sealed class ContourGates(double minimumCut = 0.01, int maximumWidth = 2)
 
         var seen = new bool[grid.CellCount];
         var stack = new Stack<int>();
-        var gates = new List<(int, int, double)>();
+        var gates = new List<(int, IReadOnlyList<int>, double)>();
 
         for (var start = 0; start < grid.CellCount; start++)
         {
@@ -206,7 +219,8 @@ public sealed class ContourGates(double minimumCut = 0.01, int maximumWidth = 2)
 
             var held = members.Sum(m => subtree[m]);
             var cut = (double)Math.Min(held, reached - held) / Math.Max(1, reached);
-            gates.Add((members[0], members.Count, cut));
+            members.Sort();
+            gates.Add((members[0], members, cut));
         }
 
         return (gates, reached);

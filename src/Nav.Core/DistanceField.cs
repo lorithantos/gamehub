@@ -122,7 +122,7 @@ public sealed class DistanceField
 /// (strict LRU on <see cref="For"/> calls), so two identical runs hold identical
 /// caches — replay determinism must not depend on what happens to be cached.
 /// </remarks>
-internal sealed class FieldCache : IDistanceFieldSource
+internal sealed class FieldCache : IDistanceFieldSource, IDistanceFieldView
 {
     private readonly Grid _grid;
     private readonly int _capacity;
@@ -145,6 +145,14 @@ internal sealed class FieldCache : IDistanceFieldSource
 
     /// <inheritdoc/>
     public int Count => _fields.Count;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Itself, the way <c>ReservationTable</c> is its own <see cref="IReservationView"/>:
+    /// the narrowing is in the TYPE the instrument holds, so there is nothing to
+    /// allocate and nothing that can drift from what the run is actually using.
+    /// </remarks>
+    public IDistanceFieldView View => this;
 
     /// <inheritdoc/>
     /// <remarks>

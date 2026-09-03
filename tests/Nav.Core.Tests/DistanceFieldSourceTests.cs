@@ -13,7 +13,7 @@ namespace Nav.Core.Tests;
 /// <c>Count</c> before and after cannot tell a rebuild from a hit, because an
 /// eviction plus a build leaves the count unchanged.
 /// </remarks>
-internal sealed class CountingFieldSource(IDistanceFieldSource inner) : IDistanceFieldSource
+internal sealed class CountingFieldSource(IDistanceFieldSource inner) : IDistanceFieldSource, IDistanceFieldView
 {
     private readonly Dictionary<int, DistanceField> _last = [];
 
@@ -24,6 +24,13 @@ internal sealed class CountingFieldSource(IDistanceFieldSource inner) : IDistanc
     public int Builds { get; private set; }
 
     public int Count => inner.Count;
+
+    /// <summary>
+    /// Itself, so a peek through this wrapper still reaches the cache underneath.
+    /// Handing out the inner view instead would be honest too; this way a test
+    /// holding the wrapper can ask what is held without naming a second object.
+    /// </summary>
+    public IDistanceFieldView View => this;
 
     public DistanceField For(int destination)
     {
@@ -45,7 +52,7 @@ internal sealed class CountingFieldSource(IDistanceFieldSource inner) : IDistanc
     /// disturbance the member exists to avoid.
     /// </summary>
     public bool TryPeek(int destination, [NotNullWhen(true)] out DistanceField? field) =>
-        inner.TryPeek(destination, out field);
+        inner.View.TryPeek(destination, out field);
 }
 
 /// <summary>

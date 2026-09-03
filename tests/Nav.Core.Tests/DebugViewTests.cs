@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 
 namespace Nav.Core.Tests;
@@ -141,6 +142,34 @@ public sealed class DebugViewTests
                 ops.Park(member);
             }
         }
+    }
+
+    /// <summary>
+    /// A source that answers as the one it wraps until it is sealed, after which
+    /// building anything THROWS.
+    /// </summary>
+    /// <remarks>
+    /// The panel reads through a type with no <c>For</c> on it, and no test can
+    /// assert the absence of a member that would not compile. What a test can do
+    /// is stand a source under the system that turns the call into an exception
+    /// rather than into a number that quietly moved, and then open the panel.
+    /// </remarks>
+    private sealed class SealsAfterTheTick(IDistanceFieldSource inner) : IDistanceFieldSource, IDistanceFieldView
+    {
+        /// <summary>Set between ticks, so the run itself is never obstructed.</summary>
+        public bool Sealed { get; set; }
+
+        public int Count => inner.Count;
+
+        public IDistanceFieldView View => this;
+
+        public DistanceField For(int destination) => Sealed
+            ? throw new InvalidOperationException(
+                $"a field for #{destination} was asked for while nothing but the panel was running")
+            : inner.For(destination);
+
+        public bool TryPeek(int destination, [NotNullWhen(true)] out DistanceField? field) =>
+            inner.View.TryPeek(destination, out field);
     }
 
     /// <summary>
@@ -394,6 +423,50 @@ public sealed class DebugViewTests
         // for reasons that have nothing to do with the panel.
         Assert.Equal(MovementSystem.FieldCapacity - 1, quiet.Length);
         Assert.DoesNotContain(Grid.FromMapText(Yard).Index(0, 11), quiet);
+    }
+
+    [Fact]
+    public void ThePanelReadsThroughAReferenceThatCannotBuildAField()
+    {
+        // THE NARROWING ITSELF. The two tests above catch a panel that reaches the
+        // mutating member by the counts it moves, which is the damage; this one
+        // catches the reach. A source that refuses to build turns the mistake into
+        // an exception at the moment it is made, so it holds for a field that is
+        // MISSING too -- the case where building one would look like helpfulness
+        // and where a count-based test has the least to say.
+        var grid = Grid.FromMapText(Yard);
+        var source = new SealsAfterTheTick(new FieldCache(grid, MovementSystem.FieldCapacity));
+        var system = new MovementSystem(grid, fields: source);
+
+        var destinations = new int[LiveDestinations];
+        for (var i = 0; i < LiveDestinations; i++)
+        {
+            var agent = system.AddAgent(grid.Index(i, 0));
+            destinations[i] = grid.Index(i, 11);
+            system.Order([agent], destinations[i]);
+        }
+
+        system.Tick();
+
+        // BOTH BRANCHES OF THE FIELD ROW, arranged before the source is sealed:
+        // more live destinations than the cache holds means one of each exists.
+        var held = Enumerable.Range(0, LiveDestinations).First(id => source.TryPeek(destinations[id], out _));
+        var dropped = Enumerable.Range(0, LiveDestinations).First(id => !source.TryPeek(destinations[id], out _));
+
+        source.Sealed = true;
+
+        Assert.Contains(
+            "to the destination",
+            Value(system.DebugFor(held), "Field", "from here"),
+            StringComparison.Ordinal);
+        Assert.StartsWith(
+            "not cached",
+            Value(system.DebugFor(dropped), "Field", "field"),
+            StringComparison.Ordinal);
+
+        // And the seal is real: the run's own asks go through the member the panel
+        // has no way to name, so a tick fails where the panel did not.
+        Assert.Throws<InvalidOperationException>(system.Tick);
     }
 
     [Fact]

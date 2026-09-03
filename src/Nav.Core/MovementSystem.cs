@@ -2005,10 +2005,16 @@ public sealed class MovementSystem : IDebugView
     /// </para>
     /// </remarks>
     /// <param name="agent">Who to describe. Any int; see the remarks.</param>
-    public IDebugView DebugFor(int agent) => new AgentDebugView(this, agent);
+    public IDebugView DebugFor(int agent) => new AgentDebugView(this, _fields.View, agent);
 
     /// <summary>One agent's state, read at <see cref="Describe"/> time and never before.</summary>
-    private sealed class AgentDebugView(MovementSystem system, int id) : IDebugView
+    /// <remarks>
+    /// It is handed the field VIEW rather than the source, so the panel cannot
+    /// build a field and cannot mark one used however it is later edited. See
+    /// <see cref="IDistanceFieldView"/> for what that costs when it is a rule
+    /// instead of a type.
+    /// </remarks>
+    private sealed class AgentDebugView(MovementSystem system, IDistanceFieldView fields, int id) : IDebugView
     {
         public IReadOnlyList<DebugRow> Describe()
         {
@@ -2152,7 +2158,10 @@ public sealed class MovementSystem : IDebugView
                 // rebuilt later. Nobody moves differently, because a rebuilt field
                 // has identical contents -- the field count moves, and this
                 // project decides things on counts.
-                if (system._fields.TryPeek(group.Destination, out var field))
+                //
+                // The reference this reads through has no For on it at all, so
+                // that is a compile error here rather than a habit.
+                if (fields.TryPeek(group.Destination, out var field))
                 {
                     rows.Add(new DebugRow(Field, "from here", FieldText(field, agent.Cell)));
                     rows.Add(new DebugRow(Field, "from goal", FieldText(field, agent.Goal)));

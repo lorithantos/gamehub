@@ -41,11 +41,12 @@ public sealed class TerrainImage
     /// and always exactly <c>Width * Height * 4</c> bytes long.
     /// </summary>
     /// <remarks>
-    /// A span rather than an array, so a renderer can walk it straight into a
-    /// texture with no copy and no way to write back. It stays valid for the
-    /// lifetime of this instance, which is what lets a renderer whose device was
-    /// reset re-upload from an image it still holds instead of asking the app for
-    /// a new one.
+    /// A span rather than an array, so a renderer walks it straight into a texture
+    /// with no copy and no way to write back.
+    /// <para>
+    /// It stays valid for the lifetime of this instance, which is what lets a
+    /// renderer whose device was reset re-upload from an image it still holds.
+    /// </para>
     /// </remarks>
     public ReadOnlySpan<byte> Pixels => _pixels;
 
@@ -55,11 +56,13 @@ public sealed class TerrainImage
     /// <paramref name="blocked"/> everywhere else, alpha included.
     /// </summary>
     /// <remarks>
-    /// Always a new instance, and that matters: both real renderers key their
-    /// single-slot upload cache on <em>reference</em> identity, so handing back a
-    /// fresh object is how the app says "the map changed, re-upload". Calling this
-    /// once per frame would therefore rebuild the texture once per frame; the app
-    /// calls it only when a load bumps the session's version.
+    /// Always a NEW instance, and that matters: both renderers key their
+    /// single-slot upload cache on <em>reference</em> identity, so a fresh object
+    /// is how the app says "the map changed, re-upload".
+    /// <para>
+    /// So calling this once per frame rebuilds the texture once per frame. The
+    /// app calls it only when a load bumps the session's version.
+    /// </para>
     /// </remarks>
     public static TerrainImage FromGrid(Grid grid, RgbaColor passable, RgbaColor blocked)
     {

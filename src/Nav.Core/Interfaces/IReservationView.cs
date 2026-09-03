@@ -5,32 +5,22 @@ namespace Nav.Core.Interfaces;
 /// here books, releases or advances anything.
 /// </summary>
 /// <remarks>
-/// The split was already there before it was written down: <see cref="BudgetedSearch"/>
-/// calls exactly <see cref="IsFree"/>, <see cref="IsSwap"/> and
-/// <see cref="IsHoldable"/> and never touches the table's mutators, while
-/// <see cref="MovementSystem"/> calls <c>Reserve</c> and <c>Advance</c> and never
-/// asks a predicate. Naming the read half separates the component that decides
-/// where to walk from the component that owns what has been booked.
+/// It separates the component that decides where to walk from the component
+/// that owns what has been booked.
 /// <para>
-/// <b>The reason it is an interface rather than a comment</b> is that visibility
-/// of reservations is a per-observer question, not a global fact. Today one table
-/// serves everybody, so an agent plans against every other agent's committed
-/// future -- correct for one commander, and mind-reading for two. A view that
-/// wraps the real table and answers <c>free</c> for reservations the asker cannot
-/// observe makes fog and multi-team planning a DECORATOR rather than a change to
-/// the collision core. Everything underneath keeps its guarantees, because the
-/// core never learns that anyone is filtering.
+/// <b>An interface rather than a convention, because visibility is per-observer.</b>
+/// One table serves everybody today, so an agent plans against every other
+/// agent's committed future — correct for one commander, mind-reading for two.
 /// </para>
 /// <para>
-/// Other wraps this shape allows: a recording view, which answers what a search
-/// consulted and is the cheapest way to see why an agent yielded; and an
-/// always-free view, which measures what contention actually costs by removing it.
+/// A view that answers <c>free</c> for reservations the asker cannot observe
+/// makes fog and multi-team planning a DECORATOR rather than a change to the
+/// collision core.
 /// </para>
 /// <para>
-/// <c>HolderOf</c> is deliberately NOT here. It is a read, but no production code
-/// calls it -- only tests, against the concrete table -- and a filtering view
-/// would have to decide what identity to reveal, which is a harder question than
-/// this contract needs to answer.
+/// <c>HolderOf</c> is deliberately NOT here: a filtering view would have to
+/// decide what identity to reveal, which is a harder question than this contract
+/// needs.
 /// </para>
 /// </remarks>
 public interface IReservationView
@@ -66,10 +56,12 @@ public interface IReservationView
     /// coming the other way.
     /// </summary>
     /// <remarks>
-    /// THE EDGE COLLISION, and the one a cell-occupancy check cannot see. Two
-    /// agents exchanging places share no cell at either tick -- A is here then
-    /// there, B is there then here -- and they walk through each other. A suite
-    /// that checks only occupancy reports it as clean.
+    /// THE EDGE COLLISION, and the one a cell-occupancy check cannot see.
+    /// <para>
+    /// Two agents exchanging places share no cell at either tick — A here then
+    /// there, B there then here — so they walk through each other and a suite
+    /// checking only occupancy reports it clean.
+    /// </para>
     /// </remarks>
     bool IsSwap(int from, int to, int tick, int agent);
 
@@ -78,11 +70,14 @@ public interface IReservationView
     /// <paramref name="fromTick"/> to the end of the window and not move again.
     /// </summary>
     /// <remarks>
-    /// A plan does not only pass through cells, it ends on one -- and stopping is a
-    /// commitment to stay. An agent that walks somewhere it may not remain parks in
-    /// another agent's path, and because reserving holds the final cell for the
-    /// rest of the window it does so by overwriting a reservation that was already
-    /// there. Every step legal, the destination not.
+    /// A plan does not only pass through cells, it ENDS on one — and stopping is
+    /// a commitment to stay.
+    /// <para>
+    /// An agent that walks somewhere it may not remain parks in another agent's
+    /// path, and since reserving holds the final cell for the rest of the window,
+    /// it does so by overwriting a reservation already there.
+    /// </para>
+    /// <para>Every step legal, the destination not.</para>
     /// </remarks>
     bool IsHoldable(int cell, int fromTick, int agent);
 }

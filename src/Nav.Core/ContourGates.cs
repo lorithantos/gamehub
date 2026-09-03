@@ -4,11 +4,14 @@ namespace Nav.Core;
 /// Finds the gates by flooding the map and watching where the contour collapses.
 /// </summary>
 /// <remarks>
-/// Narrowness is a property of the passage rather than of the share of the map's
-/// traffic that uses it, which is what makes this work where a traffic-share
-/// criterion cannot. Supersedes <see cref="ChokepointScan"/>, which is still what
-/// <see cref="MovementSystem"/> meters with; <c>docs/gates-and-regions.md</c> has
-/// what that one got wrong and how the two scored against known passages.
+/// Narrowness is a property of the PASSAGE, not of the share of the map's
+/// traffic using it — which is what makes this work where a traffic-share
+/// criterion cannot.
+/// <para>
+/// Supersedes <see cref="ChokepointScan"/>, which is still what
+/// <see cref="MovementSystem"/> meters with. <c>docs/gates-and-regions.md</c> has
+/// what that one got wrong and how the two scored.
+/// </para>
 /// </remarks>
 /// <param name="minimumCut">
 /// The share of the map a passage must separate before it is reported, as a
@@ -56,12 +59,14 @@ public sealed class ContourGates(double minimumCut = 0.01, int maximumWidth = 2)
     /// The same gates, with every cell of each rather than one representative.
     /// </summary>
     /// <remarks>
-    /// <see cref="IChokepointSource"/> answers with a <see cref="Chokepoint"/>,
-    /// which names a single cell — enough for metering, which asks "is traffic
-    /// squeezing here". It is not enough to CUT with: a passage two cells wide
-    /// still connects when one of them is removed, so a caller deriving regions
-    /// by deleting gates would delete nothing and find one region. Hence both
-    /// shapes, from one computation.
+    /// <see cref="IChokepointSource"/> names a single cell, which is enough for
+    /// metering — "is traffic squeezing here".
+    /// <para>
+    /// It is not enough to CUT with. A passage two cells wide still connects when
+    /// one is removed, so deriving regions by deleting gates would delete nothing
+    /// and find one region.
+    /// </para>
+    /// <para>Hence both shapes, from one computation.</para>
     /// </remarks>
     public IReadOnlyList<(int Cell, IReadOnlyList<int> Cells)> Slices(Grid grid)
     {

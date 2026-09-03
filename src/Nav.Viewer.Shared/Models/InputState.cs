@@ -6,13 +6,13 @@ namespace Nav.Viewer.Models;
 /// What the user did during one frame.
 /// </summary>
 /// <remarks>
-/// The pressed flags are <em>edges</em>: true only on the frame a transition
-/// happened, and true for exactly one frame. <see cref="ButtonsDown"/> is
-/// <em>held</em> state, true for as long as the button is. The snapshot did not
-/// carry held state until drag-box selection needed it -- the accumulator
-/// always tracked it and threw it away, so growing the snapshot cost the hosts
-/// nothing. That is the recorded seam finding: the drawing verbs held for
-/// milestone 2, the input snapshot did not.
+/// Two different kinds of fact:
+/// <list type="bullet">
+/// <item><description>The pressed flags are <em>edges</em> — true only on the
+/// frame a transition happened, for exactly one frame.</description></item>
+/// <item><description><see cref="ButtonsDown"/> is <em>held</em> state — true
+/// for as long as the button is.</description></item>
+/// </list>
 /// </remarks>
 public readonly struct InputState(
     Vector2 mousePosition, ViewerKeys keysPressed, MouseButtons buttonsPressed, MouseButtons buttonsDown)

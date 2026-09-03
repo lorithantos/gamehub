@@ -44,12 +44,16 @@ public interface IGroupClaiming
     /// member then keeps the plan it had.
     /// </summary>
     /// <remarks>
-    /// The only way a doctrine can stop a unit, and the reason it cannot cause a
-    /// collision by doing so. Claiming the ground underfoot with
-    /// <see cref="ClaimSlot"/> sets the goal but does not stop the unit: it walks
-    /// off along the plan it already committed to and comes back, forever. The
-    /// alternative -- discarding the plan and holding the cell unasked -- stands
-    /// it on a cell somebody else is committed to walk through. This asks.
+    /// The only way a doctrine can stop a unit, and the reason doing so cannot
+    /// cause a collision. Both alternatives are wrong:
+    /// <list type="bullet">
+    /// <item><description><see cref="ClaimSlot"/> sets the goal but does not stop
+    /// the unit — it walks off along its committed plan and comes back,
+    /// forever.</description></item>
+    /// <item><description>Discarding the plan and holding the cell unasked stands
+    /// it on a cell somebody else is committed to walk through.</description></item>
+    /// </list>
+    /// <para>This asks.</para>
     /// </remarks>
     /// <returns>True if the member is now parked; false if it may not stay.</returns>
     /// <exception cref="ArgumentOutOfRangeException">

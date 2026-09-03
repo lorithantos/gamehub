@@ -9,10 +9,12 @@ namespace Nav.Tactics;
 /// </summary>
 /// <remarks>
 /// One JSON object per line, header first, exactly as
-/// <c>Nav.Core.ScenarioTrace</c> writes a movement trace -- a growing file that
-/// survives a crash mid-run, and a diff that shows the tick where two runs part.
+/// <c>Nav.Core.ScenarioTrace</c> writes a movement trace: a growing file that
+/// survives a crash, and a diff that shows the tick where two runs part.
+/// <para>
 /// This one carries what a tactical demo is about and a movement trace has no
-/// notion of: health, who is away and where, hostiles, repair points.
+/// notion of — health, who is away and where, hostiles, repair points.
+/// </para>
 /// <para>
 /// Written for watching. The whole point of the demos is that a doctrine's
 /// decisions are visible, so this is the file an animation reads.
@@ -22,17 +24,17 @@ public static class DemoTrace
 {
     /// <summary>Bumped when the shape changes, so a reader can refuse an old file.</summary>
     /// <remarks>
-    /// 2 added <c>rank</c> to every unit. A version-1 reader shown one of these
-    /// would draw everything correctly and silently show no chevrons, which is
-    /// the reason the number exists: a replay that quietly omits the thing the
+    /// 2 added <c>rank</c>. A version-1 reader would draw everything correctly
+    /// and silently show no chevrons — a replay that quietly omits the thing the
     /// demo is about is worse than one that refuses to open.
     /// <para>
-    /// 3 added <c>exposureRadius</c> to the header, for the same reason
-    /// <see cref="WriteHeader"/> already carries a leash: it is the radius that
-    /// DECIDES something, and a replay showing three units promoted and three
-    /// not, with no circle on screen, is showing an outcome with its cause left
-    /// out. Bumped rather than added quietly, because two different shapes both
-    /// called version 2 is exactly the sloppiness the number exists to stop.
+    /// 3 added <c>exposureRadius</c> to the header. It is the radius that DECIDES
+    /// something, and three units promoted and three not with no circle on screen
+    /// is an outcome with its cause left out.
+    /// </para>
+    /// <para>
+    /// Bumped rather than added quietly: two different shapes both called version
+    /// 2 is exactly what the number exists to stop.
     /// </para>
     /// </remarks>
     public const int Version = 3;
@@ -56,13 +58,14 @@ public static class DemoTrace
         int Ticks);
 
     /// <remarks>
-    /// Carries what the unit is DOING as well as where it is, because a replay
-    /// that shows only position makes correct behaviour look broken: a unit
-    /// waiting for somebody else's reserved cell stands still for no visible
-    /// reason. The live viewer learned this and colours queued units apart from
-    /// stuck ones; a demo page cannot do the same without these three flags.
-    /// The goal travels for the same reason -- it is why the unit is walking
-    /// where it is walking.
+    /// Carries what the unit is DOING as well as where it is. A replay showing
+    /// only position makes correct behaviour look broken: a unit waiting for
+    /// somebody's reserved cell stands still for no visible reason.
+    /// <para>
+    /// The live viewer colours queued units apart from stuck ones, and a demo
+    /// page cannot without these flags. The goal travels for the same reason —
+    /// it is why the unit is walking where it is.
+    /// </para>
     /// <para>
     /// Rank travels for a third reason: without it the replay shows a squad in
     /// which one unit leaves at a scratch and another holds at half health, and

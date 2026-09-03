@@ -10,11 +10,17 @@ namespace Nav.Viewer.Wpf;
 /// </summary>
 /// <remarks>
 /// <c>D3DImage</c> speaks D3D9Ex and nothing else, so a D3D11 texture reaches it
-/// by the shared-handle route: create the texture with
-/// <c>ResourceOptionFlags.Shared</c>, take the handle off its
-/// <c>IDXGIResource</c>, and hand that handle to D3D9Ex's <c>CreateTexture</c>
-/// as an <em>existing</em> resource rather than a request for a new one. Surface
-/// level 0 of the result is the only thing <c>SetBackBuffer</c> will take.
+/// by the shared-handle route:
+/// <list type="number">
+/// <item><description>Create the texture with
+/// <c>ResourceOptionFlags.Shared</c>.</description></item>
+/// <item><description>Take the handle off its <c>IDXGIResource</c>.</description></item>
+/// <item><description>Hand it to D3D9Ex's <c>CreateTexture</c> as an
+/// <em>existing</em> resource, not a request for a new one.</description></item>
+/// </list>
+/// <para>
+/// Surface level 0 of the result is the only thing <c>SetBackBuffer</c> takes.
+/// </para>
 /// <para>
 /// <c>B8G8R8A8_UNorm</c> is not a preference: D3D9Ex accepts a narrow set of
 /// shared formats, and this is the one that pairs with <c>A8R8G8B8</c>.

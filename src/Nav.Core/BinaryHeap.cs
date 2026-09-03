@@ -31,19 +31,26 @@ internal sealed class BinaryHeap
     /// <param name="capacity">Initial room, in entries. At least one.</param>
     /// <param name="tieBreakSeed">
     /// When given, entries that tie EXACTLY on both <c>f</c> and <c>h</c> are
-    /// ordered by a third key drawn from a generator seeded with this value, so
-    /// the heap pops one of the equally good frontiers the caller did not choose.
-    /// When null -- the production default -- the third key is always zero and
-    /// the ordering is identical to a heap without it.
+    /// ordered by a third key from a generator seeded with this value, so the
+    /// heap pops an equally good frontier the caller did not choose.
+    /// <para>
+    /// Null — the production default — makes the third key always zero, and the
+    /// ordering identical to a heap without it.
+    /// </para>
     /// </param>
     /// <remarks>
-    /// The seed exists because a search's answer must not depend on which of
-    /// several equal-priority entries happens to pop first, and the only way to
-    /// know that is to pop a different one. A collision that appears under one
-    /// seed and not another is a real defect: every path is still optimal, and
-    /// collision-freedom has to hold for every valid tie-break. Each seed is one
-    /// fixed, replayable ordering -- the draws happen in push order, which is
-    /// itself deterministic -- so a failing seed fails the same way forever.
+    /// A search's answer must not depend on which of several equal-priority
+    /// entries pops first, and the only way to know that is to pop a different
+    /// one.
+    /// <para>
+    /// A collision under one seed and not another is a REAL defect: every path is
+    /// still optimal, and collision-freedom has to hold for every valid
+    /// tie-break.
+    /// </para>
+    /// <para>
+    /// Each seed is one fixed, replayable ordering, so a failing seed fails the
+    /// same way forever.
+    /// </para>
     /// </remarks>
     public BinaryHeap(int capacity = 128, int? tieBreakSeed = null)
     {
@@ -111,17 +118,21 @@ internal sealed class BinaryHeap
     /// lower <c>h</c>.
     /// </summary>
     /// <remarks>
-    /// Deliberately an exact comparison, and the one place in this codebase where
-    /// a tolerance would be wrong. A comparison with an epsilon is not
-    /// transitive -- a and b can be "equal", b and c "equal", and a and c not --
-    /// which is enough to corrupt a heap's invariant and silently return
-    /// out-of-order pops. Tolerances belong where accumulated costs are compared
-    /// for a verdict, not where they are compared for order.
+    /// Deliberately EXACT, and the one place in this codebase where a tolerance
+    /// would be wrong.
     /// <para>
-    /// Tie-breaking toward lower <c>h</c> means that among equally promising
-    /// nodes the search prefers the one nearer the goal. On open terrain that is
-    /// the difference between probing a plateau of identical <c>f</c> and walking
-    /// through it, and it costs one comparison.
+    /// An epsilon comparison is not transitive — a and b "equal", b and c
+    /// "equal", a and c not — which corrupts a heap's invariant and silently
+    /// returns out-of-order pops.
+    /// </para>
+    /// <para>
+    /// Tolerances belong where accumulated costs are compared for a VERDICT, not
+    /// where they are compared for ORDER.
+    /// </para>
+    /// <para>
+    /// Tie-breaking toward lower <c>h</c> prefers the node nearer the goal among
+    /// equally promising ones — on open terrain, the difference between probing
+    /// a plateau of identical <c>f</c> and walking through it.
     /// </para>
     /// <para>
     /// The third key is consulted only when both <c>f</c> and <c>h</c> are exactly

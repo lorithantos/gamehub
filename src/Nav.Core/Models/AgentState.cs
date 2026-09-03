@@ -18,11 +18,13 @@ namespace Nav.Core.Models;
 /// The formation still counts it as a member; see <see cref="Away"/>.
 /// </param>
 /// <remarks>
-/// <see cref="Stuck"/> means NO PROGRESS, not "no plan". The distinction was worth
-/// a bug: an agent that can stand still always has a plan — the one-cell plan of
-/// staying put — so a check for "did the planner return anything" reports two
-/// agents deadlocked nose to nose in a corridor as perfectly healthy. They have
-/// plans. The plans go nowhere.
+/// <see cref="Stuck"/> means NO PROGRESS, not "no plan".
+/// <para>
+/// An agent that can stand still always HAS a plan — the one-cell plan of staying
+/// put — so a check for "did the planner return anything" reports two agents
+/// deadlocked nose to nose as perfectly healthy.
+/// </para>
+/// <para>They have plans. The plans go nowhere.</para>
 /// </remarks>
 public readonly record struct AgentState(
     int Id,

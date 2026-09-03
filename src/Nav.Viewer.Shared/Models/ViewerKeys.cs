@@ -5,13 +5,16 @@ namespace Nav.Viewer.Models;
 /// they do rather than for the keycap.
 /// </summary>
 /// <remarks>
-/// Flags, because one snapshot has to be able to carry several at once -- see
-/// <see cref="InputState.KeysPressed"/>. Which physical key produces which
-/// member is each host's business and appears nowhere in the shared project:
-/// <see cref="Step"/> happens to be S in both hosts, and moving it would not
-/// touch a line of this file. <see cref="Space"/> and <see cref="R"/> are named
-/// after their key only because no better verb existed; treat the summary as the
-/// meaning.
+/// Flags, because one snapshot has to carry several at once.
+/// <para>
+/// Which physical key produces which member is each host's business and appears
+/// nowhere in the shared project — moving one would not touch a line of this
+/// file.
+/// </para>
+/// <para>
+/// <see cref="Space"/> and <see cref="R"/> are named after their key only
+/// because no better verb existed. Treat the summary as the meaning.
+/// </para>
 /// </remarks>
 [Flags]
 public enum ViewerKeys
@@ -54,12 +57,12 @@ public enum ViewerKeys
     /// <summary>Scroll the window left over the map.</summary>
     /// <remarks>
     /// The four pans and the two zooms exist for the same reason
-    /// <see cref="Pace"/> does, one axis over. Pace answers "this is happening too
-    /// fast to read"; these answer "this is too big to read". A 512x512 map fitted
-    /// to a window is one pixel per cell, which draws every unit, id, health bar
-    /// and route into a single dot -- the map is visible and the simulation is
-    /// not. Watching is how the group-movement defect was found, so a viewer that
-    /// goes blind at the scale the work is moving to costs more than it looks.
+    /// <see cref="Pace"/> does, one axis over. Pace answers "this is too fast to
+    /// read"; these answer "this is too big to read".
+    /// <para>
+    /// A 512-square fitted to a window is one pixel per cell, which draws every
+    /// unit, id, health bar and route into a single dot.
+    /// </para>
     /// </remarks>
     PanLeft = 16,
 

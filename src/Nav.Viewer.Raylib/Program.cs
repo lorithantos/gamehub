@@ -6,13 +6,14 @@ namespace Nav.Viewer.Raylib;
 /// Entry point for the raylib host.
 /// </summary>
 /// <remarks>
-/// An explicit class with an explicit <c>Main</c>, not top-level statements.
-/// Two reasons, and the second is the better one: the WPF host will need
-/// <c>[STAThread]</c>, which top-level statements cannot carry; and code in
-/// top-level statements is invisible to the Roslyn code graph, so every
-/// <c>PathFinder.FindPath</c> and <c>Walker.Advance</c> call the old viewer made
-/// showed up nowhere. Moving the logic into <c>ViewerApp</c> makes the viewer
-/// analysable for the first time.
+/// An explicit class with an explicit <c>Main</c>, not top-level statements. Two
+/// reasons, and the second is the better one:
+/// <list type="number">
+/// <item><description>The WPF host needs <c>[STAThread]</c>, which top-level
+/// statements cannot carry.</description></item>
+/// <item><description>Code in top-level statements is invisible to the Roslyn
+/// code graph, so every call the viewer made showed up nowhere.</description></item>
+/// </list>
 /// <para>
 /// What is left here is only wiring: parse, load, size, construct, run.
 /// </para>

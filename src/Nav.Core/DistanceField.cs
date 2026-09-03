@@ -5,34 +5,27 @@ namespace Nav.Core;
 /// and a flow field at once, keyed by the destination rather than by any unit.
 /// </summary>
 /// <remarks>
-/// The milestone-2 §12 decision, now built: route knowledge belongs to the
-/// destination. In an RTS the number of live destinations K is small while the
-/// unit count N is not, so K of these — shared by every unit heading there —
-/// replace N searches rediscovering the same ground.
+/// Route knowledge belongs to the destination. Live destinations are few and
+/// units are many, so a handful of these replace one search per unit over the
+/// same ground.
+/// <para>It plays two roles:</para>
+/// <list type="bullet">
+/// <item><description><b>Heuristic.</b> Replaces the octile estimate inside the
+/// space-time search with the true remaining distance.</description></item>
+/// <item><description><b>Motion model.</b> A group member descends this surface
+/// one step per tick instead of searching at all.</description></item>
+/// </list>
 /// <para>
-/// <b>It is now both a heuristic and a motion model</b>, and it was only the
-/// first until 2 September 2026. As a heuristic it replaces the octile estimate
-/// inside the space-time search with the true remaining distance, which
-/// collapses expansions toward the path length. As a motion model it is what a
-/// member of a moving group actually steers by: <c>MovementSystem.Follow</c>
-/// descends this surface one step per tick and emits a two-cell plan, and the
-/// search is reserved for single units, errands, and a slotted member that has
-/// stood blocked long enough to need reasoning about time.
+/// Neither role reaches a collision guarantee. This surface decides DIRECTION,
+/// never permission — a follower's step is reserved and checked like any other.
 /// </para>
 /// <para>
-/// Neither role can reach a collision guarantee. A follower's step is reserved
-/// through the same table as any other plan and is checked again at the move, so
-/// what this surface decides is DIRECTION, never permission.
+/// Built by one backward Dijkstra over the same movement rules the search uses.
+/// They are symmetric, so distance-from equals distance-to, and
+/// <see cref="CostFrom"/> must equal <c>PathFinder</c>'s cost cell by cell.
 /// </para>
 /// <para>
-/// Built by one backward Dijkstra over the exact movement rules the search uses
-/// — same <see cref="Movement.Steps"/>, same corner rule, same costs. Those
-/// rules are symmetric, so distance-from-destination equals
-/// distance-to-destination, and milestone 1's verified A* is the oracle: for
-/// every passable cell, <see cref="CostFrom"/> must equal <c>PathFinder</c>'s
-/// cost from that cell, which the test suite checks cell by cell. Terrain is
-/// static, so a field never goes stale; when terrain change arrives, D* Lite
-/// repair lands as a change inside this type rather than a redesign around it.
+/// Terrain is static, so a field never goes stale.
 /// </para>
 /// </remarks>
 public sealed class DistanceField

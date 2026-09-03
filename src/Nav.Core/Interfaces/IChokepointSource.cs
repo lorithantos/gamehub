@@ -4,22 +4,21 @@ namespace Nav.Core.Interfaces;
 /// Where the gates on a map come from.
 /// </summary>
 /// <remarks>
-/// Chokepoints are <b>annotations, not structure</b>: nothing routes over them
-/// and no hierarchy exists. The group layer reads them for metering; the search
-/// never sees them. That is exactly what makes them substitutable -- getting them
-/// wrong changes pacing and cannot break a plan.
+/// Chokepoints are <b>annotations, not structure</b>. The group layer reads them
+/// for metering; the search never sees them.
 /// <para>
-/// Detection is a guess, and a good one, but a guess: betweenness sampling
-/// crossed with a width veto over a strided set of terminals. A map author knows
-/// where the gates are without sampling anything, and on a map shipped with the
-/// game the answer is the same every run and worth computing once, at build time,
-/// rather than at load. Both are implementations of this.
+/// That is what makes them substitutable: getting them wrong changes pacing and
+/// cannot break a plan.
 /// </para>
 /// <para>
-/// The third implementation is the interesting one: a source that returns nothing
-/// turns metering off <em>structurally</em>. <c>MeteredGatherDoctrine</c> finds no
-/// gate and returns, so a caller can disable pacing without swapping doctrines or
-/// adding a flag to one.
+/// Detection is a guess, and a good one. A map author knows where the gates are
+/// without sampling anything, and on a shipped map the answer is worth computing
+/// once at build time. Both are implementations of this.
+/// </para>
+/// <para>
+/// The third is the interesting one: a source that returns NOTHING turns
+/// metering off structurally, so a caller can disable pacing without swapping
+/// doctrines or adding a flag.
 /// </para>
 /// <para>
 /// <b>Determinism binds here too.</b> Two calls for one map must agree exactly,

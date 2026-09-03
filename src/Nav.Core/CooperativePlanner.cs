@@ -22,16 +22,17 @@ namespace Nav.Core;
 /// </para>
 /// <para>
 /// Search is bounded by the reservation window. Beyond it nothing is reserved, so
-/// searching further would be ordinary A* with the cooperation switched off --
-/// which is the planner silently answering a different question. A goal beyond the
-/// window yields a partial plan instead, and the agent replans once the window has
-/// moved.
+/// searching further would be ordinary A* with cooperation switched off — the
+/// planner silently answering a different question.
 /// </para>
 /// <para>
-/// <b>The search itself lives in <see cref="BudgetedSearch"/>, and this is a
-/// wrapper that runs it to completion.</b> One implementation, so a plan built in
-/// instalments and a plan built in one call cannot drift apart -- there is no
-/// second code path for them to drift in.
+/// A goal beyond the window yields a PARTIAL plan instead, and the agent replans
+/// once the window has moved.
+/// </para>
+/// <para>
+/// <b>The search itself lives in <see cref="BudgetedSearch"/>; this is a wrapper
+/// that runs it to completion.</b> One implementation, so a plan built in
+/// instalments and one built in a single call cannot drift apart.
 /// </para>
 /// </remarks>
 internal static class CooperativePlanner

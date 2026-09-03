@@ -7,20 +7,20 @@ namespace Nav.Core;
 /// Lives in the core rather than the viewer so that the thing the brief asks to
 /// be reproducible can be tested without a window open.
 /// <para>
-/// <see cref="MaxStepsPerFrame"/> is a circuit breaker. After a stall -- a
-/// breakpoint, a swapped-out process, a laptop lid -- the accumulator holds
-/// several seconds and would ask for hundreds of steps, each of which takes
-/// longer than the frame it is trying to catch up on. That is the spiral of
-/// death, and its symptom is an application that appears to hang. Dropping the
-/// surplus makes the simulation lose time it can never have caught up on anyway.
+/// <b>The default step is <see cref="WorldScale.Default"/>'s, not a render
+/// rate.</b> The world changes four times a second and is DRAWN as often as the
+/// host likes. Those are different numbers.
 /// </para>
-/// </remarks>
-/// <remarks>
-/// The default step is <see cref="WorldScale.Default"/>'s, not a render rate. A
-/// sixtieth of a second was here because that is what a display refreshes at,
-/// and it made a unit cross ground at sixty cells a second — the world changes
-/// four times a second and is DRAWN as often as the host likes, and those are
-/// different numbers that were the same one by accident.
+/// <para>
+/// <see cref="MaxStepsPerFrame"/> is a circuit breaker. After a stall — a
+/// breakpoint, a swapped-out process, a laptop lid — the accumulator holds
+/// seconds and would ask for hundreds of steps.
+/// </para>
+/// <para>
+/// Each of those takes longer than the frame it is catching up on, which is the
+/// spiral of death and looks like a hang. Dropping the surplus loses time the
+/// simulation could never have caught up on anyway.
+/// </para>
 /// </remarks>
 public sealed class FixedTimestep(double step = 0.25, int maxStepsPerFrame = 8)
 {

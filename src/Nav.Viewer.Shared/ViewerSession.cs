@@ -8,28 +8,33 @@ namespace Nav.Viewer;
 /// The single owner of what is loaded and what the simulation says about it.
 /// </summary>
 /// <remarks>
-/// The session is the reference point for everyone else: the app translates
-/// input into these commands and draws from these properties; the hosts present
-/// what the app draws. Without one owner, "what is loaded" smears across
-/// constructor arguments, near-duplicate <c>Program.Main</c>s and
-/// <c>ViewerApp</c>'s private fields — see <c>docs/viewer.md</c>.
+/// The reference point for everyone else. The app translates input into these
+/// commands and draws from these properties; the hosts present what the app
+/// draws. See <c>docs/viewer.md</c>.
+/// <para>The line through the middle is deliberate:</para>
+/// <list type="bullet">
+/// <item><description><b>Here</b> — grid, scenario, movement system, pending
+/// orders, tick, running, selection.</description></item>
+/// <item><description><b>The app's</b> — layout, terrain image, frame blending,
+/// drag rectangle, and wall-clock accumulation.</description></item>
+/// <item><description><b>The hosts'</b> — windows and renderers.</description></item>
+/// </list>
 /// <para>
-/// The line through the middle is deliberate. Content and simulation live here:
-/// the grid, the scenario, the movement system, the pending recorded orders,
-/// tick, running, and the selection the commands operate on. Presentation does
-/// not: layout, the terrain image, frame blending, and the drag rectangle are
-/// the app's; windows and renderers are the hosts'. Wall-clock accumulation is
-/// presentation too — the app decides <em>when</em> to call <see cref="Tick"/>;
-/// the session decides only whether time may run and what a tick means.
+/// So the app decides <em>when</em> to call <see cref="Tick"/>; the session
+/// decides only whether time may run and what a tick means.
 /// </para>
 /// <para>
-/// Loading is where refuse-don't-repair lives, so loading is a session concern:
-/// <see cref="TryLoad"/> at startup and <see cref="TryLoadFile"/> mid-session
-/// are the one implementation of the refusal path. A refused load changes
-/// <b>nothing</b>: the candidate world is built off to the side and adopted only
-/// whole. Every successful load bumps <see cref="Version"/>, which is how
-/// everyone downstream knows their derived state — terrain image, layout,
-/// window size — is stale.
+/// Loading is where refuse-don't-repair lives, so loading is a session concern.
+/// <see cref="TryLoad"/> and <see cref="TryLoadFile"/> are the one
+/// implementation of the refusal path.
+/// </para>
+/// <para>
+/// A refused load changes <b>nothing</b>: the candidate world is built off to
+/// the side and adopted only whole.
+/// </para>
+/// <para>
+/// Every successful load bumps <see cref="Version"/>, which is how everyone
+/// downstream knows their derived state is stale.
 /// </para>
 /// </remarks>
 public sealed class ViewerSession

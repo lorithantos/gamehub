@@ -38,6 +38,30 @@ A second split, by audience, and it decides `///` against `//`:
 The rule bites in proportion to how public the member is. A private constant is
 only ever hovered by the person changing it, so `///` on one costs nothing.
 
+## Shape, not just length
+
+A tooltip wraps at the *window*, not at a comfortable measure, so on a wide
+monitor a flowing two-sentence paragraph becomes one unbroken 200-character line
+that the eye cannot track back across.
+
+`<para>` and `<list>` force a break regardless of width. They are the only
+control over line length there is, so:
+
+- **One idea per `<para>`.** Target under 250 rendered characters; nothing over
+  300.
+- **A list where the content is a list** — ordered steps, alternatives
+  considered, facets of a contract. A list renders one short line per item at
+  any width.
+- **Lead with the claim.** The first block is what gets read; everything after
+  it is for the reader who is still there.
+
+Measured across `src/` in September 2026, the worst block was 860 rendered
+characters in one paragraph. The pass that fixed it also turned up three
+malformed blocks the compiler does not warn about: two stacked `<summary>` tags
+on one field (the first orphaned from the method it described), and two separate
+`<remarks>` blocks on each of two members, where a renderer shows one and drops
+the other.
+
 Neither marker explains its own choice. A comment about where a comment lives is
 history about a comment, and repeated across a codebase it is a tic rather than
 help.

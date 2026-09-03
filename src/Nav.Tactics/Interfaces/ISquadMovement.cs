@@ -20,13 +20,18 @@ public interface ISquadMovement
     void MoveAll(int destination);
 
     /// <summary>
-    /// A doctrine's move: the members ON STATION go to <paramref name="destination"/>
-    /// as one formation, members away on an errand keep to it, and the anchor
-    /// does not move. A patrol steps between waypoints with this, and an engage
-    /// or a return to station is this too -- a group move would drag a unit
-    /// back from the repair pad, which is exactly what a doctrine must not do.
-    /// A no-op with nobody on station.
+    /// A doctrine's move: the members ON STATION go to
+    /// <paramref name="destination"/> as one formation, members away on an errand
+    /// keep to it, and the anchor does not move.
     /// </summary>
+    /// <remarks>
+    /// A patrol steps between waypoints with this, and an engage or a return to
+    /// station is this too.
+    /// <para>
+    /// A group move would drag a unit back from the repair pad, which is exactly
+    /// what a doctrine must not do. A no-op with nobody on station.
+    /// </para>
+    /// </remarks>
     void Sortie(int destination);
 
     /// <summary>

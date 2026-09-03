@@ -5,11 +5,15 @@ namespace Nav.Tactics;
 /// </summary>
 /// <remarks>
 /// The behaviour the whole project was started for: a guard that does not stand
-/// beside the cannon until it dies. The retreat and return are the repair
-/// policy's; what is the guard's is the station -- wherever the squad was last
-/// moved as a group. Before any such move the doctrine's own <c>station</c> is
-/// used once; after a group move by the player the guard holds the new place
-/// rather than marching back.
+/// beside the cannon until it dies.
+/// <para>
+/// The retreat and return are the repair policy's. What is the guard's is the
+/// STATION — wherever the squad was last moved as a group.
+/// </para>
+/// <para>
+/// Before any such move the doctrine's own <c>station</c> is used once; after a
+/// group move the guard holds the new place rather than marching back.
+/// </para>
 /// <para>
 /// No engagement in this version: a guard neither chases nor sorties. That is
 /// the leash's job, and it arrives with the patrol.

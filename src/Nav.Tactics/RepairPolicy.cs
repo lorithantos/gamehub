@@ -5,84 +5,72 @@ namespace Nav.Tactics;
 /// component every doctrine that keeps its units alive is built from.
 /// </summary>
 /// <remarks>
-/// Lifted out of <see cref="GuardDoctrine"/> when the patrol turned out to need
-/// exactly the same rule and had none -- a patrol unit fought to the death.
-/// The rule is the same whatever the squad is otherwise doing: on each pass,
-/// every member away whose health is back at or above <see cref="ReturnAbove"/>
-/// is rejoined, then every member on station whose health has fallen below
-/// <see cref="RetreatBelow"/> is detached to the nearest repair point, preferring
-/// one no fellow is already heading to so two casualties do not queue at one
-/// pad. The two thresholds are apart on purpose: a unit hovering at one value
-/// would otherwise leave and return every tick.
+/// One pass, in this order:
+/// <list type="number">
+/// <item><description>Everyone away at or above <see cref="ReturnAbove"/>
+/// rejoins.</description></item>
+/// <item><description>Everyone on station below their rank's
+/// <see cref="RetreatBelow"/> is sent to the nearest free repair point.</description></item>
+/// </list>
 /// <para>
-/// <b>Run it first.</b> A doctrine carrying this calls <see cref="Advance"/>
-/// before its own passes, so that a pad freed this pass is visible to the
-/// retreat, and so that the doctrine's own moves see who has just left. It
-/// touches nothing but the away set: no station, no route, no engagement.
+/// The thresholds are apart on purpose, or a unit at one value leaves and
+/// returns every tick.
 /// </para>
 /// <para>
-/// The played form is <em>retreat at middling damage, return as soon as it is
-/// worth it</em> -- frequent short trips, so the line is never long without
-/// the unit. The defaults here still say retreat late and return full; they
-/// are what the recorded replays were made with, and the demos set their own.
+/// <b>Run it first.</b> Call <see cref="Advance"/> before a doctrine's own
+/// passes, so a pad freed this pass is visible to the retreat. It touches
+/// nothing but the away set.
 /// </para>
 /// <para>
-/// <b>Rank moves the retreat threshold UP.</b> A veteran is pulled EARLIER
-/// than a rookie -- <see cref="RetreatByRank"/> ascends -- because the reason
-/// to have ranks at all is that the good unit is the one you cannot replace.
-/// It reads wrong for a moment on screen: the rookie stands in the line at half
-/// health while the veteran, barely scratched, walks off to a pad. That is the
-/// doctrine, not a bug in it. The opposite table expresses the opposite
-/// doctrine and is not rejected here; nothing checks the direction, because the
-/// table is data and a squad that wants its veterans to hold the ground should
-/// be able to say so.
+/// <b>Rank raises the retreat threshold</b>: a veteran is pulled EARLIER than a
+/// rookie, because the good unit is the one you cannot replace. The opposite
+/// table is a different doctrine and is accepted — the direction is data.
 /// </para>
 /// <para>
-/// <b>The reserve is what stops the line emptying.</b> With
-/// <see cref="Reserve"/> members it will not go below, a squad whose whole
-/// strength is hurt keeps that many standing. So a reserve does not merely cap
-/// the exodus; it makes repair places scarce, and scarcity has to be spent on
-/// something.
+/// <b>The reserve is spent on the LOWEST rank first</b>, the opposite way round
+/// from the thresholds. A veteran's place is the line: it earns faster there.
 /// </para>
 /// <para>
-/// <b>It is spent on the LOWEST rank first</b>, which is the opposite way round
-/// from the thresholds, and deliberately. The two rules answer different
-/// questions. The threshold asks who is worth pulling when there is room, and
-/// the answer is the veteran, because it cannot be replaced. The reserve asks
-/// who is worth pulling when there is NOT room, and the answer is the rookie --
-/// but the reason is about the veteran, not the rookie. This ordering was once
-/// the other way round; <c>docs/scale-and-doctrine.md</c> says why it inverted.
-/// </para>
-/// <para>
-/// <b>A veteran's place is the line.</b> It earns faster where the enemy is,
-/// and at full rank it is meant to heal itself, so a scarce pad handed to a
-/// veteran is handed to the unit least likely to need one. LEAST LIKELY, not
-/// never: self-healing is a rate and a rate can be overwhelmed, so a veteran
-/// under enough fire still falls under its threshold and still goes. This
-/// ordering decides who gets a place when places are short; it does not exempt
-/// anybody from needing one. More than that, its standing there is what makes the position
-/// survivable for the rookies beside it: they are safer in its company and they
-/// earn more slowly for the same reason, which is the trade a player is
-/// actually making when deciding who to post where. Rotating rookies through
-/// the pads and leaving the veteran holding is not spending the veteran. It is
-/// putting each unit where it does the most.
-/// </para>
-/// <para>
-/// <b>Neither the self-healing nor the shielding is built.</b> Nothing here
-/// heals by rank, and a rookie beside a veteran earns exposure at exactly the
-/// rate it would alone -- see <see cref="DemoWorld"/>, where exposure is
-/// proximity to a hostile and nothing else. The ordering is right ahead of
-/// them and this comment says why, so that when they arrive they land on a rule
-/// that was already shaped for them rather than one that has to be reversed.
-/// </para>
-/// <para>
-/// So a stretched squad shows the veteran holding the line badly hurt while the
-/// rookies rotate through the pads, and an unstretched one shows the veteran
-/// pulled at a scratch. Both are the same doctrine seen at different pressures.
+/// <b>Neither self-healing nor shielding is built yet.</b> The ordering is
+/// already shaped for them.
 /// </para>
 /// </remarks>
 public sealed class RepairPolicy
 {
+    // WHY THE TWO RANK RULES POINT OPPOSITE WAYS.
+    //
+    // They answer different questions. The threshold asks who is worth pulling
+    // when there is room, and the answer is the veteran, because it cannot be
+    // replaced. The reserve asks who is worth pulling when there is NOT room,
+    // and the answer is the rookie -- but the reason is about the veteran.
+    //
+    // A veteran earns faster where the enemy is, and at full rank it is meant to
+    // heal itself, so a scarce pad handed to one is handed to the unit least
+    // likely to need it. LEAST LIKELY, not never: self-healing is a rate and a
+    // rate can be overwhelmed, so a veteran under enough fire still falls under
+    // its threshold and still goes.
+    //
+    // Its standing there is also what makes the position survivable for the
+    // rookies beside it: they are safer in its company and they earn more slowly
+    // for the same reason, which is the trade a player is actually making when
+    // deciding who to post where. Rotating rookies through the pads and leaving
+    // the veteran holding is not spending the veteran; it is putting each unit
+    // where it does the most.
+    //
+    // So a stretched squad shows the veteran holding the line badly hurt while
+    // the rookies rotate through the pads, and an unstretched one shows the
+    // veteran pulled at a scratch. Both are the same doctrine at different
+    // pressures. docs/scale-and-doctrine.md has why the reserve inverted.
+    //
+    // NOT BUILT: nothing heals by rank, and a rookie beside a veteran earns
+    // exposure at exactly the rate it would alone -- DemoWorld's exposure is
+    // proximity to a hostile and nothing else.
+    //
+    // The played form is retreat at middling damage, return as soon as it is
+    // worth it: frequent short trips, so the line is never long without the
+    // unit. The defaults here still say retreat late and return full, because
+    // they are what the recorded replays were made with; the demos set their own.
+
     private readonly double[] _retreatByRank;
 
     /// <param name="retreatBelow">Health fraction below which a member on station is sent to repair.</param>

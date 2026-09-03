@@ -6,30 +6,27 @@ namespace Nav.Core;
 /// The smallest INI reader that does the job: sections, key = value, comments.
 /// </summary>
 /// <remarks>
-/// Written rather than taken from a package because the whole need is forty
-/// lines and a dependency would be larger than the thing it replaced. It is
-/// deliberately dumb: no includes, no interpolation, no types beyond what a
-/// caller asks for. Numbers everywhere are parsed with the INVARIANT culture,
-/// which is not a detail — a machine with a comma decimal separator would read
-/// <c>0.25</c> as 25 and quietly run the simulation two orders of magnitude
-/// wrong.
+/// Deliberately dumb: no includes, no interpolation, no types beyond what a
+/// caller asks for.
 /// <para>
-/// <b>A fallback is recorded, not swallowed.</b> Missing keys do return the
-/// caller's default — a partial file degrading to "as shipped" is useful — but
-/// every one of them is added to <see cref="Defaulted"/>, so a caller that
-/// cannot afford surprise values can look and refuse. Silent fallback is how a
-/// thing ships running on numbers nobody chose, and it is the same shape as
-/// every other quiet-degradation bug in this repository: a chokepoint scan that
-/// answered nothing rather than failing, a viewer that drew a map at one pixel
-/// per cell rather than refusing, a replay page that played a demo that no
-/// longer existed. Each looked like working code.
+/// Numbers are parsed with the INVARIANT culture, which is not a detail. A
+/// machine with a comma decimal separator reads <c>0.25</c> as 25.
 /// </para>
 /// <para>
-/// So the policy is the CALLER's. <see cref="FromFile"/> refuses a missing file;
-/// <see cref="FromFileOrEmpty"/> tolerates one and is the deliberate choice for
-/// genuinely optional config; <see cref="Defaulted"/> tells either of them what
-/// was not answered.
+/// <b>A fallback is recorded, not swallowed.</b> A missing key returns the
+/// caller's default and is added to <see cref="Defaulted"/>, so "are we running
+/// on numbers nobody chose" is a question with an answer.
 /// </para>
+/// <para>
+/// The policy is the CALLER's:
+/// </para>
+/// <list type="bullet">
+/// <item><description><see cref="FromFile"/> refuses a missing file.</description></item>
+/// <item><description><see cref="FromFileOrEmpty"/> tolerates one — for
+/// genuinely optional config.</description></item>
+/// <item><description><see cref="Defaulted"/> tells either what went
+/// unanswered.</description></item>
+/// </list>
 /// </remarks>
 public sealed class Ini
 {

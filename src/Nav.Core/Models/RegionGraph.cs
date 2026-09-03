@@ -14,20 +14,20 @@ public sealed record RegionLink(int A, int B, int Cell);
 /// nodes instead of a quarter of a million cells.
 /// </summary>
 /// <remarks>
-/// This is the pay-off of finding the gates. A 512x512 map is 262,144 cells and
-/// a search over it is the thing <c>BudgetedSearch</c> exists to ration; the
-/// same map is a couple of hundred regions, and a search over THOSE is free. The
-/// grid stays where the contention is -- units still reserve cells and still
-/// push past each other locally -- and stops being where the "which way round"
-/// question is answered.
+/// The pay-off of finding the gates. A 512-square is 262,144 cells and a couple
+/// of hundred regions; a search over the second is free.
 /// <para>
-/// <b>It is an annotation, like the gates it is built from.</b> Nothing here is
-/// authoritative about whether a step is legal, and a route over regions is a
-/// hint about which way to go rather than a path anybody walks. That matters
-/// because the abstraction is NOT guaranteed optimal: going through the gates a
-/// region route names can be longer than the flat search's answer, and the
-/// repository validates flat search against published optimal costs. Those are
-/// different claims and must not be allowed to become one.
+/// The grid stays where the contention is — units still reserve cells and push
+/// past each other — and stops being where "which way round" is answered.
+/// </para>
+/// <para>
+/// <b>It is an annotation, like the gates it is built from.</b> Nothing here
+/// says whether a step is legal, and a region route is a hint rather than a path
+/// anybody walks.
+/// </para>
+/// <para>
+/// <b>It is NOT guaranteed optimal</b>, and flat search is validated against
+/// published optimal costs. Two different claims, and they must not merge.
 /// </para>
 /// </remarks>
 /// <param name="RegionOf">Region index per cell; -1 for a wall or a gate cell.</param>

@@ -14,19 +14,19 @@ namespace Nav.Viewer;
 /// with no graphics package. That is the claim the two-renderer experiment was
 /// built to test, and it still holds.
 /// <para>
-/// Since the <see cref="ViewerSession"/> extraction this class owns only
-/// presentation: the layout, the terrain image, wall-clock accumulation, frame
-/// blending, and the drag rectangle. Everything with a decision in it — what is
-/// loaded, who is selected, whether time runs — lives in the session, and this
-/// class translates input into session commands and session state into the five
-/// renderer verbs.
+/// This class owns only PRESENTATION: layout, terrain image, wall-clock
+/// accumulation, frame blending, the drag rectangle.
+/// </para>
+/// <para>
+/// Everything with a decision in it — what is loaded, who is selected, whether
+/// time runs — lives in <see cref="ViewerSession"/>. This class translates input
+/// into session commands and session state into the five renderer verbs.
 /// </para>
 /// <para>
 /// <b><see cref="IRenderer"/> did not have to grow.</b> Many units are
-/// <c>DrawCircle</c> in a loop; the selected unit's route is the same
-/// <c>DrawLine</c> the single-agent viewer used; the drag band is four lines.
-/// If a milestone-2 display need had required a sixth verb, that would have been
-/// the seam's first genuine leak and worth recording — it did not.
+/// <c>DrawCircle</c> in a loop, a route is <c>DrawLine</c>, the drag band is
+/// four lines. A display need requiring a sixth verb would have been the seam's
+/// first genuine leak.
 /// </para>
 /// </remarks>
 public sealed class ViewerApp : IViewerApp
@@ -63,10 +63,12 @@ public sealed class ViewerApp : IViewerApp
     /// </summary>
     /// <remarks>
     /// The slow paces are for watching. At the content's own rate a gather, a
-    /// retreat or a patrol turn is over in a second or two of wall clock, which
-    /// is fine for a soak test and useless for seeing what a doctrine did; two
-    /// ticks a second is about reading speed, and one is for watching a single
+    /// retreat or a patrol turn is over in a second or two — fine for a soak
+    /// test, useless for seeing what a doctrine did.
+    /// <para>
+    /// Two ticks a second is about reading speed; one is for watching a single
     /// decision land.
+    /// </para>
     /// </remarks>
     private static readonly double?[] Paces = [null, 0.5, 1.0];
 
@@ -129,11 +131,16 @@ public sealed class ViewerApp : IViewerApp
 
     /// <summary>
     /// The status line, rebuilt after every <see cref="Update"/> and every load.
-    /// The app owns the <em>string</em> because <see cref="IRenderer"/> has no
-    /// text verb by design; each host owns how it is shown. Its counters are
-    /// padded to a width they cannot outgrow, so the line never changes length
-    /// while the numbers do -- a breathing line shook a window sized to content.
     /// </summary>
+    /// <remarks>
+    /// The app owns the <em>string</em> because <see cref="IRenderer"/> has no
+    /// text verb by design; each host owns how it is shown.
+    /// <para>
+    /// Its counters are padded to a width they cannot outgrow, so the line never
+    /// changes length while the numbers do — a breathing line shakes a window
+    /// sized to content.
+    /// </para>
+    /// </remarks>
     public string StatusText { get; private set; }
 
     /// <summary>
@@ -511,15 +518,15 @@ public sealed class ViewerApp : IViewerApp
     /// </summary>
     /// <remarks>
     /// Panning is a HALF SCREEN per press rather than a smooth glide, and that is
-    /// a choice rather than a limitation of the input snapshot. An instrument is
-    /// being read, not flown: half a screen is repeatable, lands in the same place
-    /// twice, and cannot overshoot the thing being looked at. It also asks nothing
-    /// new of the hosts, which report key presses as edges.
+    /// a choice rather than a limit of the input snapshot.
+    /// <para>
+    /// An instrument is being read, not flown: half a screen is repeatable, lands
+    /// in the same place twice, and cannot overshoot what is being looked at.
+    /// </para>
     /// <para>
     /// Zoom doubles and halves, so the scale is always a whole number of pixels
-    /// per cell and a cell never straddles a half-pixel and shimmers. It floors at
-    /// whatever fitted the whole map, because zooming out past that only adds
-    /// margin.
+    /// per cell and no cell straddles a half-pixel. It floors at whatever fitted
+    /// the whole map, because zooming out past that only adds margin.
     /// </para>
     /// </remarks>
     private bool MoveCamera(in InputState input)

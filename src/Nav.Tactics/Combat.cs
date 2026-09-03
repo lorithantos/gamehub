@@ -7,24 +7,29 @@ namespace Nav.Tactics;
 /// What a shot is worth against what it hits, and who gets the credit.
 /// </summary>
 /// <remarks>
-/// The shape is the one this genre has used since 1992 — a percentage table
-/// indexed by weapon and armour, and a blast that halves per cell — because it
-/// is a good shape and there is no prize for inventing a worse one. The NUMBERS
-/// are ours and live in <c>config/combat.ini</c>; none was copied from anywhere.
+/// A percentage table indexed by weapon and armour, and a blast that halves per
+/// cell.
 /// <para>
-/// <b>Credit is by last hit, and that is a considered choice rather than the
-/// lazy one.</b> Crediting damage share exactly needs a contributor map per
-/// target; crediting whoever landed the fatal blow needs nothing at all, and is
-/// a stochastic estimator of the same quantity — deal sixty percent of the
-/// damage and you land about sixty percent of the kills. The two converge over
-/// a battle. What per-kill noise buys is a real saving, and the residual bias
-/// runs the right way: a bigger hit is likelier to be the one that crosses zero,
-/// so heavy units collect more killing blows than their damage share alone
-/// would give them, which reinforces veterancy rather than distorting it.
+/// The NUMBERS are ours and live in <c>config/combat.ini</c>. None was copied
+/// from anywhere; only the shape is borrowed, and the shape is older than this
+/// project by thirty years.
+/// </para>
+/// <para>
+/// <b>Credit goes by last hit.</b> It is a stochastic estimator of damage share
+/// — deal sixty percent and you land about sixty percent of the kills — so any
+/// one kill is luck and a battle is not.
 /// </para>
 /// </remarks>
 public sealed class Combat
 {
+    // WHY LAST HIT RATHER THAN EXACT SHARES. Crediting share exactly needs a
+    // contributor map per target; crediting whoever landed the fatal blow needs
+    // nothing at all, and the two agree in expectation. The residual bias runs
+    // the right way: a bigger hit is likelier to be the one that crosses zero,
+    // so heavy units collect more killing blows than their damage share alone
+    // would give them, which reinforces veterancy rather than distorting it.
+    // Measured at 75.5% of kills for 75% of damage -- docs/scale-and-doctrine.md.
+
     private readonly Dictionary<string, double[]> _versus;
     private readonly string[] _armour;
 

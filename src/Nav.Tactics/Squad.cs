@@ -5,17 +5,20 @@ namespace Nav.Tactics;
 /// them happens to be doing.
 /// </summary>
 /// <remarks>
-/// Membership is not a movement property. The movement layer knows formations,
-/// and a formation is an order: created by one command, holding that command's
-/// ring, forgetting a unit the moment another command names it. A squad outlives
-/// every order. It is what a numbered control group is in an RTS: a move is
-/// something done TO the membership and resolved into a movement order when it
-/// is issued, so a unit away on an errand of its own is still moved by the next
-/// group move, and is still a member while it is away.
+/// Membership is not a movement property. A formation is an ORDER — created by
+/// one command, forgetting a unit the moment another command names it. A squad
+/// outlives every order.
 /// <para>
-/// Membership can influence movement -- a group move, a detachment, a return --
-/// and does so only through the public surface of <see cref="MovementSystem"/>.
-/// A squad has no privileged access to the movement layer and needs none.
+/// It is what a numbered control group is in an RTS: a move is done TO the
+/// membership and resolved into a movement order when issued.
+/// </para>
+/// <para>
+/// So a unit away on an errand is still moved by the next group move, and is
+/// still a member while it is away.
+/// </para>
+/// <para>
+/// A squad influences movement only through the public surface of
+/// <see cref="MovementSystem"/>, and needs no privileged access.
 /// </para>
 /// </remarks>
 public sealed class Squad

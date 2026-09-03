@@ -13,16 +13,16 @@ namespace Nav.Viewer.Wpf;
 /// Window and loop, WPF's way: the framework owns the loop and calls us.
 /// </summary>
 /// <remarks>
-/// The other half of the control-inversion test. The raylib host runs
-/// <c>while (!WindowShouldClose())</c> and drives the app; here
-/// <c>Application.Run</c> owns the loop and per-frame work hangs off the
+/// The other half of the control-inversion test. The raylib host drives the app;
+/// here <c>Application.Run</c> owns the loop and per-frame work hangs off the
 /// compositor. The app cannot tell the difference, which is the whole claim.
 /// <para>
 /// <c>CompositionTarget.Rendering</c> is a <b>static</b> event, so the
-/// subscription is paired with an unsubscribe on window close. An
-/// un-unsubscribed handler keeps ticking against a disposed device -- a
-/// use-after-free with a managed-looking cause and a native crash, which is
-/// exactly the shape the catalog's WPF notes warn about.
+/// subscription is paired with an unsubscribe on window close.
+/// </para>
+/// <para>
+/// An un-unsubscribed handler keeps ticking against a disposed device — a
+/// use-after-free with a managed-looking cause and a native crash.
 /// </para>
 /// </remarks>
 internal sealed class WpfHost(GridLayout layout, int? maxFrames) : IViewerHost
@@ -110,12 +110,14 @@ internal sealed class WpfHost(GridLayout layout, int? maxFrames) : IViewerHost
     }
 
     /// <summary>
-    /// The surface, not the status text, decides the window's width. Without
-    /// this the squad status line was the widest element on small maps, and
-    /// SizeToContent re-measured the WHOLE WINDOW every time a counter changed
-    /// digit count -- the window visibly shook while a stalled agent replanned.
-    /// The text trims instead.
+    /// The surface, not the status text, decides the window's width.
     /// </summary>
+    /// <remarks>
+    /// Otherwise the status line is the widest element on small maps, and
+    /// SizeToContent re-measures the WHOLE WINDOW every time a counter changes
+    /// digit count — the window visibly shakes while an agent replans.
+    /// <para>The text trims instead.</para>
+    /// </remarks>
     private void SizeChrome()
     {
         _window!.Surface.Width = _layout.PixelWidth / _dpiScale;

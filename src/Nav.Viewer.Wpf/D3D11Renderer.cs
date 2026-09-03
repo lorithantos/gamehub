@@ -15,16 +15,17 @@ namespace Nav.Viewer.Wpf;
 /// <see cref="IRenderer"/> over raw Direct3D 11.
 /// </summary>
 /// <remarks>
-/// D3D11 has no lines, no circles and no text -- only triangles -- so every verb
+/// D3D11 has no lines, no circles and no text — only triangles — so every verb
 /// here is a triangulation. A line becomes a quad expanded perpendicular to
-/// itself, a circle becomes a fan, and text does not appear at all because the
-/// host draws it. Two draw calls per frame: the terrain quad, then everything
-/// else batched into one dynamic vertex buffer.
+/// itself, a circle becomes a fan, and text is the host's.
 /// <para>
-/// There is no swapchain. The target is a shared texture that WPF composites
-/// through <c>D3DImage</c>, so presentation belongs to the host -- the same
-/// division the raylib renderer uses, where <c>BeginDrawing</c>/<c>EndDrawing</c>
-/// are the host's too.
+/// Two draw calls per frame: the terrain quad, then everything else batched into
+/// one dynamic vertex buffer.
+/// </para>
+/// <para>
+/// There is no swapchain. The target is a shared texture WPF composites through
+/// <c>D3DImage</c>, so presentation belongs to the host — the same division the
+/// raylib renderer uses.
 /// </para>
 /// <para>
 /// The terrain texture is cached against the <see cref="TerrainImage"/> instance

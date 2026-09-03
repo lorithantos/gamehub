@@ -4,34 +4,23 @@ namespace Nav.Core;
 /// How a group moves: the pluggable seam.
 /// </summary>
 /// <remarks>
-/// No single movement design works for every scenario — a band of soldiers
-/// walking across open desert is a different problem from rocket infantry
-/// escorting a tank. A doctrine is the per-group strategy that decides slot
-/// claiming, reconciliation, and pacing, invoked once per tick before planning.
-/// It acts only through <see cref="IGroupOps"/>, which offers
-/// queries and a small set of safe mutations — a doctrine cannot touch plans,
-/// reservations, or the collision layer, so every guarantee underneath survives
-/// any doctrine above. The implementing class is internal, so a doctrine written
-/// outside this assembly sees three contracts and no concrete type at all.
+/// The per-group strategy for slot claiming, reconciliation and pacing, invoked
+/// once per tick before planning. A band of soldiers crossing open desert is not
+/// the same problem as rocket infantry escorting a tank.
 /// <para>
-/// <b>Passes take the narrowest facet they need, and pass the same object twice
-/// to say so.</b> <see cref="IGroupOps"/> composes <see cref="IGroupView"/>,
-/// <see cref="IGroupClaiming"/> and <see cref="IGroupPacing"/>; a pass declaring
-/// <c>(IGroupView, IGroupPacing)</c> cannot claim a slot, and the compiler is
-/// what stops it rather than a reviewer. That is why metering — which paces a
-/// queue through a gate and has no business assigning parking — is structurally
-/// unable to, where under one wide interface it merely happened not to.
+/// It acts only through <see cref="IGroupOps"/>: queries and a few safe
+/// mutations. A doctrine cannot touch plans, reservations or the collision
+/// layer, so every guarantee underneath survives any doctrine above.
 /// </para>
 /// <para>
-/// The seam was extracted from two real implementations —
-/// <see cref="GatherDoctrine"/> and <see cref="MeteredGatherDoctrine"/> — the
-/// renderer-seam lesson applied: one implementation is a guess, two are a
-/// hypothesis.
+/// <b>Take the narrowest facet a pass needs</b>, passing the same object twice
+/// to say so. A pass declaring <c>(IGroupView, IGroupPacing)</c> cannot claim a
+/// slot, and the compiler is what stops it rather than a reviewer.
 /// </para>
 /// <para>
-/// A doctrine may hold per-group state (a cooldown, a released set), and must
-/// keep every decision deterministic: fixed iteration orders, no randomness,
-/// ties on id. Replay is still the determinism test and doctrines run inside it.
+/// <b>Every decision must be deterministic</b> — fixed iteration orders, no
+/// randomness, ties on id. Replay is the test, and doctrines run inside it.
+/// Per-group state (a cooldown, a released set) is fine.
 /// </para>
 /// </remarks>
 public abstract class GroupDoctrine
@@ -44,12 +33,14 @@ public abstract class GroupDoctrine
 /// The gathering doctrine: fill like water.
 /// </summary>
 /// <remarks>
-/// Members aim at the shared destination and claim the innermost open parking
-/// slot only once NEAR the current crust frontier, closest member first — the
-/// way a real team fills in at a gathering point rather than pre-booking spots
-/// from across the map. Hard-stalled members (two failed replans) are re-goaled
-/// onto spots they can actually walk to, and a member with no reachable empty
-/// spot takes its own cell: a hopeless jam becomes an honest arrival in place.
+/// Members aim at the shared destination and claim the innermost open slot only
+/// once NEAR the crust frontier, closest member first — the way a team fills in
+/// at a gathering point rather than pre-booking from across the map.
+/// <para>
+/// Hard-stalled members (two failed replans) are re-goaled onto spots they can
+/// actually walk to. One with no reachable empty spot takes its own cell, so a
+/// hopeless jam becomes an honest arrival in place.
+/// </para>
 /// </remarks>
 public class GatherDoctrine : GroupDoctrine
 {
@@ -62,13 +53,22 @@ public class GatherDoctrine : GroupDoctrine
     private int _lastReconcileTick = -1_000_000;
 
     /// <summary>
-    /// Three passes, always in this order: a stalled member standing on ground no
-    /// worse than its goal parks where it is; whoever has reached the crust claims
-    /// the innermost open slots; then, on a cooldown, hard-stalled members are
-    /// re-goaled onto spots they can actually walk to. On a group that has finished
-    /// settling all three fall straight through, which is why leaving the doctrine
-    /// running costs nothing.
+    /// Three passes, always in this order.
     /// </summary>
+    /// <remarks>
+    /// <list type="number">
+    /// <item><description>A stalled member on ground no worse than its goal parks
+    /// where it is.</description></item>
+    /// <item><description>Whoever has reached the crust claims the innermost open
+    /// slots.</description></item>
+    /// <item><description>On a cooldown, hard-stalled members are re-goaled onto
+    /// spots they can walk to.</description></item>
+    /// </list>
+    /// <para>
+    /// On a settled group all three fall straight through, which is why leaving
+    /// the doctrine running costs nothing.
+    /// </para>
+    /// </remarks>
     /// <param name="ops">The seam for this group and tick. Never null.</param>
     public override void Advance(IGroupOps ops)
     {
@@ -85,33 +85,34 @@ public class GatherDoctrine : GroupDoctrine
     /// going, and the sum of distances travelled is zero.
     /// </summary>
     /// <remarks>
-    /// IT IS A CYCLE, NOT A PAIR. Matching a MUTUAL cross only -- A on B's slot
-    /// and B on A's -- misses a three-rotation entirely, and a three-rotation in
-    /// a sealed column is stable and permanent: this pass sees nothing,
-    /// <see cref="SettleWhereYouStand"/> refuses because every cell underfoot is
-    /// claimed, and the reconcile pass has no reachable vacated cell to offer.
-    /// The probe that found one is in <c>docs/search-and-movement.md</c>.
+    /// IT IS A CYCLE, NOT A PAIR. Matching a MUTUAL cross only — A on B's slot
+    /// and B on A's — misses a three-rotation entirely.
     /// <para>
-    /// <b>The reading that fixes it is that this was never a failure.</b> Every
-    /// one of the three had found an acceptable place -- the cells they occupied
-    /// were exactly the cells they wanted, only labelled to the wrong members.
-    /// So the answer is not to rotate them through each other, which would make
-    /// three settled units walk for nothing, but to rotate the CLAIMS and leave
-    /// the units alone. A cycle of any length resolves this way for free, and
-    /// the mutual pair is just the case where the cycle is two long.
+    /// A three-rotation in a sealed column is stable and permanent: this pass
+    /// sees nothing, <see cref="SettleWhereYouStand"/> refuses because every cell
+    /// underfoot is claimed, and reconcile has no vacated cell to offer.
     /// </para>
-    /// The squatter's swap in the reconcile pass covers the general case -- a
-    /// unit on somebody's claim with nowhere better -- and is gated on two
-    /// failed replans and a cooldown, because a single blocked replan is
-    /// usually traffic. A MUTUAL cross is not ambiguous: the patrol showed two
-    /// units each on the other's slot for three ticks, then a back-step and two
-    /// moves, six ticks in all, for what one swap settles at once.
     /// <para>
-    /// The parks are attempted twice because each one's committed plan runs
-    /// through the other's cell: the first park is refused, the second
-    /// releases that route, and the first then succeeds on retry. A park still
-    /// refused after that -- a third unit's plan through the cell -- falls
-    /// back to a claim, and the plan plays out.
+    /// <b>It was never a failure.</b> The cells those units occupied were
+    /// exactly the cells they wanted, only labelled to the wrong members.
+    /// </para>
+    /// <para>
+    /// So rotate the CLAIMS and leave the units alone. A cycle of any length
+    /// resolves for free, and a mutual pair is the case where it is two long.
+    /// </para>
+    /// <para>
+    /// The reconcile pass covers the ambiguous case — a unit on somebody's claim
+    /// with nowhere better — gated on two failed replans and a cooldown, because
+    /// one blocked replan is usually traffic. A mutual cross is not ambiguous.
+    /// </para>
+    /// <para>
+    /// The parks are attempted TWICE, because each one's committed plan runs
+    /// through the other's cell: the first is refused, the second releases that
+    /// route, and the first then succeeds on retry.
+    /// </para>
+    /// <para>
+    /// A park still refused after that — a third unit's plan through the cell —
+    /// falls back to a claim, and the plan plays out.
     /// </para>
     /// </remarks>
     private static void SwapCrossedClaims(IGroupView ops, IGroupClaiming claiming)
@@ -163,13 +164,16 @@ public class GatherDoctrine : GroupDoctrine
     /// null if there is not one.
     /// </summary>
     /// <remarks>
-    /// Follows one edge: from a member to whoever claims the cell it is standing
-    /// on. A walk that returns to where it began is a set of members who
-    /// collectively occupy exactly the cells they collectively want, which is
-    /// why <see cref="SwapCrossedClaims"/> can settle every one of them without
-    /// anybody taking a step. A walk that runs into a member already on the walk
-    /// without closing is a lasso, not a cycle, and is left alone -- the tail is
-    /// somebody else's problem and rotating a lasso would move units for nothing.
+    /// Follows one edge: from a member to whoever claims the cell it stands on.
+    /// <para>
+    /// A walk that returns to its start is a set of members collectively
+    /// occupying exactly the cells they collectively want — which is why
+    /// <see cref="SwapCrossedClaims"/> settles them all without a step.
+    /// </para>
+    /// <para>
+    /// A walk that meets itself without closing is a lasso, and is left alone:
+    /// rotating one would move units for nothing.
+    /// </para>
     /// </remarks>
     private static IReadOnlyList<int>? CycleThrough(IGroupView ops, int start)
     {
@@ -208,13 +212,17 @@ public class GatherDoctrine : GroupDoctrine
 
     /// <summary>
     /// A stalled member standing on an unclaimed cell at least as close as its
-    /// assigned goal claims where it stands. Arriving beats replanning to
-    /// somewhere worse — the countermand fixture ended with a unit squatting on
-    /// the DESTINATION ITSELF, walled in by later arrivals, still assigned a
-    /// cell two steps away it could no longer reach. Stall-gated so a unit
-    /// merely pausing in traffic never parks early; terminal by construction,
-    /// so it cannot churn.
+    /// assigned goal claims where it stands.
     /// </summary>
+    /// <remarks>
+    /// Arriving beats replanning to somewhere worse: without it a unit can squat
+    /// on the DESTINATION ITSELF, walled in by later arrivals, still assigned a
+    /// cell two steps away it can no longer reach.
+    /// <para>
+    /// Stall-gated, so a unit merely pausing in traffic never parks early, and
+    /// terminal by construction, so it cannot churn.
+    /// </para>
+    /// </remarks>
     private static void SettleWhereYouStand(IGroupView ops, IGroupClaiming claiming)
     {
         foreach (var id in ops.Members)
@@ -233,20 +241,26 @@ public class GatherDoctrine : GroupDoctrine
     }
 
     /// <summary>
-    /// FILL LIKE WATER. Claims open only just ahead of the current crust: the
-    /// claiming radius is the outermost claimed slot plus a small margin, so a
-    /// slot is booked moments before it is filled, by whoever is actually
-    /// closest. A wide radius is pre-booking from across the field wearing a
-    /// different hat — measured at 91 sealed holes against the 28 it was meant
-    /// to fix; this rule measured 2, with the blob at the ideal pack exactly.
-    /// </summary>
-    /// <summary>
     /// How much closer a cell must be before it is worth walking to, in step
-    /// costs. One diagonal: the smallest move this model can make, so anything
-    /// under it is an improvement smaller than the step that would buy it.
+    /// costs.
     /// </summary>
+    /// <remarks>
+    /// One diagonal: the smallest move this model can make, so anything under it
+    /// is an improvement smaller than the step that would buy it.
+    /// </remarks>
     private static readonly double GoodEnough = Movement.DiagonalCost;
 
+    /// <summary>
+    /// FILL LIKE WATER. Claims open only just ahead of the current crust.
+    /// </summary>
+    /// <remarks>
+    /// The claiming radius is the outermost claimed slot plus a small margin, so
+    /// a slot is booked moments before it is filled, by whoever is closest.
+    /// <para>
+    /// A wide radius is pre-booking from across the field wearing a different
+    /// hat.
+    /// </para>
+    /// </remarks>
     private static void ClaimPass(IGroupView ops, IGroupClaiming claiming)
     {
         if (ops.Members.All(ops.HasSlot))
@@ -501,13 +515,17 @@ public class GatherDoctrine : GroupDoctrine
     /// was found; the two then each have one step to make.
     /// </summary>
     /// <remarks>
-    /// The fellow must be able to step INTO the hole (adjacent to it) and the
-    /// stalled member must be able to reach the fellow's cell once it is empty
-    /// (a neighbour of that cell is the member's own cell or a spot the member
-    /// can walk to). Lowest id among the candidates, so the same blob always
-    /// shuffles the same way. The member's claim is released before the
-    /// fellow's is moved onto the hole, or two slot-holders would share it for
-    /// the rest of the pass and the head-of-tick rebuild would refuse it.
+    /// Both halves have to be walkable: the fellow adjacent to the hole, and the
+    /// stalled member able to reach the fellow's cell once it empties.
+    /// <para>
+    /// Lowest id among the candidates, so the same blob always shuffles the same
+    /// way.
+    /// </para>
+    /// <para>
+    /// The member's claim is released BEFORE the fellow's moves onto the hole,
+    /// or two slot-holders share it for the rest of the pass and the
+    /// head-of-tick rebuild refuses it.
+    /// </para>
     /// </remarks>
     private static bool FillHole(IGroupView ops, IGroupClaiming claiming, int id)
     {
@@ -561,12 +579,16 @@ public class GatherDoctrine : GroupDoctrine
     /// member's plan plays out.
     /// </summary>
     /// <remarks>
-    /// Every "take the ground underfoot" in this doctrine goes through here,
-    /// and the park is what makes it a stop rather than a change of goal. A
-    /// claim alone left the committed plan alone, so a unit that had settled
-    /// walked off along it and came back -- a ten-tick round trip, forever, on
-    /// the guard fixture. Measured against the claim on every figure the
-    /// settling report carries: identical, to the node. The stop is free.
+    /// Every "take the ground underfoot" in this doctrine goes through here, and
+    /// the PARK is what makes it a stop rather than a change of goal.
+    /// <para>
+    /// A claim alone leaves the committed plan alone, so a settled unit walks off
+    /// along it and comes back — a ten-tick round trip, forever.
+    /// </para>
+    /// <para>
+    /// The stop is free: identical to the claim on every figure the settling
+    /// report carries, to the node.
+    /// </para>
     /// </remarks>
     private static void ParkDisplacing(IGroupView ops, IGroupClaiming claiming, int id)
     {
@@ -599,13 +621,17 @@ public class GatherDoctrine : GroupDoctrine
     /// it from afar, if any.
     /// </summary>
     /// <remarks>
-    /// Arrival beats intention: the unit standing on the cell is already there
-    /// and the claimant is not, so the claimant goes back to the queue NOW rather
-    /// than after two failed replans and a reconcile. Without this, two members
-    /// held one cell for a while -- a transient the claimed-goal cache tolerated
-    /// silently, and which the head-of-tick rebuild now refuses. A holder from
-    /// another group is not this doctrine's to displace and is left alone; the
-    /// claim then goes through as before.
+    /// Arrival beats intention. The unit standing on the cell is there and the
+    /// claimant is not, so the claimant goes back to the queue NOW rather than
+    /// after two failed replans and a reconcile.
+    /// <para>
+    /// Otherwise two members hold one cell — which the head-of-tick rebuild
+    /// refuses outright.
+    /// </para>
+    /// <para>
+    /// A holder from another group is not this doctrine's to displace and is left
+    /// alone; the claim goes through anyway.
+    /// </para>
     /// </remarks>
     private static void ClaimDisplacing(IGroupView ops, IGroupClaiming claiming, int id, int cell)
     {
@@ -623,13 +649,17 @@ public class GatherDoctrine : GroupDoctrine
 /// Gathering, metered through chokepoints: the default doctrine.
 /// </summary>
 /// <remarks>
-/// Where the map has no chokepoint between a member and the destination, this
-/// IS <see cref="GatherDoctrine"/> — the metering layer does nothing, which is
-/// why it can be the default. Where one exists, at most the chokepoint's width
-/// in members approach it at once; the rest HOLD where they are, quietly, and
-/// are released in field-distance order as predecessors pass through. A queue
-/// discovered by reservation contention costs search nodes every tick; a queue
-/// ordered by the doctrine costs nothing to stand in.
+/// With no chokepoint between a member and the destination this IS
+/// <see cref="GatherDoctrine"/> — the metering layer does nothing, which is why
+/// it can be the default.
+/// <para>
+/// With one, at most the gate's width in members approach at a time. The rest
+/// hold quietly and are released in field-distance order as predecessors pass.
+/// </para>
+/// <para>
+/// A queue discovered by reservation contention costs search nodes every tick.
+/// A queue ordered by the doctrine costs nothing to stand in.
+/// </para>
 /// </remarks>
 public sealed class MeteredGatherDoctrine : GroupDoctrine
 {
@@ -663,25 +693,25 @@ public sealed class MeteredGatherDoctrine : GroupDoctrine
     private static readonly double ContactRange = 2.0 * Movement.DiagonalCost;
 
     /// <summary>
-    /// A STATELESS pacing brake, deliberately. Two stateful versions preceded
-    /// it and both stranded units: a released-set entry that neither passed nor
-    /// arrived consumed a width-one gate forever. This holds nothing in memory
-    /// that can rot — each tick, the front of the queue (gate width x convoy
-    /// depth, by field distance) plans freely and everyone deeper is held for
-    /// two ticks. Holds lapse, the queue promotes itself as the front passes,
-    /// and the failure mode of a missed hold is a unit planning slightly early
-    /// — the scrum — never a unit frozen.
+    /// A STATELESS pacing brake, deliberately.
     /// </summary>
     /// <remarks>
-    /// AND IT TURNS ON AT CONTACT, NOT AT ORDER TIME. Metering is door
-    /// discipline, and door discipline starts at the door: until somebody has
-    /// actually reached the gate there is no queue to manage, and the march
-    /// across open ground is free. Engaging at order time instead freezes the
-    /// tail half a chamber from the gate, and every batch then pays the full
-    /// transit latency serially — a 4x slowdown, in
-    /// <c>docs/search-and-movement.md</c>. With contact activation the whole
-    /// group compresses to the doorway at scrum pace and the ordering applies to
-    /// a queue that exists.
+    /// Each tick the front of the queue — gate width x convoy depth, by field
+    /// distance — plans freely, and everyone deeper is held for two ticks.
+    /// <para>
+    /// Nothing is held in memory that can rot. Holds lapse, the queue promotes
+    /// itself as the front passes, and a missed hold means a unit planning
+    /// slightly early — the scrum — never a unit frozen.
+    /// </para>
+    /// <para>
+    /// <b>It turns on at CONTACT, not at order time.</b> Door discipline starts
+    /// at the door: until somebody has reached the gate there is no queue to
+    /// manage, and the march across open ground is free.
+    /// </para>
+    /// <para>
+    /// Engaging at order time freezes the tail half a chamber out and makes every
+    /// batch pay the transit latency serially — <c>docs/search-and-movement.md</c>.
+    /// </para>
     /// </remarks>
     private static void Meter(IGroupView ops, IGroupPacing pacing)
     {

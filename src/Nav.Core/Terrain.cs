@@ -4,23 +4,22 @@ namespace Nav.Core;
 /// Which Moving AI terrain characters can be walked on.
 /// </summary>
 /// <remarks>
-/// A table rather than a <c>switch</c>, because milestone 2 makes these rules
-/// configurable and data is the thing you can swap at runtime. The table is also
-/// the faster shape: one array read on a byte indexed by the character itself,
-/// with no branch chain to walk.
+/// A table rather than a <c>switch</c>: data is what you can swap at runtime,
+/// and one array read on a byte beats a branch chain anyway.
 /// <para>
-/// Three states, not two. "Blocked" and "not a terrain character at all" are
-/// different facts, and collapsing them would let a corrupt file parse as a
-/// solid wall -- a plausible-looking map that fails much later and confusingly.
+/// <b>Three states, not two.</b> "Blocked" and "not a terrain character at all"
+/// are different facts, and collapsing them lets a corrupt file parse as a solid
+/// wall — a plausible map that fails much later.
 /// </para>
 /// <para>
 /// <c>S</c> (swamp) and <c>W</c> (water) are impassable here. They carry
-/// conditional semantics in the multi-terrain benchmark variants -- swamp is
-/// enterable only from regular terrain, water traversable only from water -- but
-/// the standard problems and the published optimal costs we validate against use
-/// only <c>.</c> <c>G</c> <c>@</c> <c>O</c> <c>T</c>. Treating them as blocked is
-/// what the oracle expects; the conditional rules are a later milestone's problem
-/// and are exactly the kind of thing this table is shaped to accept.
+/// conditional semantics in the multi-terrain benchmark variants, but the
+/// published optimal costs we validate against use only
+/// <c>.</c> <c>G</c> <c>@</c> <c>O</c> <c>T</c>.
+/// </para>
+/// <para>
+/// So blocked is what the oracle expects, and the conditional rules are exactly
+/// what this table is shaped to accept later.
 /// </para>
 /// </remarks>
 internal static class Terrain

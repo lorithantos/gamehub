@@ -9,10 +9,12 @@ namespace Nav.Core;
 /// viewer may later drive playback, but playback must never need one.
 /// <para>
 /// Collisions are checked against the TRAJECTORIES — where agents actually went —
-/// rather than against their plans. Plans are replaced constantly by windowed
-/// replanning, so a set of plans that never conflicted with each other could still
-/// have described a run in which two units overlapped. What happened is the thing
-/// worth checking.
+/// rather than against their plans.
+/// </para>
+/// <para>
+/// Windowed replanning replaces plans constantly, so a set of plans that never
+/// conflicted could still describe a run in which two units overlapped. What
+/// happened is the thing worth checking.
 /// </para>
 /// </remarks>
 public static class ScenarioPlayback
@@ -22,16 +24,17 @@ public static class ScenarioPlayback
     /// happened.
     /// </summary>
     /// <remarks>
-    /// Coordinates are validated before anything runs: an agent off the map or on
-    /// a wall throws rather than being clamped onto the nearest legal cell, and so
-    /// does an order aimed off the map. A scenario paired with the wrong map is a
-    /// broken test, not a harder one, and quietly moving the units would turn it
-    /// into a plausible-looking pass.
+    /// Coordinates are validated before anything runs. An agent off the map or on
+    /// a wall throws rather than being clamped to the nearest legal cell.
     /// <para>
-    /// An order aimed at a wall is <em>not</em> an error, and that asymmetry is
-    /// deliberate: <see cref="MovementSystem.Order(IReadOnlyList{int}, int)"/> snaps an impassable
-    /// destination to the nearest passable cell, because a click on a wall means
-    /// the ground beside it. Off the map has no such reading.
+    /// A scenario paired with the wrong map is a broken test, not a harder one,
+    /// and quietly moving the units would turn it into a plausible pass.
+    /// </para>
+    /// <para>
+    /// An order aimed at a WALL is not an error, and the asymmetry is deliberate:
+    /// an impassable destination snaps to the nearest passable cell, because a
+    /// click on a wall means the ground beside it. Off the map has no such
+    /// reading.
     /// </para>
     /// <para>
     /// The whole run is deterministic, so playing one scenario twice must produce
@@ -41,14 +44,15 @@ public static class ScenarioPlayback
     /// </remarks>
     /// <param name="scenario">
     /// Placements and the order timeline, checked against <paramref name="grid"/>
-    /// before the run starts: the map must be the size the scenario was recorded
-    /// against (<see cref="RecordedScenario.EnsureMatches"/>), placements must be
-    /// in bounds and passable, and order destinations in bounds.
+    /// before the run starts: the recorded size, placements in bounds and
+    /// passable, order destinations in bounds.
     /// <para>
-    /// The one wrong pairing that survives all of that is a map of the
-    /// <em>same</em> size with different walls. Catching it would take a content
-    /// fingerprint, which would also make these files impossible to write by hand,
-    /// so it is deliberately not caught -- though a scenario whose units start
+    /// The one wrong pairing that survives that is a map of the <em>same</em>
+    /// size with different walls.
+    /// </para>
+    /// <para>
+    /// Catching it would take a content fingerprint, which would also make these
+    /// files impossible to write by hand — though a scenario whose units start
     /// inside the new walls still fails the passability check.
     /// </para>
     /// </param>
@@ -70,10 +74,15 @@ public static class ScenarioPlayback
     /// </param>
     /// <param name="nodeBudgetPerTick">
     /// Passed through to <see cref="MovementSystem"/>. The default is the match
-    /// setting; a small value is the regime where searches genuinely suspend
-    /// across ticks, which is where a reservation made against a stale frontier
-    /// could bite -- and where the tie-break fuzz has to be run as well as at the
-    /// default, because at the default almost nothing ever suspends.
+    /// setting.
+    /// <para>
+    /// A SMALL value is the regime where searches genuinely suspend across ticks,
+    /// which is where a reservation made against a stale frontier could bite.
+    /// </para>
+    /// <para>
+    /// So the tie-break fuzz has to run there as well as at the default, because
+    /// at the default almost nothing ever suspends.
+    /// </para>
     /// </param>
     /// <returns>
     /// What happened: trajectories, the conflict verdict over them, and the

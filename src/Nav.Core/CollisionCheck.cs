@@ -4,15 +4,15 @@ namespace Nav.Core;
 /// Checks a set of plans for the two ways agents can occupy the same space.
 /// </summary>
 /// <remarks>
-/// This is the acceptance criteria made mechanical. Milestone 1 could compare
-/// against 367,010 published optimal costs; there is no equivalent published truth
-/// for multi-agent plans, so correctness here rests on properties that are exactly
-/// decidable instead — and on this checking them over every agent and every tick
-/// rather than spot-checking.
+/// There is no published truth for multi-agent plans the way there is for single
+/// paths, so correctness rests on properties that are exactly decidable instead.
 /// <para>
-/// Both kinds matter and the second is the one that gets forgotten. Two agents
-/// exchanging places share no cell at either tick, so a checker that only looks at
-/// occupancy reports it clean while the units walk through each other.
+/// Checked over every agent and every tick, rather than spot-checked.
+/// </para>
+/// <para>
+/// Both kinds matter and the second is the forgotten one: two agents exchanging
+/// places share no cell at either tick, so an occupancy-only checker reports
+/// clean while the units walk through each other.
 /// </para>
 /// </remarks>
 public static class CollisionCheck

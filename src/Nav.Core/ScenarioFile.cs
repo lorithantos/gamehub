@@ -124,9 +124,11 @@ public static class ScenarioFile
     /// <remarks>
     /// InvariantCulture is not optional here. On a machine whose culture uses a
     /// comma decimal separator, <c>double.Parse("3.00000000")</c> reads three
-    /// hundred million -- it does not throw, so every expected value would be
-    /// silently corrupted and every oracle comparison would fail for a reason
-    /// nowhere near the pathfinder.
+    /// hundred million.
+    /// <para>
+    /// It does not throw, so every expected value is silently corrupted and every
+    /// oracle comparison fails for a reason nowhere near the pathfinder.
+    /// </para>
     /// </remarks>
     private static double RequireDouble(string value, string field, string? source, int lineNumber)
     {

@@ -9,17 +9,19 @@ namespace Nav.Core;
 /// cell at different moments do not conflict, and two agents crossing it at the
 /// same moment do.
 /// <para>
-/// Bounded by a horizon rather than open-ended. Planning to the end of time costs
-/// what the end of time costs; a window makes planning bounded and lets agents
-/// replan as they go. Beyond the window nothing is reserved, so a query about it
-/// reports free -- that is not an approximation, it is what "we have not planned
-/// that far" means.
+/// Bounded by a HORIZON rather than open-ended. Planning to the end of time costs
+/// what the end of time costs; a window bounds it and lets agents replan as they
+/// go.
+/// </para>
+/// <para>
+/// Beyond the window nothing is reserved, so a query about it reports free. That
+/// is not an approximation — it is what "we have not planned that far" means.
 /// </para>
 /// <para>
 /// Backed by a ring of <see cref="Horizon"/> dense arrays, indexed
 /// <c>tick % Horizon</c>. <see cref="Advance"/> clears the slot falling off the
-/// back, which is the only work here proportional to the grid, and it happens once
-/// per tick rather than once per search.
+/// back, which is the only work proportional to the grid and happens once per
+/// tick rather than once per search.
 /// </para>
 /// </remarks>
 internal sealed class ReservationTable : IReservationView
@@ -37,28 +39,31 @@ internal sealed class ReservationTable : IReservationView
     /// Where each agent's plan ENDS, and from when. Parking is indefinite.
     /// </summary>
     /// <remarks>
-    /// Kept as a fact rather than written into the ring, and the difference is not
-    /// cosmetic. Materialising "I am staying here" as ticks up to the window edge
-    /// records it as ending at whatever the edge happened to be WHEN THE
-    /// RESERVATION WAS MADE. One tick later the window has moved and its last tick
-    /// reads free, so another agent plans to arrive exactly there — and walks into
-    /// a unit that was never going to leave.
+    /// Kept as a FACT rather than written into the ring, and the difference is
+    /// not cosmetic.
     /// <para>
-    /// Measured, not theorised: two agents in a one-wide corridor stood off for
-    /// thirty-one ticks and then passed through each other on tick 32, with a
-    /// horizon of 32.
+    /// Materialising "I am staying here" as ticks up to the window edge records
+    /// it as ending wherever the edge happened to be when the reservation was
+    /// made.
     /// </para>
-    /// </remarks>
-    /// <remarks>
-    /// A LIST per cell, not one entry. One entry was sound while every park came
-    /// from a search, which ends nowhere it cannot hold for the whole window.
-    /// Followers and stale steps park where they STAND, and a unit can stand,
-    /// legitimately and briefly, on a cell a fellow's plan will end on later;
-    /// with one entry the second park replaced the first, and when the
-    /// transient unit moved on and released its own, the fellow's park was gone
-    /// -- a third plan then validated against a cell nobody appeared to own,
-    /// and two units stood on it for good. The one standing there is the entry
+    /// <para>
+    /// One tick later the window has moved, its last tick reads free, and another
+    /// agent plans to arrive exactly there — walking into a unit that was never
+    /// going to leave.
+    /// </para>
+    /// <para>
+    /// A LIST per cell, not one entry. Whoever is standing there is the entry
     /// with the earliest tick that has already come.
+    /// </para>
+    /// <para>
+    /// One entry is sound only while every park comes from a search, which ends
+    /// nowhere it cannot hold for the whole window.
+    /// </para>
+    /// <para>
+    /// Followers park where they STAND, briefly and legitimately, on cells a
+    /// fellow's plan will end on later. With one entry the transient park
+    /// replaces the real one and takes it away on leaving.
+    /// </para>
     /// </remarks>
     private readonly Dictionary<int, List<(int Agent, int FromTick)>> _parked = [];
 
@@ -157,14 +162,12 @@ internal sealed class ReservationTable : IReservationView
     /// one past the window? A park is a claim on the cell, not just on a tick.
     /// </summary>
     /// <remarks>
-    /// One park per cell is all the table keeps, and that was sound while every
-    /// park came from a search, because a search checks holdability over the
-    /// whole window before ending anywhere. A follower checks only the next
-    /// tick. On the arena one stepped through a cell a fellow's plan was going to
-    /// end on twelve ticks later, parked there for a tick, and on leaving took
-    /// the fellow's park with it; a third unit's plan then validated against a
-    /// cell nobody appeared to own, and two units stood on it for good. So a
-    /// cell with anybody's park on it is nobody else's to enter or end on.
+    /// A cell with anybody's park on it is nobody else's to enter or end on.
+    /// <para>
+    /// The table keeps one park per cell. A search checks holdability across the
+    /// whole window; a follower checks only the next tick, so it can walk into a
+    /// park and carry it off on the way out.
+    /// </para>
     /// </remarks>
     public bool WillBeParkedOn(int cell, int agent)
     {
@@ -177,12 +180,15 @@ internal sealed class ReservationTable : IReservationView
     /// Records <paramref name="agent"/>'s plan, replacing whatever it held before.
     /// </summary>
     /// <remarks>
-    /// The final cell is held for the remainder of the window, and that single rule
-    /// covers both cases correctly. An agent that ARRIVED stays put and must keep
-    /// reserving its goal, or it becomes invisible and others plan straight through
-    /// it -- the most common way a reservation table is quietly wrong. An agent
-    /// whose plan merely reached the window edge is already at that cell at the
-    /// edge, so the extra hold is an empty range.
+    /// The final cell is held for the remainder of the window, and that one rule
+    /// covers both cases:
+    /// <list type="bullet">
+    /// <item><description>An agent that ARRIVED stays put and must keep reserving
+    /// its goal, or others plan straight through it — the most common way a
+    /// reservation table is quietly wrong.</description></item>
+    /// <item><description>An agent that merely reached the window edge is already
+    /// there, so the extra hold is an empty range.</description></item>
+    /// </list>
     /// </remarks>
     public void Reserve(IReadOnlyList<int> path, int startTick, int agent)
     {
@@ -233,20 +239,16 @@ internal sealed class ReservationTable : IReservationView
     /// plan crosses the cell inside the window.
     /// </summary>
     /// <remarks>
-    /// THE VALIDATED PARK. <see cref="Reserve"/> trusts its caller: every plan it
-    /// records was checked cell by cell by the search that produced it, and the
-    /// goal in particular passed <see cref="IsHoldable"/> before the search
-    /// declared it found. A park that did not come from a search has had no such
-    /// check, and writing it straight in is unsound -- it stands a unit on a cell
-    /// somebody is already committed to walk through, and the collision arrives
-    /// ticks later, far from its cause. That is exactly what happened when a
-    /// doctrine first tried to say "stay where you are": five scenarios tripped
-    /// the assertion in <see cref="Mark"/>. So this is the one way to park without
-    /// a search, and it asks first.
+    /// THE VALIDATED PARK — the one way to park without a search.
     /// <para>
-    /// On success the agent's previous route is released, so the cells it was
-    /// going to walk are free for others at once. Releasing can never cause a
-    /// collision; only marking can, and marking here is guarded.
+    /// <see cref="Reserve"/> trusts its caller, because every plan it records was
+    /// checked cell by cell by the search that produced it. A park has had no
+    /// such check, so this one asks before it writes.
+    /// </para>
+    /// <para>
+    /// On success the agent's previous route is released, freeing those cells at
+    /// once. Releasing can never cause a collision; only marking can, and
+    /// marking here is guarded.
     /// </para>
     /// </remarks>
     /// <returns>True if the agent is now parked there; false if it may not stay.</returns>

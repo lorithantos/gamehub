@@ -109,12 +109,13 @@ public interface IGroupView
     /// Will this member change cell this tick?
     /// </summary>
     /// <remarks>
-    /// False when anything is holding it where it is -- traffic ahead, a cell
-    /// somebody else has reserved, a plan that has not landed yet. A doctrine gets
-    /// the fact and not the cause, which is what keeps it on the right side of the
-    /// seam: no plan, no reservation, no search, nothing it could use to break
-    /// collision-freedom. The same kind of fact the viewer already reads as
-    /// <c>AgentState.Waiting</c>.
+    /// False when anything is holding it where it is — traffic ahead, a cell
+    /// somebody else reserved, a plan that has not landed.
+    /// <para>
+    /// A doctrine gets the FACT and not the CAUSE, which is what keeps it on the
+    /// right side of the seam: no plan, no reservation, no search, nothing it
+    /// could use to break collision-freedom.
+    /// </para>
     /// <para>
     /// It answers for the tick the pass is running in, like every other read here.
     /// </para>
@@ -122,12 +123,16 @@ public interface IGroupView
     bool IsMoving(int id);
 
     /// <summary>
-    /// Is this cell a doorway -- a chokepoint or a cell beside one? The ring
-    /// keeps clear of these so a group never seals its own way in, and a
-    /// doctrine settling a member where it stands must keep clear of them too:
-    /// a follower stopped in a gap behind a fellow reads as "not moving, close
-    /// enough", and settling it there freezes everyone behind it.
+    /// Is this cell a doorway — a chokepoint, or a cell beside one?
     /// </summary>
+    /// <remarks>
+    /// The ring keeps clear of these so a group never seals its own way in, and a
+    /// doctrine settling a member where it stands must too.
+    /// <para>
+    /// A follower stopped in a gap behind a fellow reads as "not moving, close
+    /// enough", and settling it there freezes everyone behind it.
+    /// </para>
+    /// </remarks>
     bool IsDoorway(int cell);
 
     /// <summary>
@@ -135,13 +140,13 @@ public interface IGroupView
     /// every agent, including members of other groups.
     /// </summary>
     /// <remarks>
-    /// <see cref="ClaimantOf"/> ranges over the same set, so the two can be used
-    /// as the pair they read as (is it claimed; then by whom) and agree. They did
-    /// not always: ClaimantOf once answered for this group alone, so with two
-    /// concurrent groups the second said "nobody" about a cell the first called
-    /// taken. A doctrine acting on the holder must still check it is one of its
-    /// own <see cref="Members"/>; <see cref="IGroupClaiming"/> refuses an
-    /// outsider regardless.
+    /// <see cref="ClaimantOf"/> ranges over the SAME set, so the two agree when
+    /// used as the pair they read as: is it claimed, then by whom.
+    /// <para>
+    /// A doctrine acting on the holder must still check it is one of its own
+    /// <see cref="Members"/>. <see cref="IGroupClaiming"/> refuses an outsider
+    /// regardless.
+    /// </para>
     /// </remarks>
     bool IsClaimed(int cell);
 

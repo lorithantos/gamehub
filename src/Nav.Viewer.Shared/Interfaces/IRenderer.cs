@@ -9,12 +9,12 @@ namespace Nav.Viewer.Interfaces;
 /// Five verbs, and the list is deliberately shorter than it looks like it should
 /// be.
 /// <para>
-/// <b>There is no text.</b> The app owns the status <em>string</em>
-/// (<see cref="IViewerApp.StatusText"/>); each host owns its presentation. WPF
-/// binds it to a TextBlock, raylib draws it with its own bitmap font. That is
-/// not a convenience -- raw Direct3D 11 cannot draw a glyph at all, and putting
-/// text here would have forced either DirectWrite interop or a glyph atlas into
-/// a milestone that needs neither.
+/// <b>There is no text.</b> The app owns the status <em>string</em>; each host
+/// owns its presentation — WPF binds a TextBlock, raylib draws a bitmap font.
+/// </para>
+/// <para>
+/// That is not a convenience. Raw Direct3D 11 cannot draw a glyph at all, so
+/// text here would force DirectWrite interop or a glyph atlas.
 /// </para>
 /// <para>
 /// There is no <c>Resize</c>, no <c>CreateTexture</c> and no <c>Dispose</c>

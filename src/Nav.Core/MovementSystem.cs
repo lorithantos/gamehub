@@ -8,11 +8,13 @@ namespace Nav.Core;
 /// told to move is a hundred searches, and doing them where the order arrives puts
 /// all of that in one frame.
 /// <para>
-/// New searches start longest-waiting first, tie-broken by id; searches already in
-/// flight are continued in id order. What matters is that both orders are total and
-/// FIXED -- that is what makes a tick reproducible, which every acceptance criterion
-/// downstream depends on. Plain id order was tried and starves the tail: under a
-/// budget too small to finish anything, the first agents take every slot forever.
+/// New searches start longest-waiting first, tie-broken by id; searches already
+/// in flight continue in id order.
+/// </para>
+/// <para>
+/// Both orders are total and FIXED, which is what makes a tick reproducible.
+/// Plain id order starves the tail: under a budget too small to finish anything,
+/// the first agents take every slot forever.
 /// </para>
 /// <para>
 /// <b>An agent whose search is still running holds position and stays reserved.</b>
@@ -27,17 +29,17 @@ public sealed class MovementSystem
     /// How far ahead a search is anchored to begin with, in ticks.
     /// </summary>
     /// <remarks>
-    /// A search that spans ticks finishes after the window has moved, and a plan
-    /// anchored at the tick the search STARTED would then begin in the past —
-    /// which the reservation table rejects outright. Anchoring ahead buys the
-    /// search this many ticks to finish in; overrunning it costs a discard, which
-    /// is counted rather than hidden.
+    /// A search that spans ticks finishes after the window has moved, so a plan
+    /// anchored where the search STARTED would begin in the past — which the
+    /// reservation table rejects outright.
+    /// <para>
+    /// Anchoring ahead buys the search this many ticks to finish in. Overrunning
+    /// costs a discard, which is counted rather than hidden.
+    /// </para>
     /// <para>
     /// It DOUBLES on each discard, and that is not a refinement. A fixed latency
-    /// livelocks on a tight budget: the search cannot finish in four ticks, so it
-    /// is abandoned, restarted, and abandoned again forever — a system that looks
-    /// busy and never moves. Measured on a fifty-node budget, where nothing
-    /// completed at all until the latency could grow.
+    /// livelocks on a tight budget: the search cannot finish, so it is abandoned,
+    /// restarted, and abandoned again forever — busy and never moving.
     /// </para>
     /// </remarks>
     private const int InitialPlanningLatency = 4;
@@ -58,10 +60,13 @@ public sealed class MovementSystem
     /// </summary>
     /// <remarks>
     /// The search is what unsticks a big crust, and every tick of waiting for it
-    /// is paid by two hundred units at once; too eager and the detours it plans
-    /// round a packed rim read as retreats. Twelve is where both hold. The swept
-    /// table is in <c>docs/search-and-movement.md</c>; re-run the settling report
+    /// is paid by two hundred units at once. Too eager, and the detours it plans
+    /// round a packed rim read as retreats.
+    /// <para>
+    /// Twelve is where both hold. The swept table is in
+    /// <c>docs/search-and-movement.md</c>; re-run the settling report
     /// before moving it.
+    /// </para>
     /// </remarks>
     private const int FollowBlockedTicks = 12;
 
@@ -211,10 +216,12 @@ public sealed class MovementSystem
     /// </param>
     /// <param name="fields">
     /// Where distance fields come from. Defaults to a <see cref="FieldCache"/> of
-    /// <see cref="FieldCapacity"/> built over <paramref name="grid"/>, which is
-    /// what a match wants. Supply one to share a source across systems, to hand in
-    /// fields precomputed at load, or to wrap the default in something that counts
-    /// -- the capacity is a guess until somebody measures it.
+    /// <see cref="FieldCapacity"/> built over <paramref name="grid"/>.
+    /// <para>
+    /// Supply one to share a source across systems, to hand in fields precomputed
+    /// at load, or to wrap the default in something that counts — the capacity is
+    /// a guess until somebody measures it.
+    /// </para>
     /// <para>
     /// Whatever is passed must be deterministic in the sense
     /// <see cref="IDistanceFieldSource"/> describes, or replay stops being a test.
@@ -228,11 +235,12 @@ public sealed class MovementSystem
     /// </param>
     /// <param name="tieBreakSeed">
     /// Makes every search pop a different but fixed one of its equally good
-    /// frontier entries, so a run can be checked against orderings the
-    /// production heap never chooses. Null, the default, is the production
-    /// ordering. A collision that appears under one seed and not another is a
-    /// real defect, because every path is still optimal and collision-freedom
-    /// must hold for every valid tie-break.
+    /// frontier entries, so a run can be checked against orderings the production
+    /// heap never chooses. Null, the default, is the production ordering.
+    /// <para>
+    /// A collision under one seed and not another is a REAL defect: every path is
+    /// still optimal, and collision-freedom must hold for every valid tie-break.
+    /// </para>
     /// </param>
     public MovementSystem(
         Grid grid,
@@ -388,25 +396,25 @@ public sealed class MovementSystem
     /// formation later, so a ring is always sized to the membership it serves.
     /// </summary>
     /// <remarks>
-    /// A GROUP's ring keeps doorways clear: no slot on or beside a chokepoint.
-    /// The gap fixture taught this the hard way -- the ring included the gap's
-    /// inner mouth, an early claimer parked in the doorway, and the chamber
-    /// sealed with the rest of the group outside. A single unit is exempt:
-    /// ordering one unit ONTO a doorway is intent.
+    /// <b>A GROUP's ring keeps doorways clear</b> — no slot on or beside a
+    /// chokepoint, or an early claimer parks in the mouth and seals the chamber
+    /// with the rest of the group outside.
     /// <para>
-    /// <b>It fills across, from the far rim to the near one.</b> Handing out the
-    /// middle first plugs the cell everything has to pass through: the leader
-    /// parks in it and every unit behind walks around the outside. The patrol
-    /// showed it -- a unit one step from its post spent five ticks going the
-    /// long way round whoever took the centre. Starting at the rim FURTHEST
-    /// from the arriving group and sweeping across means each unit walks into
-    /// open ground, and the last cell filled is the one nearest the units still
-    /// coming, so nobody crosses the formation to reach a place in it.
+    /// A single unit is exempt: ordering one unit ONTO a doorway is intent.
     /// </para>
     /// <para>
-    /// Filling outward would march a squad to a distant edge for no reason, and
-    /// the ring's size is what stops it: exactly one cell per member, so the rim
-    /// is one shell out for three units and widens only as the group does.
+    /// <b>It fills across, from the far rim to the near one.</b> Handing out the
+    /// middle first plugs the cell everything has to pass through, and every unit
+    /// behind walks around the outside.
+    /// </para>
+    /// <para>
+    /// Sweeping from the rim furthest from the arriving group means each unit
+    /// walks into open ground, and the last cell filled is nearest the units
+    /// still coming — so nobody crosses the formation to reach a place in it.
+    /// </para>
+    /// <para>
+    /// The ring holds exactly one cell per member, which is what stops a squad
+    /// marching to a distant edge for no reason.
     /// </para>
     /// </remarks>
     /// <param name="destination">The cell the order was aimed at.</param>
@@ -631,11 +639,14 @@ public sealed class MovementSystem
     /// <see cref="Recall(int)"/> or a new order.
     /// </summary>
     /// <remarks>
-    /// Not a movement doctrine's verb, on purpose. Whether a unit should leave its
-    /// formation -- to retreat for repair, to scout -- is a decision about
-    /// membership, made above this layer, and the formation only reports it. The
-    /// errand itself is exactly what a single-unit order is, a goal and a field
-    /// key; the difference is that nothing here forgets where the unit belongs.
+    /// Not a movement doctrine's verb, on purpose. Whether a unit should leave
+    /// its formation — to retreat for repair, to scout — is a decision about
+    /// membership, made above this layer.
+    /// <para>
+    /// The errand itself is exactly what a single-unit order is: a goal and a
+    /// field key. The difference is that nothing here forgets where the unit
+    /// belongs.
+    /// </para>
     /// </remarks>
     /// <param name="agent">
     /// Who. Must have been ordered at least once: an errand is a departure from
@@ -702,11 +713,16 @@ public sealed class MovementSystem
     /// </summary>
     /// <remarks>
     /// The formation's ring is regrown to its new member count, so the joiner has
-    /// a slot to claim on approach like anyone else. Without that it waits beside
-    /// a full ring indefinitely: a member with no slot that makes no progress
-    /// waits four backstops for its next attempt, on the premise that a claim will
-    /// wake it sooner -- and with every slot held, no claim ever comes. A no-op on
-    /// an agent that is not away. See <c>docs/search-and-movement.md</c>.
+    /// a slot to claim on approach like anyone else.
+    /// <para>
+    /// Without that it waits beside a full ring indefinitely: a member with no
+    /// slot and no progress waits four backstops, on the premise that a claim
+    /// will wake it sooner — and with every slot held, no claim ever comes.
+    /// </para>
+    /// <para>
+    /// A no-op on an agent that is not away. See
+    /// <c>docs/search-and-movement.md</c>.
+    /// </para>
     /// </remarks>
     /// <exception cref="ArgumentOutOfRangeException">No such agent, either of them.</exception>
     /// <exception cref="ArgumentException">The two ids are the same agent.</exception>
@@ -777,11 +793,16 @@ public sealed class MovementSystem
 
     /// <summary>
     /// Drops whatever plan the agent was walking and holds the cell it stands on,
-    /// from now. What a follower does when its goal changes -- there is no
-    /// anchor to walk out to, it simply descends toward the new goal from the
-    /// next tick -- and what any agent does when the step it was about to take
-    /// is no longer its to take.
+    /// from now.
     /// </summary>
+    /// <remarks>
+    /// What a FOLLOWER does when its goal changes: there is no anchor to walk out
+    /// to, it just descends toward the new goal from the next tick.
+    /// <para>
+    /// Also what any agent does when the step it was about to take is no longer
+    /// its to take.
+    /// </para>
+    /// </remarks>
     private void Stand(Agent agent)
     {
         agent.Plan = null;
@@ -1158,16 +1179,20 @@ public sealed class MovementSystem
     /// </summary>
     /// <remarks>
     /// A PLAN IS ASKED FOR BEFORE THE OLD ONE RUNS OUT, by exactly the run-up the
-    /// next search will be given. Waiting for the plan to expire and only then
-    /// starting a search means the agent stands for the whole anchor while a
-    /// finished plan waits to be allowed to begin (<c>docs/search-and-movement.md</c>
-    /// has what that cost the patrol). Asking a latency early means the new plan is
-    /// anchored to start where the old one ends, and the walk is continuous.
+    /// next search will be given.
     /// <para>
-    /// It does not make an agent replan more often in steady state -- a plan is
-    /// still replaced once per plan -- only earlier, and <see cref="Commit"/>
-    /// already splices the old plan's remaining cells ahead of the new one, which
-    /// is what makes an anchor inside a live plan safe.
+    /// Waiting for expiry means the agent stands for the whole anchor while a
+    /// finished plan waits to be allowed to begin —
+    /// <c>docs/search-and-movement.md</c> has what that cost the patrol.
+    /// </para>
+    /// <para>
+    /// Asking early anchors the new plan to start where the old one ends, so the
+    /// walk is continuous.
+    /// </para>
+    /// <para>
+    /// It does not replan more OFTEN in steady state, only earlier.
+    /// <see cref="Commit"/> splices the old plan's remaining cells ahead of the
+    /// new one, which is what makes an anchor inside a live plan safe.
     /// </para>
     /// </remarks>
     private bool ShouldStart(Agent agent) =>
@@ -1178,14 +1203,18 @@ public sealed class MovementSystem
         (agent.WantsPlan || agent.Plan is null || agent.Plan.LastTick <= CurrentTick + agent.Latency);
 
     /// <summary>
-    /// A follower keeps following -- never searches -- while it is not blocked
-    /// long, and ALWAYS while it holds no slot. An unslotted member's goal is
-    /// the destination, which somebody already holds; a search for that is the
-    /// window-exhausting search followers exist to avoid, and its "no progress"
-    /// then read as a stall and had the reconcile pass park a whole throng in
-    /// the wrong room. A slotted member's goal is a cell it can hold, so a
-    /// search for it is cheap and is how it gets round a parked fellow.
+    /// A follower keeps following — never searches — while it is not blocked
+    /// long, and ALWAYS while it holds no slot.
     /// </summary>
+    /// <remarks>
+    /// An unslotted member's goal is the destination, which somebody already
+    /// holds. Searching for that is the window-exhausting search followers exist
+    /// to avoid, and its "no progress" reads as a stall.
+    /// <para>
+    /// A slotted member's goal is a cell it can hold, so a search for it is cheap
+    /// — and is how it gets round a parked fellow.
+    /// </para>
+    /// </remarks>
     private static bool KeepsFollowing(Agent agent) =>
         !agent.HasSlot || agent.BlockedTicks < FollowBlockedTicks;
 
@@ -1216,11 +1245,13 @@ public sealed class MovementSystem
     /// </summary>
     /// <remarks>
     /// The step is a two-cell plan reserved like any other, so the tick that
-    /// moves everybody, the seam's <c>IsMoving</c>, the collision checker and
-    /// the replay never learn that no search produced it. A member holding a
-    /// claimed slot descends the octile distance to that slot instead of the
-    /// field, which is keyed to the destination; a slot is a step or two from
-    /// it and this is the first thing to try before spending a search there.
+    /// moves everybody, the seam's <c>IsMoving</c>, the collision checker and the
+    /// replay never learn that no search produced it.
+    /// <para>
+    /// A member holding a claimed slot descends the octile distance to THAT slot
+    /// instead of the field, which is keyed to the destination. A slot is a step
+    /// or two off, and this is what to try before spending a search on it.
+    /// </para>
     /// </remarks>
     private void Follow(Agent agent)
     {
@@ -1519,14 +1550,16 @@ public sealed class MovementSystem
     /// what it has priced so far assumed the cell was free.
     /// </summary>
     /// <remarks>
-    /// The table only ever changes at a commit, and a commit reserves a path --
-    /// one cell per tick -- so a suspended search that had already reached one
-    /// of those exact states was rare enough that the tie-break fuzz never
-    /// produced it. A park reserves one cell at EVERY tick of the window, and a
-    /// settling crust parks many at once, so the same race became the first
-    /// thing the arena did: "agent 58 reserved cell 1804 at tick 234, which
-    /// agent 196 already holds". Searches that have not reached the cell need
-    /// nothing; they read the table as they go and will route around.
+    /// A commit reserves a path — one cell per tick — so a suspended search
+    /// holding one of those exact states is vanishingly rare.
+    /// <para>
+    /// A park reserves one cell at EVERY tick of the window, and a settling
+    /// crust parks many at once, so the same race stops being rare.
+    /// </para>
+    /// <para>
+    /// Searches that have not reached the cell need nothing: they read the table
+    /// as they go and route around it.
+    /// </para>
     /// </remarks>
     private void ForgetSearchesThrough(int cell, Agent parked)
     {
@@ -1760,14 +1793,18 @@ public sealed class MovementSystem
         /// <inheritdoc/>
         /// <remarks>
         /// The table is asked BEFORE anything changes, so a refusal leaves the
-        /// member exactly as it was -- plan, claim, search and all. On success
-        /// the order is: table (the old route is released and the cell held),
-        /// claim (goal and cache, which may retract a slot elsewhere), then the
-        /// search in flight is dropped -- unconditionally, because ClaimSlot
-        /// leaves a search alone when the goal already matches, and a search
-        /// that later committed would re-route a parked unit -- and finally the
-        /// plan becomes the one cell it stands on, so <see cref="Tick"/> keeps it
-        /// there and <see cref="IsMoving"/> reads false from the next pass.
+        /// member exactly as it was — plan, claim, search and all.
+        /// <para>On success, in this order:</para>
+        /// <list type="number">
+        /// <item><description>Table: the old route is released and the cell
+        /// held.</description></item>
+        /// <item><description>Claim: goal and cache, which may retract a slot
+        /// elsewhere.</description></item>
+        /// <item><description>Any search in flight is dropped, unconditionally —
+        /// one that committed later would re-route a parked unit.</description></item>
+        /// <item><description>The plan becomes the single cell it stands on, so
+        /// <see cref="IsMoving"/> reads false next pass.</description></item>
+        /// </list>
         /// </remarks>
         public bool Park(int id)
         {

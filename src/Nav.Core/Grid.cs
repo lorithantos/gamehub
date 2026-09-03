@@ -11,9 +11,11 @@ namespace Nav.Core;
 /// <para>
 /// Cell identity across this codebase is the <em>flat integer index</em>
 /// <c>y * Width + x</c>, not a coordinate pair. That keeps the search's state
-/// arrays dense and one-dimensional and stops the inner loop allocating tuples.
-/// The backing store is a flat <c>bool[]</c> for the same reason -- a jagged
-/// array would put a pointer chase between the search and every cell it touches.
+/// arrays dense and stops the inner loop allocating tuples.
+/// </para>
+/// <para>
+/// The backing store is a flat <c>bool[]</c> for the same reason: a jagged array
+/// would put a pointer chase between the search and every cell it touches.
 /// </para>
 /// </remarks>
 public sealed class Grid
@@ -126,10 +128,12 @@ public sealed class Grid
 
     /// <remarks>
     /// Strict throughout: every disagreement between the header and the body is a
-    /// throw naming the line, never a silent repair. A map that quietly loads at
-    /// the wrong dimensions produces a plausible mirrored world whose scenario
-    /// costs are all subtly wrong, which is far more expensive to diagnose than a
-    /// refusal to load.
+    /// throw naming the line, never a silent repair.
+    /// <para>
+    /// A map that quietly loads at the wrong dimensions produces a plausible
+    /// mirrored world whose scenario costs are all subtly wrong — far more
+    /// expensive to diagnose than a refusal to load.
+    /// </para>
     /// </remarks>
     private static Grid Parse(string text, string? source)
     {

@@ -11,11 +11,14 @@ namespace Nav.Viewer;
 /// rule is one piece of tested code rather than two per-host reimplementations
 /// that drift apart.
 /// <para>
-/// It reconciles two opposite input models. WPF is evented and repeats: holding
-/// Space fires KeyDown around thirty times a second, and a host translating each
-/// event into an edge would toggle run/pause every frame. Here a repeat is a
-/// no-op, because the key was already recorded as down. Raylib is polled, so its
-/// host samples <c>IsKeyDown</c> once per frame and feeds the same method.
+/// It reconciles two opposite input models. WPF is evented and REPEATS: holding
+/// Space fires KeyDown thirty times a second, and a host turning each event into
+/// an edge would toggle run/pause every frame.
+/// </para>
+/// <para>
+/// Here a repeat is a no-op, because the key was already recorded as down.
+/// Raylib is polled, so its host samples <c>IsKeyDown</c> once per frame and
+/// feeds the same method.
 /// </para>
 /// <para>
 /// It also dissolves raylib's <c>CBool</c> problem. That type converts to

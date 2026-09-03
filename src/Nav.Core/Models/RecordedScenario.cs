@@ -80,19 +80,22 @@ public sealed record RecordedScenario(
     /// passable, and every order aimed inside the map.
     /// </summary>
     /// <remarks>
-    /// The replay twin of <see cref="ScenarioRecord.EnsureMatches"/>, and it
-    /// exists for the same reason: replaying against a map that is merely the
-    /// wrong shape produces a run that is plausible and meaningless, every
-    /// position slightly off and nothing obviously broken. Refusing is the only
-    /// useful behaviour.
+    /// Replaying against a map of the wrong shape produces a run that is
+    /// plausible and meaningless — every position slightly off, nothing obviously
+    /// broken. Refusing is the only useful behaviour.
     /// <para>
     /// <b>Dimensions only.</b> This says the map is the right <em>size</em>; it
-    /// cannot say it is the right map. A differently walled map of identical
-    /// width and height passes here and is not detectable from anything the
-    /// format records -- closing that would mean a content fingerprint, which
-    /// would also make these files impossible to write by hand.
+    /// cannot say it is the right map.
+    /// </para>
+    /// <para>
+    /// A differently walled map of identical width and height passes here, and
+    /// nothing the format records would catch it. Closing that would mean a
+    /// content fingerprint, which would also make these files impossible to write
+    /// by hand.
+    /// </para>
+    /// <para>
     /// <see cref="ScenarioPlayback.Play"/> still checks every coordinate against
-    /// the grid, which is what catches the rest.
+    /// the grid, which catches the rest.
     /// </para>
     /// </remarks>
     /// <param name="grid">The map the scenario is about to be replayed on.</param>

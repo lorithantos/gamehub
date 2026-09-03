@@ -8,12 +8,13 @@ namespace Nav.Viewer.Wpf;
 /// Entry point for the WPF / Direct3D 11 host.
 /// </summary>
 /// <remarks>
-/// Deliberately a near-copy of the raylib host's Main. The two share
-/// <c>ViewerOptions</c>, <c>Grid</c> and <c>GridLayout</c> -- everything with a
-/// decision in it -- and duplicate only the wiring that reads them. Hoisting the
-/// remaining forty lines into the shared project would have been a change to
-/// <c>Nav.Viewer.Shared</c>, and the point of this phase is to find out whether
-/// building a second host needs one. Measure first; tidy afterwards.
+/// Deliberately a near-copy of the raylib host's Main. The two share everything
+/// with a decision in it and duplicate only the wiring that reads it.
+/// <para>
+/// Hoisting the remaining forty lines into the shared project would be a change
+/// to <c>Nav.Viewer.Shared</c>, and the point is to find out whether a second
+/// host needs one. Measure first; tidy afterwards.
+/// </para>
 /// </remarks>
 internal static class Program
 {

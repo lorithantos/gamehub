@@ -15,16 +15,16 @@ namespace Nav.Viewer.Models;
 /// here unchanged. Both hosts and both renderers go through it, so their
 /// geometry cannot disagree.
 /// </para>
-/// <para>
-/// <b>The window and the map are two different rectangles</b>, and they were the
-/// same one until a map arrived that did not fit. <see cref="PixelWidth"/> and
-/// <see cref="PixelHeight"/> are the WINDOW — both hosts size themselves from
-/// them and rebuild when they change — while the map's own extent is
-/// <see cref="CellSize"/> times the grid, which may be far larger.
-/// <see cref="OriginX"/> and <see cref="OriginY"/> say where the map's corner
-/// sits inside the window, and go negative once the map is bigger than what is
-/// looking at it.
-/// </para>
+/// <para><b>The window and the map are two different rectangles:</b></para>
+/// <list type="bullet">
+/// <item><description><see cref="PixelWidth"/> and <see cref="PixelHeight"/> are
+/// the WINDOW. Both hosts size themselves from them.</description></item>
+/// <item><description>The MAP's extent is <see cref="CellSize"/> times the grid,
+/// which may be far larger.</description></item>
+/// <item><description><see cref="OriginX"/> and <see cref="OriginY"/> place the
+/// map's corner in the window, and go negative once the map is the bigger of the
+/// two.</description></item>
+/// </list>
 /// </remarks>
 /// <param name="CellSize">Pixels per cell.</param>
 /// <param name="PixelWidth">Window width. Not the map's width unless they happen to match.</param>
@@ -39,13 +39,19 @@ public readonly record struct GridLayout(
     /// budget, with the window sized to match it exactly.
     /// </summary>
     /// <remarks>
-    /// Whole pixels, so a cell never lands on a half-pixel boundary and
-    /// shimmers. Floored at 1, and that floor is the reason
-    /// <see cref="Viewing"/> exists: a 512x512 map does render here rather than
-    /// vanishing, at one pixel per cell — and every mark the viewer draws is
-    /// sized from <see cref="CellSize"/>, so a unit, its id, its health bar and
-    /// its route all collapse into that one pixel. The map is visible and the
-    /// SIMULATION is not, which is worse than failing.
+    /// Whole pixels, so a cell never lands on a half-pixel boundary and shimmers.
+    /// <para>
+    /// Floored at 1, which is the reason <see cref="Viewing"/> exists: a
+    /// 512-square renders here rather than vanishing, at one pixel per cell.
+    /// </para>
+    /// <para>
+    /// Every mark the viewer draws is sized from <see cref="CellSize"/>, so a
+    /// unit, its id, its health bar and its route all collapse into that one
+    /// pixel.
+    /// </para>
+    /// <para>
+    /// The map is visible and the SIMULATION is not, which is worse than failing.
+    /// </para>
     /// </remarks>
     public static GridLayout Fit(Grid grid, int maxWidth, int maxHeight)
     {
@@ -134,10 +140,15 @@ public readonly record struct GridLayout(
     /// <summary>The cell under a screen position, or false if that is not over the map.</summary>
     /// <remarks>
     /// Two rejections, not one, and they are different questions. A point outside
-    /// the WINDOW is not being pointed at; a point inside the window but off the
-    /// MAP is the margin around a map smaller than its window, or the void beyond
-    /// an edge. Both answer false, and conflating them would let a click on the
-    /// margin pick the nearest cell as though the map extended there.
+    /// the WINDOW is not being pointed at.
+    /// <para>
+    /// A point inside the window but off the MAP is the margin around a small
+    /// map, or the void past an edge.
+    /// </para>
+    /// <para>
+    /// Both answer false. Conflating them would let a click on the margin pick
+    /// the nearest cell as though the map extended there.
+    /// </para>
     /// </remarks>
     public bool TryPick(Vector2 screen, Grid grid, out int cell)
     {

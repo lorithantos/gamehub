@@ -7,9 +7,11 @@ namespace Nav.Tactics.Interfaces;
 /// <remarks>
 /// Fed by the game and faked in tests, which is the whole reason it is an
 /// interface. Nothing in the movement layer knows any of this exists, and no
-/// squad doctrine learns it any other way, so a guard that retreats at a health
-/// threshold is testable against a scripted world before a single point of
-/// damage has been modelled anywhere.
+/// squad doctrine learns it any other way.
+/// <para>
+/// So a guard that retreats at a health threshold is testable against a scripted
+/// world before a single point of damage has been modelled anywhere.
+/// </para>
 /// <para>
 /// Answers are for the tick they are asked in. Determinism binds here as it does
 /// everywhere below: the same tick asked twice must answer the same, or replay
@@ -29,14 +31,17 @@ public interface IPerception
     /// what it has survived. An agent the perception knows nothing about is 0.
     /// </summary>
     /// <remarks>
-    /// It sits beside health because it is the same kind of fact -- a property
-    /// of the unit that the world keeps and a doctrine only reads. WHERE rank
-    /// comes from is the world's business: <see cref="DemoWorld"/> earns it from
-    /// time spent within reach of <see cref="Hostiles"/>, a game would have its
-    /// own rule, and a world with no notion of veterancy answers 0 for
-    /// everybody, which every doctrine here treats as the ordinary case.
+    /// Beside health because it is the same kind of fact: a property of the unit
+    /// that the world keeps and a doctrine only reads.
+    /// <para>
+    /// WHERE rank comes from is the world's business. A world with no notion of
+    /// veterancy answers 0 for everybody, which every doctrine here treats as
+    /// the ordinary case.
+    /// </para>
+    /// <para>
     /// Deliberately NOT a default implementation: a world that models damage and
     /// forgets rank should have to say so rather than inherit a silent zero.
+    /// </para>
     /// </remarks>
     int RankOf(int agent);
 

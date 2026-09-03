@@ -13,11 +13,13 @@ public static class PathFinder
     /// How much better a route has to be before it is treated as an improvement.
     /// </summary>
     /// <remarks>
-    /// Two routes of mathematically identical cost can differ in the last bit
-    /// because their steps were summed in a different order. Without a floor,
-    /// that noise reopens settled cells and inflates the expansion count for no
-    /// gain. Octile costs on a grid are separated by at least sqrt(2)-1, so a
-    /// floor eleven orders of magnitude below that discards nothing real.
+    /// Two routes of mathematically identical cost can differ in the last bit,
+    /// because their steps were summed in a different order. Without a floor that
+    /// noise reopens settled cells and inflates the expansion count.
+    /// <para>
+    /// Octile costs on a grid are separated by at least sqrt(2)-1, so a floor
+    /// eleven orders of magnitude below that discards nothing real.
+    /// </para>
     /// </remarks>
     private const double Improvement = 1e-9;
 

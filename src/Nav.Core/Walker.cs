@@ -6,19 +6,24 @@ namespace Nav.Core;
 /// <remarks>
 /// Two decisions carry this type.
 /// <para>
-/// FIRST: the position is derived from total elapsed time, not accumulated into.
+/// FIRST: the position is DERIVED from total elapsed time, not accumulated into.
 /// <see cref="Advance"/> adds to a running <em>time</em> and then computes where
-/// that time puts the unit. Adding a displacement to a position each call would
-/// make the answer depend on how the caller happened to slice the interval,
-/// which is exactly what acceptance criterion 9 rejects.
+/// that time puts the unit.
 /// </para>
 /// <para>
-/// SECOND: the arc length of every prefix of the path is computed once, in the
-/// constructor, into a cumulative array. Locating the unit is then a binary
-/// search rather than a walk, a delta spanning fifty segments costs the same as
-/// one spanning half of one, and no square root is evaluated at any point -- a
-/// segment is either 1 or sqrt(2) long, so its length is a two-entry lookup.
-/// Space for time, and the space is one double per path cell.
+/// Adding a displacement to a position each call would make the answer depend on
+/// how the caller happened to slice the interval.
+/// </para>
+/// <para>
+/// SECOND: every prefix arc length is computed once, in the constructor, into a
+/// cumulative array. Locating the unit is then a binary search rather than a
+/// walk, so a delta spanning fifty segments costs what one spanning half a
+/// segment does.
+/// </para>
+/// <para>
+/// No square root is evaluated anywhere: a segment is either 1 or sqrt(2) long,
+/// so its length is a two-entry lookup. Space for time, at one double per path
+/// cell.
 /// </para>
 /// <para>
 /// The detail this is all guarding: a diagonal segment is sqrt(2) long, not 1.

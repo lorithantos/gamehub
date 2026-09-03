@@ -9,32 +9,30 @@ namespace Nav.Tactics;
 /// library rather than in the test project because the demos need it too, and
 /// two copies of "the world, faked" would drift.
 /// <para>
-/// Everything it enforces on its own turns on one idea: a unit standing within
-/// <see cref="ExposureRadius"/> of a hostile is EXPOSED for that tick. Exposure
-/// is counted, and <see cref="RankOf"/> is those counts read against
-/// <see cref="RankAt"/>; exposure also costs <see cref="DamagePerTick"/>. So
-/// the same standing that teaches a unit is the standing that hurts it, and a
-/// demo cannot arrange for one without the other. Against that, two rates give
-/// health back: <see cref="RepairPerTick"/> on a repair cell, and
-/// <see cref="SelfHealPerTick"/> anywhere at all for a unit at the top of the
-/// rank table.
+/// Everything it enforces turns on one idea: a unit within
+/// <see cref="ExposureRadius"/> of a hostile is EXPOSED for that tick.
+/// </para>
+/// <para>
+/// Exposure both earns rank and costs <see cref="DamagePerTick"/>, so the
+/// standing that teaches a unit is the standing that hurts it — a demo cannot
+/// arrange one without the other.
+/// </para>
+/// <para>
+/// Two rates give health back: <see cref="RepairPerTick"/> on a repair cell, and
+/// <see cref="SelfHealPerTick"/> anywhere, for a unit at the top of the table.
 /// </para>
 /// <para>
 /// The rates are summed and applied once per tick, so <em>overwhelmed</em> is
-/// not a case anybody wrote: it is the sign of the sum. A veteran under fire
-/// faster than it mends still falls under its doctrine's threshold and still
-/// goes to a pad. Damage can still be applied by hand as well -- a demo that
-/// wants a single scripted casualty at a chosen tick says so with
-/// <see cref="Damage"/>, and with the rates left at zero this class behaves
-/// exactly as it did before they existed.
+/// not a case anybody wrote — it is the sign of the sum.
 /// </para>
 /// <para>
-/// <b>Rank is earned, not assigned.</b> There is no SetRank, on purpose. A demo
-/// that could hand out veterans would be showing an arrangement rather than an
-/// outcome; here the unit that outranks the others is the one that stood on the
-/// hot side of the line and lived, and a viewer can go back through the trace
-/// and see it happen. Exposure is proximity only -- no line of sight, no
-/// facing, no fire -- because the demo's hostiles do not shoot either.
+/// <b>Rank is earned, not assigned.</b> There is no SetRank, on purpose: the
+/// unit that outranks the others is the one that stood on the hot side of the
+/// line and lived, and a viewer can go back through the trace and see it happen.
+/// </para>
+/// <para>
+/// Exposure is proximity only — no line of sight, no facing, no fire — because
+/// the demo's hostiles do not shoot either.
 /// </para>
 /// </remarks>
 public sealed class DemoWorld : IPerception
@@ -119,14 +117,16 @@ public sealed class DemoWorld : IPerception
     /// wherever it is standing.
     /// </summary>
     /// <remarks>
-    /// A RATE, not an exemption. A veteran under fire faster than this loses
-    /// health like anybody else and goes to a pad like anybody else -- being
-    /// self-healing makes a unit the one that needs a pad LEAST, never one that
-    /// never needs one. It also keeps working on the walk, so a veteran can
-    /// cross its doctrine's return threshold before it arrives and turn round;
-    /// the rejoin pass has never required arrival and
+    /// A RATE, not an exemption. Self-healing makes a unit the one that needs a
+    /// pad LEAST, never one that never needs one: under fire faster than this it
+    /// loses health and goes to a pad like anybody else.
+    /// <para>
+    /// It keeps working on the walk, so a veteran can cross its return threshold
+    /// before arriving and turn round; the rejoin pass has never required arrival
+    /// and
     /// <c>RepairPolicyTests.AUnitHealedOnTheWayTurnsRoundWithoutReachingThePad</c>
     /// pins that.
+    /// </para>
     /// </remarks>
     public double SelfHealPerTick { get; }
 
@@ -217,13 +217,14 @@ public sealed class DemoWorld : IPerception
     /// damage when the target reached zero takes the kill bonus as well, scaled
     /// by what the victim was worth.
     /// <para>
-    /// Exact damage-share credit would need a contributor map per target and
-    /// would agree with this in expectation anyway: deal sixty percent of the
-    /// damage and land about sixty percent of the killing blows. The per-kill
-    /// noise is the price of needing no bookkeeping, and the bias it leaves runs
-    /// usefully — a bigger hit is likelier to be the one that crosses zero, so
-    /// heavy units earn more than their damage share, which is the veterancy
-    /// loop reinforcing itself rather than a leak.
+    /// Exact damage-share credit needs a contributor map per target and agrees
+    /// with this in expectation anyway: deal sixty percent of the damage, land
+    /// about sixty percent of the killing blows.
+    /// </para>
+    /// <para>
+    /// The bias it leaves runs usefully. A bigger hit is likelier to be the one
+    /// that crosses zero, so heavy units earn more than their damage share —
+    /// veterancy reinforcing itself rather than a leak.
     /// </para>
     /// </remarks>
     /// <param name="target">Who is hit.</param>
@@ -288,14 +289,18 @@ public sealed class DemoWorld : IPerception
     /// ended the tick rather than where it started -- the cell it chose, not the
     /// cell it was leaving.
     /// <para>
-    /// The three rates are SUMMED and applied once, which is the whole design.
-    /// A veteran standing in the open loses <see cref="DamagePerTick"/> and
-    /// regains <see cref="SelfHealPerTick"/>, and whichever is larger decides
-    /// what happens to it -- so "overwhelmed" is not a special case anybody had
-    /// to write, it is just the sign of the sum. The armory is faster rather
-    /// than exclusive: a unit on a pad adds <see cref="RepairPerTick"/> on top
-    /// of whatever else it is doing, and a unit healing on the road is the same
-    /// arithmetic with one term missing.
+    /// The three rates are SUMMED and applied once, which is the whole design. A
+    /// veteran in the open loses <see cref="DamagePerTick"/> and regains
+    /// <see cref="SelfHealPerTick"/>; whichever is larger decides.
+    /// </para>
+    /// <para>
+    /// So "overwhelmed" is not a special case anybody wrote — it is the sign of
+    /// the sum.
+    /// </para>
+    /// <para>
+    /// The armory is faster rather than exclusive: a unit on a pad adds
+    /// <see cref="RepairPerTick"/> on top, and one healing on the road is the
+    /// same arithmetic with a term missing.
     /// </para>
     /// <para>
     /// Nothing stops a demo putting a repair cell inside an enemy's reach. The

@@ -5,16 +5,15 @@ namespace Nav.Core;
 /// heuristic that must stay admissible against both.
 /// </summary>
 /// <remarks>
-/// These three things live together because they cannot be allowed to drift.
-/// A heuristic that overestimates the cost model it is paired with stops A* being
-/// optimal, and the failure is silent -- paths come back slightly too expensive
-/// and nothing throws. Keeping them in one file means changing one puts the other
-/// two in front of you.
+/// These three live together because they cannot be allowed to drift.
 /// <para>
-/// There is no square root anywhere on a hot path here. sqrt(2) is a constant, so
-/// the step costs are constants baked into <see cref="Steps"/> and the heuristic
-/// is a multiply-add. Nothing is computed per step that could have been computed
-/// once.
+/// A heuristic that overestimates its cost model stops A* being optimal, and the
+/// failure is SILENT — paths come back slightly too expensive and nothing throws.
+/// One file means changing one puts the other two in front of you.
+/// </para>
+/// <para>
+/// No square root anywhere on a hot path. sqrt(2) is a constant, so step costs
+/// are baked into <see cref="Steps"/> and the heuristic is a multiply-add.
 /// </para>
 /// </remarks>
 public static class Movement
@@ -88,10 +87,12 @@ public static class Movement
     /// </summary>
     /// <remarks>
     /// THE CORNER-CUTTING RULE. A diagonal move is legal only when BOTH cells it
-    /// passes between are passable -- blocking on just one of the two is the
-    /// common wrong implementation, and it produces costs slightly below the
-    /// published optima rather than anything that looks like a bug. On the
-    /// section 4 fixture it returns 10.65685 where the answer is 11.82843.
+    /// passes between are passable.
+    /// <para>
+    /// Blocking on just one of the two is the common wrong implementation, and it
+    /// produces costs slightly BELOW the published optima rather than anything
+    /// that looks like a bug — 10.65685 where the answer is 11.82843.
+    /// </para>
     /// <para>
     /// The origin cell is assumed passable; the search only ever expands from
     /// cells it has already accepted, so re-checking it here would be dead work
@@ -136,12 +137,16 @@ public static class Movement
     /// <paramref name="diagonalSteps"/> diagonal moves.
     /// </summary>
     /// <remarks>
-    /// Two multiplications instead of one addition per step. The benchmark's
-    /// published optimal lengths are computed this way, so reporting a path's cost
-    /// through this method compares against them without a summation's worth of
-    /// accumulated rounding standing in between. The search still accumulates
-    /// step by step -- it has to, to order the frontier -- but the number that
-    /// faces the oracle is this one.
+    /// Two multiplications instead of one addition per step, and the benchmark's
+    /// published optimal lengths are computed the same way.
+    /// <para>
+    /// So a cost reported through here compares against them with no summation's
+    /// worth of accumulated rounding in between.
+    /// </para>
+    /// <para>
+    /// The search still accumulates step by step — it has to, to order the
+    /// frontier — but the number that faces the oracle is this one.
+    /// </para>
     /// </remarks>
     public static double ExactCost(int cardinalSteps, int diagonalSteps) =>
         (cardinalSteps * CardinalCost) + (diagonalSteps * DiagonalCost);

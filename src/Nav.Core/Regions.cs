@@ -191,9 +191,11 @@ public static class Regions
     /// <remarks>
     /// Two poles by double sweep — furthest cell from an arbitrary start, then
     /// furthest from that — which approximates the region's diameter cheaply.
-    /// Every cell then goes to the nearer pole BY DISTANCE THROUGH THE REGION
-    /// rather than as the crow flies, so a horseshoe-shaped room splits along
-    /// its length instead of across the gap in its middle.
+    /// <para>
+    /// Every cell goes to the nearer pole BY DISTANCE THROUGH THE REGION rather
+    /// than as the crow flies, so a horseshoe-shaped room splits along its length
+    /// instead of across the gap in its middle.
+    /// </para>
     /// <para>
     /// This is geometric and admits it. There is no chokepoint in an open room to
     /// find, so a cut there answers "where can this be halved" rather than "where

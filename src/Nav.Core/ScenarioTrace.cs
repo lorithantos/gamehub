@@ -11,20 +11,24 @@ namespace Nav.Core;
 /// is what answering "who planned and who waited" took before this existed.
 /// </summary>
 /// <remarks>
-/// Line 1 is a header carrying a version number, the same discipline as the
-/// scenario format: a format without a version drifts silently. Every following
-/// line is one tick — state after that tick's orders were issued, before the
-/// world advanced, which is the same instant the trajectory collision check
-/// reads. Two runs of one scenario must produce byte-identical files; that makes
-/// determinism checking a file diff, which also shows <em>where</em> divergence
-/// began rather than just that it happened.
+/// Line 1 is a header carrying a version number: a format without one drifts
+/// silently.
 /// <para>
-/// Lines deliberately carry full per-agent state rather than deltas. Tens of
-/// agents over hundreds of ticks is a trivially small file, and self-contained
-/// lines are what make grep useful. For reading a big trace,
-/// <see cref="Summarize"/> exists precisely so nobody has to page a whole file
-/// through a context window: it reduces any size of trace to a bounded digest
-/// of aggregates and ticks worth looking at.
+/// Every following line is one tick — state after that tick's orders were
+/// issued, before the world advanced, the same instant the trajectory collision
+/// check reads.
+/// </para>
+/// <para>
+/// Two runs of one scenario must produce byte-identical files, which makes
+/// determinism checking a diff — and a diff says <em>where</em> it diverged.
+/// </para>
+/// <para>
+/// Lines carry full per-agent state rather than deltas: self-contained lines are
+/// what make grep useful, and the file is small anyway.
+/// </para>
+/// <para>
+/// <see cref="Summarize"/> reduces any size of trace to a bounded digest, so
+/// nobody has to page a whole one through a context window.
 /// </para>
 /// </remarks>
 public static class ScenarioTrace

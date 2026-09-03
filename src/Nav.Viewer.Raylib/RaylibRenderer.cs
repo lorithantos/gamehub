@@ -12,10 +12,12 @@ namespace Nav.Viewer.Raylib;
 /// </summary>
 /// <remarks>
 /// Does not open or close raylib's drawing bracket. <c>BeginDrawing</c> and
-/// <c>EndDrawing</c> are tied to the window and its buffer swap, which makes
-/// them the host's business — and it leaves the host somewhere to draw its own
-/// status chrome after the app's frame. The D3D11 renderer will divide
-/// responsibility the same way, with present belonging to the host there too.
+/// <c>EndDrawing</c> are tied to the window and its buffer swap, which makes them
+/// the HOST's business.
+/// <para>
+/// It also leaves the host somewhere to draw its own status chrome after the
+/// app's frame. The D3D11 renderer divides responsibility the same way.
+/// </para>
 /// </remarks>
 internal sealed class RaylibRenderer : IRenderer, IDisposable
 {

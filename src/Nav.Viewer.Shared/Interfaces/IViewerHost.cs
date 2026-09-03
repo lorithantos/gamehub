@@ -5,11 +5,12 @@ namespace Nav.Viewer.Interfaces;
 /// </summary>
 /// <remarks>
 /// The interface is trivial and the contract below is the actual design, because
-/// the two hosts have opposite control flow. Raylib's loop belongs to the
-/// application (<c>while (!WindowShouldClose())</c>); WPF's belongs to the
-/// framework, with per-frame work hanging off a compositor callback. An
-/// abstraction over drawing alone would not have survived that difference — this
-/// one has to invert control, which is the interesting half of the experiment.
+/// the two hosts have opposite control flow.
+/// <para>
+/// Raylib's loop belongs to the application; WPF's belongs to the framework,
+/// with per-frame work hanging off a compositor callback. An abstraction over
+/// drawing alone would not survive that — this one inverts control.
+/// </para>
 /// <para>
 /// <b>The contract every host is held to:</b>
 /// </para>
@@ -17,16 +18,13 @@ namespace Nav.Viewer.Interfaces;
 /// <item><description><see cref="Run"/> opens a window and returns only when the
 /// user closes it.</description></item>
 /// <item><description>Per frame, exactly once, in this order: snapshot input →
-/// <see cref="IViewerApp.Update"/> → <see cref="IViewerApp.Render"/>. The
-/// <em>app</em> owns the renderer's frame: <see cref="IViewerApp.Render"/> calls
-/// <see cref="IRenderer.BeginFrame"/> and <see cref="IRenderer.EndFrame"/> itself,
-/// so a host must <b>not</b> bracket it again. A host brackets only its own
-/// presentation — raylib's <c>BeginDrawing</c>/<c>EndDrawing</c>, WPF's surface
-/// lock — which is a different pair of verbs.</description></item>
+/// <see cref="IViewerApp.Update"/> → <see cref="IViewerApp.Render"/>.</description></item>
+/// <item><description>The <em>app</em> owns the renderer's frame and brackets it
+/// itself, so a host must <b>not</b> bracket it again. A host brackets only its
+/// own presentation, which is a different pair of verbs.</description></item>
 /// <item><description><c>deltaSeconds</c> is <b>raw</b> wall-clock time since the
-/// previous Update, and never negative. Hosts must not clamp, smooth or filter
-/// it: <c>FixedTimestep.MaxStepsPerFrame</c> is already the circuit breaker, and
-/// a second one in a host would make the two diverge.</description></item>
+/// previous Update, never negative. Hosts must not clamp, smooth or filter it —
+/// <c>FixedTimestep</c> is already the circuit breaker.</description></item>
 /// <item><description>Edge flags in <see cref="InputState"/> are true iff the
 /// transition happened since the previous Update, and true for exactly one
 /// frame.</description></item>
@@ -35,9 +33,12 @@ namespace Nav.Viewer.Interfaces;
 /// </list>
 /// <para>
 /// The window title is a host constructor argument; window <em>size</em> follows
-/// <see cref="IViewerApp.Layout"/>. A windowed host reads it after every Update
-/// and resizes when it changed — mid-session loading changes the map, and the map
-/// decides the geometry. A host with no window ignores it, which is legal.
+/// <see cref="IViewerApp.Layout"/>.
+/// </para>
+/// <para>
+/// A windowed host reads it after every Update and resizes when it changed —
+/// mid-session loading changes the map, and the map decides the geometry. A host
+/// with no window ignores it, which is legal.
 /// </para>
 /// </remarks>
 public interface IViewerHost : IDisposable

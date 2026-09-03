@@ -11,17 +11,17 @@ namespace Nav.Core;
 /// <para>
 /// <b>This is the only implementation of the search.</b>
 /// <see cref="CooperativePlanner.FindPlan"/> is a wrapper that runs it to
-/// completion in one call. Criterion 7 -- that a plan built in fifty-node
-/// instalments is identical to the same plan built in one go -- is therefore true
-/// by construction rather than by testing: there is no second code path to
-/// diverge. The tests still assert it, because a claim of "by construction" is
-/// worth checking too.
+/// completion in one call.
 /// </para>
 /// <para>
-/// A SUSPENDED SEARCH OWNS ITS WORKSPACE. The frontier and the state arrays live
-/// there across calls, so handing the same workspace to another search before
-/// this one finishes corrupts both. Budget the number of searches in flight
-/// accordingly.
+/// So "a plan built in instalments equals the same plan built in one go" is true
+/// by construction — there is no second code path to diverge. The tests still
+/// assert it, because a claim of "by construction" is worth checking.
+/// </para>
+/// <para>
+/// <b>A SUSPENDED SEARCH OWNS ITS WORKSPACE.</b> The frontier and state arrays
+/// live there across calls, so handing the same workspace to another search
+/// before this one finishes corrupts both.
 /// </para>
 /// </remarks>
 internal sealed class BudgetedSearch
@@ -93,13 +93,16 @@ internal sealed class BudgetedSearch
     /// </param>
     /// <param name="field">
     /// Optional heuristic source: a <see cref="DistanceField"/> for the order's
-    /// destination, shared by the whole group. The agent's own goal need not be
-    /// the field's destination — the heuristic is shaded by the triangle
-    /// inequality, <c>h(c) = max(octile, field(c) − field(goal))</c>, which is
-    /// admissible and consistent for any goal and collapses expansions where the
-    /// field's destination and the goal agree. Without a field, octile as ever.
-    /// A field only sharpens the estimate; it never changes what is reachable,
-    /// so every reservation and legality rule binds exactly as before.
+    /// destination, shared by the whole group. Without one, octile as ever.
+    /// <para>
+    /// The goal need not be the field's destination. The estimate is shaded by
+    /// the triangle inequality, <c>h(c) = max(octile, field(c) − field(goal))</c>
+    /// — admissible and consistent for any goal.
+    /// </para>
+    /// <para>
+    /// A field only sharpens the estimate. It never changes what is reachable, so
+    /// every reservation and legality rule binds as before.
+    /// </para>
     /// </param>
     public BudgetedSearch(
         Grid grid,
@@ -197,15 +200,17 @@ internal sealed class BudgetedSearch
     /// strength of a table that has since changed.
     /// </summary>
     /// <remarks>
-    /// The question a park has to ask. A search reads the table as it expands,
-    /// so anything it has NOT yet reached will see a cell parked on and route
-    /// around it; but a state already in its frontier was priced when the cell
-    /// was free, and a popped state is not re-checked against the table. A
-    /// suspended search that has touched the cell can therefore commit a plan
-    /// straight through a unit that stopped there after it looked, and the
-    /// table's own assertion is what catches it -- as it did, at arena scale,
-    /// the first time a doctrine parked a whole crust at once. Stamps are per
-    /// state, so this is one comparison per tick of the window.
+    /// The question a park has to ask.
+    /// <para>
+    /// A search reads the table as it expands, so ground it has not reached yet
+    /// will see a new park and route around it. A state already in its frontier
+    /// was priced when the cell was free, and popping does not re-check.
+    /// </para>
+    /// <para>
+    /// So a suspended search that has touched the cell can commit a plan straight
+    /// through whoever stopped there. Stamps are per state: one comparison per
+    /// tick of the window.
+    /// </para>
     /// </remarks>
     internal bool Touches(int cell)
     {

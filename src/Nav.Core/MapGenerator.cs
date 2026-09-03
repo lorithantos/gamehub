@@ -6,26 +6,19 @@ namespace Nav.Core;
 /// Builds maps at the scale a real battle needs, out of nobody else's work.
 /// </summary>
 /// <remarks>
-/// The fixtures under <c>maps/fixtures</c> are hand-drawn and tiny — the largest
-/// is 49x49, against 384x384 for the smallest map in a published benchmark set.
-/// Doctrine tuned at that size produces thresholds that transfer to nothing,
-/// because there is no ground between "in the fight" and "across the map" for a
-/// rule to have an opinion about.
-/// <para>
-/// <b>Why generate rather than download.</b> Benchmark corpora exist and this
-/// project already uses one to check the pathfinder against published optimal
-/// costs. That is a fair use of somebody's map and it stays in the harness. What
-/// a generated map buys instead is two things a downloaded one cannot. Nothing
-/// we show anybody carries someone else's level design. And the passages are
-/// KNOWN, because we cut them — so a chokepoint detector can be scored against
-/// ground truth rather than eyeballed against a screenshot
-/// (<c>docs/gates-and-regions.md</c>).
-/// </para>
+/// The hand-drawn fixtures are tiny — largest 49x49, against 384x384 for the
+/// smallest map in a published benchmark set. Doctrine tuned at that size has no
+/// ground between "in the fight" and "across the map" to have an opinion about.
+/// <para><b>Why generate rather than download.</b> Two things a corpus cannot give:</para>
+/// <list type="bullet">
+/// <item><description>Nothing we show anybody carries someone else's level
+/// design.</description></item>
+/// <item><description>The passages are KNOWN, because we cut them, so a detector
+/// can be scored rather than eyeballed (<c>docs/gates-and-regions.md</c>).</description></item>
+/// </list>
 /// <para>
 /// Deterministic from the seed, using its own generator rather than
-/// <see cref="Random"/>, whose sequence is not contracted across runtimes. Two
-/// runs of the same seed must produce the same map, or a fixture is not a
-/// fixture.
+/// <see cref="Random"/>, whose sequence is not contracted across runtimes.
 /// </para>
 /// </remarks>
 public static class MapGenerator
@@ -41,10 +34,15 @@ public static class MapGenerator
     /// <param name="seed">Anything; the same seed gives the same map.</param>
     /// <param name="loopPercent">
     /// How many extra passages to cut beyond the minimum needed to join every
-    /// room, as a percentage of the rooms. Zero gives a tree, where every passage
-    /// is a separator and there is exactly one route between any two points — tidy
-    /// for testing a detector and unlike any real map. Higher values give
-    /// alternatives to flank through, and passages that separate nothing.
+    /// room, as a percentage of the rooms.
+    /// <para>
+    /// Zero gives a TREE — every passage a separator, exactly one route between
+    /// any two points. Tidy for testing a detector, and unlike any real map.
+    /// </para>
+    /// <para>
+    /// Higher gives alternatives to flank through, and passages that separate
+    /// nothing.
+    /// </para>
     /// </param>
     /// <param name="corridorWidth">How wide to cut a passage. One or two.</param>
     /// <exception cref="ArgumentOutOfRangeException">A dimension or a knob is out of range.</exception>
@@ -148,11 +146,12 @@ public static class MapGenerator
     /// is exact.
     /// <para>
     /// Measured on a REBUILT grid with the passage filled, rather than reasoned
-    /// from the room graph. The graph says which edges are bridges; it does not
-    /// know that two rooms ended up adjacent enough for their passages to merge,
-    /// or that a corridor clipped the corner of a third room. Rebuilding is slow
-    /// and cannot be wrong about the map it is actually looking at, and this runs
-    /// once at generation rather than in a tick.
+    /// from the room graph. The graph knows which edges are bridges; it does not
+    /// know two rooms ended up adjacent enough for their passages to merge.
+    /// </para>
+    /// <para>
+    /// Rebuilding is slow and cannot be wrong about the map it is looking at, and
+    /// this runs once at generation rather than in a tick.
     /// </para>
     /// </remarks>
     private static List<KnownGate> ScoreGates(
@@ -256,12 +255,13 @@ public static class MapGenerator
     /// the open cell nearest the middle, else -1 if the whole room is filled.
     /// </summary>
     /// <remarks>
-    /// It searches rather than testing one cell, and that is not fussiness. The
-    /// obstacle pass and the plug can both cover a room's exact middle, and
-    /// treating "the middle cell is blocked" as "this room is unreachable"
-    /// recorded a passage as a cut when the room was perfectly well connected
-    /// two cells to the left. It made the two halves of the oracle contradict
-    /// each other, which the consistency test caught.
+    /// It searches rather than testing one cell, and that is not fussiness: the
+    /// obstacle pass and the plug can both cover a room's exact middle.
+    /// <para>
+    /// Reading "the middle cell is blocked" as "this room is unreachable" records
+    /// a passage as a cut when the room is perfectly well connected two cells to
+    /// the left — which makes the two halves of the oracle contradict each other.
+    /// </para>
     /// </remarks>
     private static int Centre(Grid grid, Rect room)
     {

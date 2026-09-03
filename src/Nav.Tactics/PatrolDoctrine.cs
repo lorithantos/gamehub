@@ -8,27 +8,27 @@ namespace Nav.Tactics;
 /// after.
 /// <para>
 /// <b>The leash.</b> A hostile is worth going after only while it is within
-/// <see cref="Leash"/> of the ROUTE -- the straight line through the waypoints,
-/// closed back to the first. That is one number doing two jobs: it decides what
-/// is close enough to engage, and it decides when a fight has gone too far. Bait
-/// that withdraws past the leash simply stops being a target, so the patrol
-/// turns round and resumes its route instead of being walked into whatever is
-/// waiting.
+/// <see cref="Leash"/> of the ROUTE — the line through the waypoints, closed
+/// back to the first.
 /// </para>
 /// <para>
-/// Measured to the route rather than to the waypoint being walked toward, and
-/// the difference is not academic: on a leg longer than twice the leash, a
-/// waypoint-measured leash makes a patrol ignore a hostile standing in the
-/// middle of its own route -- which is exactly what the first draft of the
-/// demo did. Measured to the line, a patrol covers the ground it walks.
+/// One number doing two jobs: what is close enough to engage, and when a fight
+/// has gone too far. Bait that withdraws past the leash stops being a target, so
+/// the patrol turns round instead of being walked into whatever is waiting.
 /// </para>
 /// <para>
-/// <b>Nobody chases alone.</b> This doctrine issues one kind of move --
-/// <see cref="ISquadMovement.Sortie"/>, which takes every member on station --
-/// and there is no verb here for sending a single unit after something. So the
-/// bait pulls the whole patrol or it pulls nobody, and the rule is structural
-/// rather than a check somebody has to remember. A member away on an errand is
-/// left on it: a unit at the repair pad is not dragged into a fight.
+/// Measured to the ROUTE, not the waypoint being walked toward. On a leg longer
+/// than twice the leash, a waypoint-measured leash makes a patrol ignore a
+/// hostile standing in the middle of its own route.
+/// </para>
+/// <para>
+/// <b>Nobody chases alone.</b> The only move this doctrine issues takes every
+/// member on station, and there is no verb for sending one unit after something.
+/// </para>
+/// <para>
+/// So the bait pulls the whole patrol or it pulls nobody — structural, rather
+/// than a check somebody has to remember. A member away on an errand is left on
+/// it.
 /// </para>
 /// </remarks>
 public sealed class PatrolDoctrine : SquadDoctrine

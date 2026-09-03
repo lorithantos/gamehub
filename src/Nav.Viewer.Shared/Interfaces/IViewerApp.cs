@@ -1,19 +1,20 @@
 namespace Nav.Viewer.Interfaces;
 
 /// <summary>
-/// The application, as a host sees it: something to tick, something to draw, a
-/// line of text to display however the host displays text — and, since
-/// mid-session loading, the geometry the host should size its window to and a
-/// way to hand the app a file.
+/// The application, as a host sees it: something to tick, something to draw, and
+/// a line of text to display however the host displays text.
 /// </summary>
 /// <remarks>
-/// <see cref="Layout"/> and <see cref="LoadFile"/> are milestone-2's second
-/// recorded seam change (the first was <see cref="InputState.ButtonsDown"/>).
-/// Both exist because content became loadable mid-session: the host owns the
-/// gesture that produces a file — a dialog, a drop — and the app owns what the
-/// file means; the map then dictates the window size, so geometry had to become
-/// observable rather than a construction-time constant. The drawing verbs were
-/// untouched again.
+/// <see cref="Layout"/> and <see cref="LoadFile"/> exist because content is
+/// loadable mid-session.
+/// <para>
+/// The host owns the GESTURE that produces a file — a dialog, a drop — and the
+/// app owns what the file MEANS.
+/// </para>
+/// <para>
+/// The map then dictates the window size, so geometry has to be observable
+/// rather than a construction-time constant.
+/// </para>
 /// </remarks>
 public interface IViewerApp
 {

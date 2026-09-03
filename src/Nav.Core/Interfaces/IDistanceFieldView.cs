@@ -52,5 +52,6 @@ public interface IDistanceFieldView
     /// </remarks>
     /// <param name="destination">The cell the wanted field is keyed by.</param>
     /// <param name="field">The held field, or null.</param>
+    [Observes]
     bool TryPeek(int destination, [NotNullWhen(true)] out DistanceField? field);
 }

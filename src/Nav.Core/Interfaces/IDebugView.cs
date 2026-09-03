@@ -38,5 +38,6 @@ public interface IDebugView
     /// A fresh list each call, describing the instant it was asked. Never cached:
     /// a cache is one more thing that can go on describing a unit after it moved.
     /// </remarks>
+    [Observes]
     IReadOnlyList<DebugRow> Describe();
 }

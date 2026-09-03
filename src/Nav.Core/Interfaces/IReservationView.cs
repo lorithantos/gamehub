@@ -32,12 +32,14 @@ public interface IReservationView
     /// many grid-sized arrays, and a space-time search over the window has
     /// <c>Horizon * cellCount</c> states to work in.
     /// </summary>
+    [Observes]
     int Horizon { get; }
 
     /// <summary>
     /// The earliest tick still tracked. The window is
     /// <c>[CurrentTick, CurrentTick + Horizon)</c>.
     /// </summary>
+    [Observes]
     int CurrentTick { get; }
 
     /// <summary>
@@ -49,6 +51,7 @@ public interface IReservationView
     /// An agent never conflicts with itself. Replanning would otherwise be blocked
     /// by the plan it is replacing.
     /// </remarks>
+    [Observes]
     bool IsFree(int cell, int tick, int agent);
 
     /// <summary>
@@ -64,6 +67,7 @@ public interface IReservationView
     /// checking only occupancy reports it clean.
     /// </para>
     /// </remarks>
+    [Observes]
     bool IsSwap(int from, int to, int tick, int agent);
 
     /// <summary>
@@ -80,5 +84,6 @@ public interface IReservationView
     /// </para>
     /// <para>Every step legal, the destination not.</para>
     /// </remarks>
+    [Observes]
     bool IsHoldable(int cell, int fromTick, int agent);
 }

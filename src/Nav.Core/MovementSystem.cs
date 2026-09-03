@@ -418,6 +418,7 @@ public sealed class MovementSystem : IDebugView
     }
 
     /// <summary>Each live group's leader, for display and diagnostics.</summary>
+    [Observes]
     public IReadOnlyList<int> Leaders =>
         [.. _groups.Where(g => g.Leader >= 0).Select(g => g.Leader)];
 
@@ -1403,6 +1404,7 @@ public sealed class MovementSystem : IDebugView
     }
 
     /// <summary>Every agent's plan as it currently stands, for collision checking.</summary>
+    [Observes]
     public IReadOnlyList<AgentPlan> CurrentPlans() =>
         [.. _agents.Where(a => a.Plan is not null).Select(a => new AgentPlan(a.Id, a.Plan!))];
 
@@ -2005,6 +2007,7 @@ public sealed class MovementSystem : IDebugView
     /// </para>
     /// </remarks>
     /// <param name="agent">Who to describe. Any int; see the remarks.</param>
+    [Observes]
     public IDebugView DebugFor(int agent) => new AgentDebugView(this, _fields.View, agent);
 
     /// <summary>One agent's state, read at <see cref="Describe"/> time and never before.</summary>

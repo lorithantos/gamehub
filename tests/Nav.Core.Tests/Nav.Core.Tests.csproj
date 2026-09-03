@@ -25,6 +25,16 @@
   </ItemGroup>
 
   <!--
+    The reachable-mutation walk, shared by source with Nav.Tactics.Tests rather
+    than by a project of its own. It has to be pointed at whichever assembly
+    holds the instruments under audit, and a test project that referenced both
+    libraries would let a Nav.Core test reach a Nav.Tactics type by accident.
+  -->
+  <ItemGroup>
+    <Compile Include="..\Shared\InstrumentAudit\*.cs" Link="InstrumentAudit\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!--
     The two committed benchmark fixtures, copied next to the test binary. They are
     the only map data in the repository (everything else under maps/ is
     downloaded and gitignored), which is what lets the oracle in

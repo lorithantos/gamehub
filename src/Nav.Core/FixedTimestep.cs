@@ -15,7 +15,14 @@ namespace Nav.Core;
 /// surplus makes the simulation lose time it can never have caught up on anyway.
 /// </para>
 /// </remarks>
-public sealed class FixedTimestep(double step = 1.0 / 60.0, int maxStepsPerFrame = 8)
+/// <remarks>
+/// The default step is <see cref="WorldScale.Default"/>'s, not a render rate. A
+/// sixtieth of a second was here because that is what a display refreshes at,
+/// and it made a unit cross ground at sixty cells a second — the world changes
+/// four times a second and is DRAWN as often as the host likes, and those are
+/// different numbers that were the same one by accident.
+/// </remarks>
+public sealed class FixedTimestep(double step = 0.25, int maxStepsPerFrame = 8)
 {
     private double _accumulated;
 

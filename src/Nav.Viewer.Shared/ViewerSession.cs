@@ -38,7 +38,7 @@ public sealed class ViewerSession
     /// <summary>Units placed on a map opened without a scenario.</summary>
     public const int DefaultSquad = 24;
 
-    private const double DefaultTickSeconds = 1.0 / 60.0;
+    private static readonly double DefaultTickSeconds = WorldScale.Default.SecondsPerTick;
 
     private readonly List<int> _selection = [];
 

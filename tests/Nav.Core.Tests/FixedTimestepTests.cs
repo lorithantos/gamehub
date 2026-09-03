@@ -1,13 +1,28 @@
 namespace Nav.Core.Tests;
 
+/// <summary>
+/// The accumulator's arithmetic: banking, carrying, and refusing to catch up.
+/// </summary>
+/// <remarks>
+/// Every test states its OWN step rather than taking the shipped default. They
+/// did take the default, and when the world was calibrated -- a tick became a
+/// quarter second rather than a sixtieth, because one cell per tick at 60 Hz is
+/// 432 km/h -- four of them failed. Nothing about banking a short frame had
+/// changed; they were asserting the project''s clock speed while claiming to test
+/// an accumulator, and one of them said so in its name.
+/// </remarks>
 public sealed class FixedTimestepTests
 {
+    /// <summary>A step chosen here, so these tests do not move when the world does.</summary>
     private const double Sixtieth = 1.0 / 60.0;
+
+    private static FixedTimestep Clock(int maxStepsPerFrame = 8) =>
+        new(Sixtieth, maxStepsPerFrame);
 
     [Fact]
     public void ShortFramesBankUntilAWholeStepIsDue()
     {
-        var clock = new FixedTimestep();
+        var clock = Clock();
 
         Assert.Equal(0, clock.Accumulate(Sixtieth / 3.0));
         Assert.Equal(0, clock.Accumulate(Sixtieth / 3.0));
@@ -17,7 +32,7 @@ public sealed class FixedTimestepTests
     [Fact]
     public void ALongFrameYieldsSeveralSteps()
     {
-        var clock = new FixedTimestep();
+        var clock = Clock();
 
         Assert.Equal(6, clock.Accumulate(Sixtieth * 6.0));
     }
@@ -25,7 +40,7 @@ public sealed class FixedTimestepTests
     [Fact]
     public void TheRemainderIsCarriedRatherThanDropped()
     {
-        var clock = new FixedTimestep();
+        var clock = Clock();
 
         clock.Accumulate((Sixtieth * 2.0) + (Sixtieth / 2.0));
 
@@ -33,9 +48,9 @@ public sealed class FixedTimestepTests
     }
 
     [Fact]
-    public void ASecondOfFramesIsSixtyStepsHoweverItIsSliced()
+    public void ASecondOfFramesIsTheSameCountHoweverItIsSliced()
     {
-        var wholeFrames = new FixedTimestep();
+        var wholeFrames = Clock();
         var total = 0;
         for (var i = 0; i < 60; i++)
         {
@@ -44,7 +59,7 @@ public sealed class FixedTimestepTests
 
         Assert.Equal(60, total);
 
-        var choppedFrames = new FixedTimestep();
+        var choppedFrames = Clock();
         var chopped = 0;
         for (var i = 0; i < 240; i++)
         {
@@ -57,7 +72,7 @@ public sealed class FixedTimestepTests
     [Fact]
     public void AStallIsCappedRatherThanCaughtUpOn()
     {
-        var clock = new FixedTimestep(maxStepsPerFrame: 8);
+        var clock = Clock(maxStepsPerFrame: 8);
 
         // Five seconds is 300 steps. Running them all would take longer than the
         // frame trying to catch up, which is the spiral of death.
@@ -70,7 +85,7 @@ public sealed class FixedTimestepTests
     [Fact]
     public void ResetDropsWhatWasBanked()
     {
-        var clock = new FixedTimestep();
+        var clock = Clock();
         clock.Accumulate(Sixtieth / 2.0);
 
         clock.Reset();
@@ -89,13 +104,13 @@ public sealed class FixedTimestepTests
     [Fact]
     public void ANonPositiveStepCapIsRefused()
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => new FixedTimestep(maxStepsPerFrame: 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new FixedTimestep(Sixtieth, maxStepsPerFrame: 0));
     }
 
     [Fact]
     public void ANegativeDeltaIsRefused()
     {
-        var clock = new FixedTimestep();
+        var clock = Clock();
 
         Assert.Throws<ArgumentOutOfRangeException>(() => clock.Accumulate(-0.1));
     }

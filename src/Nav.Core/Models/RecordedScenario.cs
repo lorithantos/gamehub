@@ -72,7 +72,7 @@ public sealed record RecordedScenario(
     IReadOnlyList<ScenarioOrder> Orders,
     int EndTick)
 {
-    private const double DefaultTickSeconds = 1.0 / 60.0;
+    private static readonly double DefaultTickSeconds = WorldScale.Default.SecondsPerTick;
 
     /// <summary>
     /// Throws unless <paramref name="grid"/> is a map this scenario can actually

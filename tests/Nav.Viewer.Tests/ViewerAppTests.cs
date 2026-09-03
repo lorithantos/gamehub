@@ -17,6 +17,19 @@ public sealed class ViewerAppTests
 
     private static GridLayout LayoutFor(Grid grid) => GridLayout.Fit(grid, 1000, 1000 - StatusHeight);
 
+    /// <summary>
+    /// Idle frames, one simulation step each, so a count reads in TICKS.
+    /// </summary>
+    /// <remarks>
+    /// These tests asserted tick counts after N frames of a sixtieth of a second,
+    /// which silently encoded the project''s clock speed into a test about
+    /// something else. Calibrating the world -- a tick became a quarter second,
+    /// because one cell per tick at 60 Hz is 432 km/h -- turned three of them
+    /// red without anything they were testing having changed.
+    /// </remarks>
+    private static ScriptedFrame[] Ticks(int count) =>
+        ScriptedHost.Idle(count, (float)WorldScale.Default.SecondsPerTick);
+
     private static (ViewerApp App, RecordingRenderer Renderer, Grid Grid) Run(params ScriptedFrame[] frames)
     {
         var grid = Fixture();
@@ -259,7 +272,7 @@ public sealed class ViewerAppTests
     [Fact]
     public void TimeAdvancesWhileRunning()
     {
-        var (app, _, _) = Run(ScriptedHost.Idle(120));
+        var (app, _, _) = Run(Ticks(120));
 
         Assert.True(app.Running);
         Assert.True(app.CurrentTick > 100, $"only reached tick {app.CurrentTick}");
@@ -533,7 +546,7 @@ public sealed class ViewerAppTests
         var app = new ViewerApp(grid, LayoutFor(grid), scenario: scenario);
 
         using (var early = new ScriptedHost(
-            [new ScriptedFrame(KeysDown: ViewerKeys.Space), .. ScriptedHost.Idle(4)],
+            [new ScriptedFrame(KeysDown: ViewerKeys.Space), .. Ticks(4)],
             new RecordingRenderer()))
         {
             early.Run(app);
@@ -542,7 +555,7 @@ public sealed class ViewerAppTests
         // Tick 5: the order recorded for tick 10 has not been issued.
         Assert.Equal(grid.Index(1, 1), app.Agents[0].Goal);
 
-        using (var later = new ScriptedHost(ScriptedHost.Idle(120), new RecordingRenderer()))
+        using (var later = new ScriptedHost(Ticks(120), new RecordingRenderer()))
         {
             later.Run(app);
         }
@@ -610,7 +623,7 @@ public sealed class ViewerAppTests
             Assert.Equal("Nav.Viewer - wide.map", app.WindowTitle);
 
             // And the app still runs cleanly on the new content.
-            using var host = new ScriptedHost(ScriptedHost.Idle(30), new RecordingRenderer());
+            using var host = new ScriptedHost(Ticks(30), new RecordingRenderer());
             host.Run(app);
             Assert.True(app.CurrentTick > 20);
         }

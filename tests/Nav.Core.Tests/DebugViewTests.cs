@@ -73,6 +73,16 @@ public sealed class DebugViewTests
     /// <summary>Two more destinations than the cache can hold, so it is always evicting.</summary>
     private const int LiveDestinations = MovementSystem.FieldCapacity + 2;
 
+    /// <summary>
+    /// Open ground of any size, so a walk can be made longer than the planning
+    /// window. That is the only arrangement under which a plan comes back
+    /// partial rather than found, and the only one long enough to elide.
+    /// </summary>
+    private static string Open(int width, int height) => string.Join(
+        '\n',
+        new[] { "type octile", $"height {height}", $"width {width}", "map" }
+            .Concat(Enumerable.Repeat(new string('.', width), height)));
+
     private static (MovementSystem System, Grid Grid) Scene(string map, params (int X, int Y)[] at)
     {
         var grid = Grid.FromMapText(map);
@@ -502,6 +512,192 @@ public sealed class DebugViewTests
             "to the destination",
             Value(system.DebugFor(held), "Field", "from here"),
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ALivingUnitSaysItIsAliveRatherThanLeavingItToBeInferredFromSilence()
+    {
+        // The corpse page has always said "no"; the living page said nothing at
+        // all, so a reader had to know that the absence of the row IS the yes.
+        var (system, grid) = Scene(Room, (0, 4), (0, 5));
+        system.Order([0, 1], grid.Index(8, 4));
+        system.Tick();
+
+        var alive = Value(system.DebugFor(0), "Unit", "alive");
+        Assert.StartsWith("yes", alive, StringComparison.Ordinal);
+        Assert.DoesNotContain("removed", alive, StringComparison.Ordinal);
+
+        // And it is read from the agent, not printed: the same id after Remove
+        // reports the other answer.
+        system.Remove(0);
+        Assert.StartsWith("no", Value(system.DebugFor(0), "Unit", "alive"), StringComparison.Ordinal);
+        Assert.StartsWith("yes", Value(system.DebugFor(1), "Unit", "alive"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AUnitWithNoFormationStillReportsWhoLeadsIt()
+    {
+        // The leader row used to live inside the has-a-group branch, so the unit
+        // most likely to prompt the question -- one marching under nobody -- was
+        // the one the panel refused to answer it for.
+        var (system, grid) = Scene(Room, (0, 4), (0, 5));
+        system.Order([0], grid.Index(8, 4));
+        system.Tick();
+
+        var lone = system.DebugFor(1);
+        Assert.StartsWith("none", Value(lone, "Formation", "formation"), StringComparison.Ordinal);
+        Assert.StartsWith("none", Value(lone, "Formation", "leader"), StringComparison.Ordinal);
+
+        // The ordered one names a leader, so the row reads the group rather than
+        // reporting the same constant to everybody.
+        Assert.Equal("this unit", Value(system.DebugFor(0), "Formation", "leader"));
+    }
+
+    [Fact]
+    public void FoundAndPartialAreTwoRowsAndAPlanThatStopsShortAnswersBoth()
+    {
+        // A WALK LONGER THAN THE WINDOW. The planner books at most a horizon of
+        // future, so a goal further off than that comes back partial -- which is
+        // progress, and which the folded three-way row could only report by
+        // denying that the plan was found.
+        var grid = Grid.FromMapText(Open(60, 5));
+        var system = new MovementSystem(grid);
+        var far = system.AddAgent(grid.Index(0, 2));
+        system.Order([far], grid.Index(59, 2));
+        system.Tick();
+
+        var view = system.DebugFor(far);
+        Assert.StartsWith("no", Value(view, "Plan", "found"), StringComparison.Ordinal);
+        Assert.StartsWith("yes", Value(view, "Plan", "partial"), StringComparison.Ordinal);
+        Assert.Contains("as far as the window allows", Value(view, "Plan", "partial"), StringComparison.Ordinal);
+
+        // NOT STUCK, which is the third state the old row folded in with these
+        // two and which now has to answer for itself.
+        Assert.StartsWith("no", Value(view, "Plan", "stuck"), StringComparison.Ordinal);
+        Assert.False(HasKey(view, "Plan", "reach"), "the folded three-way row is still being emitted");
+
+        // A goal inside the window answers the other way round, so neither row
+        // is a constant. ONE unit, because a group member follows the shared
+        // field two cells at a time and never plans to the goal at all.
+        var (near, room) = Scene(Room, (0, 4));
+        near.Order([0], room.Index(8, 4));
+        for (var tick = 0; tick < 4; tick++)
+        {
+            near.Tick();
+        }
+
+        var close = near.DebugFor(0);
+        Assert.StartsWith("yes", Value(close, "Plan", "found"), StringComparison.Ordinal);
+        Assert.StartsWith("no", Value(close, "Plan", "partial"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheRouteRowShowsTheWholeRemainingWalkAndNotJustTheNextCell()
+    {
+        // ONE unit, so it plans a whole route: a group member follows the shared
+        // field two cells at a time and its preview could never be longer.
+        var (system, grid) = Scene(Room, (0, 4));
+        system.Order([0], grid.Index(8, 4));
+
+        // Past the planning latency the plan opens with, so the unit is walking
+        // and part of its route is already behind it.
+        for (var tick = 0; tick < 5; tick++)
+        {
+            system.Tick();
+        }
+
+        var view = system.DebugFor(0);
+        var remaining = Value(view, "Plan", "remaining");
+        var next = Value(view, "Plan", "next");
+
+        // The next cell is in there, and so is a good deal more: a preview that
+        // stops at the next cell answers a question the "next" row already does.
+        Assert.Contains('#', next);
+        Assert.Contains(next, remaining, StringComparison.Ordinal);
+        var steps = remaining[(remaining.IndexOf(": ", StringComparison.Ordinal) + 2)..].Split(" -> ");
+        Assert.True(steps.Length > 2, $"the whole remaining route read '{remaining}'");
+        Assert.Equal(LeadingNumber(remaining), steps.Length);
+
+        // It ends where the plan ends, which is the goal for a route that reaches.
+        Assert.Contains($"#{grid.Index(8, 4)}", steps[^1], StringComparison.Ordinal);
+
+        // Short enough to print whole, so nothing is hidden and nothing claims to be.
+        Assert.DoesNotContain("not shown", remaining, StringComparison.Ordinal);
+
+        // The count and the two tick bounds are three rows now, not one packed
+        // string. The plan is longer than what is left of it, because the unit
+        // has already walked part of it.
+        var cells = Value(view, "Plan", "cells");
+        Assert.DoesNotContain("ticks", cells, StringComparison.Ordinal);
+        Assert.True(
+            LeadingNumber(cells) > steps.Length,
+            $"'{cells}' against a remaining route of {steps.Length}");
+        Assert.True(HasKey(view, "Plan", "start tick"), "the plan's first tick lost its own row");
+        Assert.True(HasKey(view, "Plan", "last tick"), "the plan's last tick lost its own row");
+    }
+
+    [Fact]
+    public void AnElidedRouteSaysHowManyCellsItHid()
+    {
+        // AN ELISION THAT REPORTS ITS OWN SIZE LOSES NOTHING. A bare ellipsis
+        // makes a fifty-cell plan and a nineteen-cell one the same picture.
+        var grid = Grid.FromMapText(Open(60, 5));
+        var system = new MovementSystem(grid);
+        var far = system.AddAgent(grid.Index(0, 2));
+        system.Order([far], grid.Index(59, 2));
+        system.Tick();
+
+        var remaining = Value(system.DebugFor(far), "Plan", "remaining");
+        var total = LeadingNumber(remaining);
+        Assert.Contains("cells not shown", remaining, StringComparison.Ordinal);
+
+        var marker = remaining.IndexOf("... ", StringComparison.Ordinal);
+        var hidden = LeadingNumber(remaining[(marker + 4)..]);
+        var steps = remaining[(remaining.IndexOf(": ", StringComparison.Ordinal) + 2)..].Split(" -> ");
+
+        // Every cell is accounted for: the ones printed, plus the ones the row
+        // admits to hiding, is the whole walk.
+        Assert.True(hidden > 0, $"nothing was actually elided in '{remaining}'");
+        Assert.Equal(total, hidden + steps.Length - 1);
+
+        // And the ends are real cells, so the elision is a middle rather than a
+        // truncation that dropped the destination.
+        Assert.Contains('#', steps[0]);
+        Assert.Contains('#', steps[^1]);
+    }
+
+    [Fact]
+    public void ThePlanSaysWhereTheUnitShouldStandThisTickBesideWhereItDoes()
+    {
+        var grid = Grid.FromMapText(Open(60, 5));
+        var system = new MovementSystem(grid);
+        var far = system.AddAgent(grid.Index(0, 2));
+        system.Order([far], grid.Index(59, 2));
+        for (var tick = 0; tick < 6; tick++)
+        {
+            system.Tick();
+        }
+
+        var view = system.DebugFor(far);
+        var world = (IDebugView)system;
+
+        // THE ARRANGEMENT, ASSERTED. The plan was booked on an earlier tick and
+        // the unit has walked since, so a row reading the plan's FIRST cell
+        // instead of its cell for this tick would name somewhere else.
+        Assert.True(
+            LeadingNumber(Value(view, "Plan", "start tick")) < LeadingNumber(Value(world, "World", "tick")),
+            "the plan was booked this very tick, so a stale read would agree by luck");
+        Assert.NotEqual(grid.Index(0, 2), system.Agents[far].Cell);
+
+        var atNow = Value(view, "Plan", "at now");
+        Assert.StartsWith(Value(view, "Unit", "cell"), atNow, StringComparison.Ordinal);
+        Assert.DoesNotContain("disagree", atNow, StringComparison.Ordinal);
+
+        // It is not the "next" row said twice: this tick's cell is behind the
+        // next one while the unit is still walking.
+        var next = Value(view, "Plan", "next");
+        Assert.Contains('#', next);
+        Assert.DoesNotContain(next, atNow, StringComparison.Ordinal);
     }
 
     [Fact]

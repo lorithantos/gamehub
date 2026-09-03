@@ -2056,6 +2056,7 @@ public sealed class MovementSystem : IDebugView
             var rows = new List<DebugRow>
             {
                 new(Unit, "id", Number(agent.Id)),
+                new(Unit, "alive", "yes -- in the world and holding its cell"),
                 new(Unit, "side", Number(agent.Side)),
                 new(Unit, "cell", system.CellText(agent.Cell)),
                 new(Unit, "goal", system.CellText(agent.Goal)),
@@ -2110,28 +2111,65 @@ public sealed class MovementSystem : IDebugView
             }
             else
             {
+                rows.Add(new DebugRow(Route, "cells", $"{Number(plan.Cells.Count)}, one per tick"));
                 rows.Add(new DebugRow(
                     Route,
-                    "cells",
-                    $"{Number(plan.Cells.Count)}, ticks {Number(plan.StartTick)} to {Number(plan.LastTick)}"));
+                    "start tick",
+                    $"{Number(plan.StartTick)}, where the booked route begins"));
+                rows.Add(new DebugRow(Route, "last tick", (plan.LastTick - system.CurrentTick) switch
+                {
+                    > 0 and var left =>
+                        $"{Number(plan.LastTick)}, {Number(left)} ticks of booked future left",
+                    0 => $"{Number(plan.LastTick)}, and this tick is the last of it",
+                    _ => $"{Number(plan.LastTick)} -- the plan ran out; it stands on its last cell",
+                }));
                 rows.Add(new DebugRow(Route, "cost", string.Create(CultureInfo.InvariantCulture, $"{plan.Cost:0.##}")));
                 rows.Add(new DebugRow(Route, "expanded", $"{Number(plan.Expanded)} nodes"));
-                rows.Add(new DebugRow(Route, "reach", plan switch
-                {
-                    { IsStuck: true } => "stuck -- no plan at all, not even a tick of waiting",
-                    { Found: true } => "reaches the goal",
-                    _ => "partial -- as far as the window allows, which is progress",
-                }));
+
+                // THREE ROWS WHERE ONE THREE-WAY ROW STOOD. Folding them read
+                // tidily and answered only whichever question the fold had
+                // ranked first: a reader watching for a partial plan had to know
+                // that "reaches the goal" also means not partial. Each fact now
+                // says yes or no on its own line, and none of them is inferred.
+                rows.Add(new DebugRow(Route, "found", plan.Found
+                    ? "yes -- it reaches the goal"
+                    : "no -- it stops short of the goal"));
+                rows.Add(new DebugRow(Route, "partial", plan.IsPartial
+                    ? "yes -- as far as the window allows, which is progress"
+                    : "no -- it is not a route that stopped short"));
+                rows.Add(new DebugRow(Route, "stuck", plan.IsStuck
+                    ? "yes -- no plan at all, not even a tick of waiting"
+                    : "no -- it has cells to walk"));
+
+                // WHERE THE PLAN PUTS IT THIS TICK, beside where it actually is.
+                // Only one place in this system writes a cell, and it writes what
+                // this expression returns, so the two agreeing is an invariant
+                // rather than a coincidence -- which is exactly why a reader
+                // should be able to see it hold.
+                var atNow = plan.CellAt(system.CurrentTick);
+                rows.Add(new DebugRow(Route, "at now", atNow < 0
+                    ? $"nowhere yet -- the plan does not begin until tick {Number(plan.StartTick)}"
+                    : atNow == agent.Cell
+                        ? $"{system.CellText(atNow)}, which is where it stands"
+                        : $"{system.CellText(atNow)} -- but it stands on " +
+                          $"{system.CellText(agent.Cell)}, so the two disagree"));
 
                 var next = plan.CellAt(system.CurrentTick + 1);
                 rows.Add(new DebugRow(Route, "next", next < 0 || next == agent.Cell
                     ? "stands"
                     : system.CellText(next)));
+
+                rows.Add(new DebugRow(Route, "remaining", RemainingText(system, plan, system.CurrentTick)));
             }
 
             if (agent.Group is not { } group)
             {
                 rows.Add(new DebugRow(Formation, "formation", "none -- it has never been ordered"));
+
+                // A UNIT WITH NO FORMATION STILL GETS THE LEADER ROW. Reading
+                // "who leads this one" off the absence of a line asks the reader
+                // to know which branch of this method they are looking at.
+                rows.Add(new DebugRow(Formation, "leader", "none -- no formation, so nobody leads it"));
             }
             else
             {
@@ -2139,7 +2177,7 @@ public sealed class MovementSystem : IDebugView
                 rows.Add(new DebugRow(Formation, "members", Number(group.Members.Count)));
                 rows.Add(new DebugRow(Formation, "leader", group.Leader switch
                 {
-                    < 0 => "none",
+                    < 0 => "none -- the formation has elected nobody",
                     var leader when leader == agent.Id => "this unit",
                     var leader => $"agent {Number(leader)}",
                 }));
@@ -2200,6 +2238,53 @@ public sealed class MovementSystem : IDebugView
                 : system.CellText(agent.FieldKey)));
 
             return rows;
+        }
+
+        /// <summary>
+        /// The whole booked route from <paramref name="fromTick"/> to the end of
+        /// the plan, with the middle of a long one elided.
+        /// </summary>
+        /// <remarks>
+        /// THE ELISION REPORTS ITS OWN SIZE, which is what makes it lossless to
+        /// the reader: a route shown as head, "42 cells not shown", tail still
+        /// answers how long the walk is and where it ends, while a bare ellipsis
+        /// turns a fifty-cell plan and a nine-cell plan into the same picture.
+        /// </remarks>
+        private static string RemainingText(MovementSystem system, PlanResult plan, int fromTick)
+        {
+            const int Ends = 8;
+
+            var from = Math.Max(fromTick, plan.StartTick);
+            var count = plan.Cells.Count == 0 ? 0 : plan.LastTick - from + 1;
+            if (count <= 0)
+            {
+                return "nothing -- the plan does not cover this tick or any after it";
+            }
+
+            var steps = new List<string>(Math.Min(count, (Ends * 2) + 1));
+            if (count <= Ends * 2)
+            {
+                for (var tick = from; tick <= plan.LastTick; tick++)
+                {
+                    steps.Add(system.CellText(plan.CellAt(tick)));
+                }
+            }
+            else
+            {
+                for (var tick = from; tick < from + Ends; tick++)
+                {
+                    steps.Add(system.CellText(plan.CellAt(tick)));
+                }
+
+                steps.Add($"... {Number(count - (Ends * 2))} cells not shown ...");
+
+                for (var tick = plan.LastTick - Ends + 1; tick <= plan.LastTick; tick++)
+                {
+                    steps.Add(system.CellText(plan.CellAt(tick)));
+                }
+            }
+
+            return $"{Number(count)} cells from this tick on: {string.Join(" -> ", steps)}";
         }
 
         private static string FieldText(DistanceField field, int cell) => field.Reaches(cell)

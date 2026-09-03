@@ -963,14 +963,15 @@ public sealed class ViewerAppTests
         // stopped saying and this one showing where it went.
         //
         // They land in two different groups now, and the split is the point. The
-        // plan's reach is the MOVEMENT LAYER's fact and comes from DebugFor; the
-        // wait count is the VIEWER's, because it is the count of the marks the
-        // route draws.
+        // plan's found and partial rows are the MOVEMENT LAYER's facts and come
+        // from DebugFor; the wait count is the VIEWER's, because it is the count
+        // of the marks the route draws.
         var (whole, _) = Ordered(ShortCorridor, goalX: 4);
         var wholePlan = PlanOf(whole, 0);
 
         Assert.False(wholePlan.IsPartial);
-        Assert.StartsWith("reaches", InspectorValue(whole, "Plan", "reach"), StringComparison.Ordinal);
+        Assert.StartsWith("yes", InspectorValue(whole, "Plan", "found"), StringComparison.Ordinal);
+        Assert.StartsWith("no", InspectorValue(whole, "Plan", "partial"), StringComparison.Ordinal);
         Assert.NotEmpty(WaitsIn(whole, wholePlan));
         Assert.Equal(WaitsIn(whole, wholePlan).Count.ToString(CultureInfo.InvariantCulture),
             InspectorValue(whole, "Viewer", "waits"));
@@ -979,7 +980,8 @@ public sealed class ViewerAppTests
         var edgePlan = PlanOf(edge, 0);
 
         Assert.True(edgePlan.IsPartial);
-        Assert.StartsWith("partial", InspectorValue(edge, "Plan", "reach"), StringComparison.Ordinal);
+        Assert.StartsWith("yes", InspectorValue(edge, "Plan", "partial"), StringComparison.Ordinal);
+        Assert.StartsWith("no", InspectorValue(edge, "Plan", "found"), StringComparison.Ordinal);
         Assert.Equal(WaitsIn(edge, edgePlan).Count.ToString(CultureInfo.InvariantCulture),
             InspectorValue(edge, "Viewer", "waits"));
     }

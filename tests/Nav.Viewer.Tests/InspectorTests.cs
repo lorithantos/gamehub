@@ -195,11 +195,14 @@ public sealed class InspectorTests
         var plan = app.Session.CurrentPlans().First(p => p.Agent == 0).Plan;
         var rows = app.Inspector;
 
-        Assert.Equal(
-            $"{plan.Cells.Count}, ticks {plan.StartTick} to {plan.LastTick}", Value(rows, "Plan", "cells"));
+        Assert.Equal($"{plan.Cells.Count}, one per tick", Value(rows, "Plan", "cells"));
+        Assert.Equal($"{plan.StartTick}, where the booked route begins", Value(rows, "Plan", "start tick"));
+        Assert.StartsWith($"{plan.LastTick},", Value(rows, "Plan", "last tick"), StringComparison.Ordinal);
         Assert.Equal($"{plan.Expanded} nodes", Value(rows, "Plan", "expanded"));
         Assert.StartsWith(
-            plan.Found ? "reaches" : "partial", Value(rows, "Plan", "reach"), StringComparison.Ordinal);
+            plan.Found ? "yes" : "no", Value(rows, "Plan", "found"), StringComparison.Ordinal);
+        Assert.StartsWith(
+            plan.IsPartial ? "yes" : "no", Value(rows, "Plan", "partial"), StringComparison.Ordinal);
 
         // Where it goes NEXT, not where it has been: the row is cut at the
         // current tick, so it says what is about to happen.

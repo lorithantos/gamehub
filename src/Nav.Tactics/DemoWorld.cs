@@ -42,7 +42,7 @@ namespace Nav.Tactics;
 /// side 0's view.
 /// </para>
 /// </remarks>
-public sealed class DemoWorld : IPerception
+public sealed class DemoWorld : IPerception, IPerceptionView
 {
     private readonly Dictionary<int, double> _health = [];
     private readonly Dictionary<int, int> _exposure = [];
@@ -309,22 +309,13 @@ public sealed class DemoWorld : IPerception
     /// </summary>
     public IReadOnlyList<int> HostilesFor(int side)
     {
-        if (Fog)
+        if (!Fog)
         {
-            Look();
-            return _visible.TryGetValue(side, out var seen) ? [.. seen] : [];
+            return Everything(side);
         }
 
-        var cells = new SortedSet<int>(HostileCells);
-        foreach (var (agent, cell) in _cell)
-        {
-            if (SideOf(agent) != side)
-            {
-                cells.Add(cell);
-            }
-        }
-
-        return [.. cells];
+        Look();
+        return _visible.TryGetValue(side, out var seen) ? [.. seen] : [];
     }
 
     /// <summary>
@@ -340,11 +331,58 @@ public sealed class DemoWorld : IPerception
         }
 
         Look();
-        if (!_memory.TryGetValue(side, out var known))
+        return _memory.TryGetValue(side, out var known) ? ByAgent(known) : [];
+    }
+
+    /// <summary>
+    /// What a panel or a report holds instead of this world: the three
+    /// perception questions with no way to resolve perception.
+    /// </summary>
+    /// <remarks>
+    /// Itself, the way <c>FieldCache</c> is its own
+    /// <see cref="Core.Interfaces.IDistanceFieldView"/>: the narrowing is in the
+    /// TYPE the instrument holds, so there is nothing to allocate and nothing
+    /// that can drift from what the run is actually using.
+    /// </remarks>
+    public IPerceptionView View => this;
+
+    /// <inheritdoc/>
+    public IReadOnlyList<int> PeekHostiles(int side) =>
+        Fog
+            ? _visible.TryGetValue(side, out var seen) ? [.. seen] : []
+            : Everything(side);
+
+    /// <inheritdoc/>
+    public IReadOnlyList<Sighting> PeekSightings(int side) =>
+        Fog && _memory.TryGetValue(side, out var known) ? ByAgent(known) : [];
+
+    /// <inheritdoc/>
+    public IReadOnlyList<int> PeekRepairPoints(int side) =>
+        Fog
+            ? _pads.TryGetValue(side, out var pads) ? pads : []
+            : RepairCells;
+
+    /// <summary>
+    /// Every scripted threat and every other side's living unit, ascending:
+    /// what a world without <see cref="Fog"/> tells everybody.
+    /// </summary>
+    private IReadOnlyList<int> Everything(int side)
+    {
+        var cells = new SortedSet<int>(HostileCells);
+        foreach (var (agent, cell) in _cell)
         {
-            return [];
+            if (SideOf(agent) != side)
+            {
+                cells.Add(cell);
+            }
         }
 
+        return [.. cells];
+    }
+
+    /// <summary>One side's memory in agent order, copied out so the caller cannot write to it.</summary>
+    private static IReadOnlyList<Sighting> ByAgent(Dictionary<int, Sighting> known)
+    {
         var sightings = new List<Sighting>(known.Values);
         sightings.Sort((a, b) => a.Agent.CompareTo(b.Agent));
         return sightings;

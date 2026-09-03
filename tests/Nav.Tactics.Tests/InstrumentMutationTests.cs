@@ -21,13 +21,46 @@ namespace Nav.Tactics.Tests;
 /// instructions rather than edges.
 /// </para>
 /// <para>
-/// <b>Nothing here is fixed.</b> The finding is a design question about where
-/// perception should be resolved, not a bug with an obvious edit; this pins what
-/// the walk can see so that answering it later is a change somebody notices.
+/// <b>The doctrine path stays a verb.</b> Resolving is what
+/// <see cref="DemoWorld.SightingsFor"/> is FOR, so the finding against it is not
+/// a bug to fix; it is the control. <see cref="IPerceptionView"/> is the answer
+/// for everybody else, and the two tests are read together -- a green on the
+/// view means nothing unless the walk can still be shown finding something.
 /// </para>
 /// </remarks>
 public sealed class InstrumentMutationTests
 {
+    /// <summary>
+    /// The peek view, walked to the same depth as the query it exists beside,
+    /// with NO approved list. A mutation reachable from here is a fault rather
+    /// than an entry to add.
+    /// </summary>
+    [Theory]
+    [InlineData(nameof(IPerceptionView.PeekHostiles))]
+    [InlineData(nameof(IPerceptionView.PeekSightings))]
+    [InlineData(nameof(IPerceptionView.PeekRepairPoints))]
+    public void ThePeekViewCausesNothing(string member)
+    {
+        var walk = new MutationWalk(typeof(MovementSystem).Assembly, typeof(DemoWorld).Assembly);
+        var root = typeof(IPerceptionView).GetMethod(member)!;
+
+        var found = walk.From(root);
+        var report = new StringBuilder(MutationWalk.Report(root, found));
+        report.Append($"\n{walk.Visited} methods read, {walk.OwnedDropped} mutations dropped as owned");
+        foreach (var note in walk.Notes.Distinct())
+        {
+            report.Append("\n  note: ").Append(note);
+        }
+
+        // The interface member has no body, so a walk that read nothing reached
+        // no implementation and its cleanliness would be about the contract
+        // rather than about the world.
+        Assert.True(walk.Visited > 0, report.ToString());
+
+        var caused = found.Where(m => m.Suppressed is null).ToList();
+        Assert.True(caused.Count == 0, report.ToString());
+    }
+
     [Fact]
     public void TheWalkFindsWhatSightingsForCauses()
     {

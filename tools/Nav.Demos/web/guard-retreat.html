@@ -191,7 +191,10 @@
     box-shadow: var(--shadow);
   }
 
-  canvas { display: block; width: 100%; height: auto; }
+  /* touch-action none, or a drag on the map scrolls the page instead of panning
+     it -- which on a phone reads as the map being broken rather than as the
+     browser doing its job. */
+  canvas { display: block; width: 100%; height: auto; touch-action: none; }
 
   /* ---------- transport ---------- */
 
@@ -459,6 +462,13 @@
           <button data-rate="4" aria-pressed="true">4/s</button>
           <button data-rate="12" aria-pressed="false">12/s</button>
         </div>
+        <!-- Buttons, not only keys and a wheel. A phone has neither, and this
+             page gets read on one. -->
+        <div class="rates" role="group" aria-label="View">
+          <button id="zoom-out" title="Zoom out">&minus;</button>
+          <button id="zoom-reset" title="Whole map">Fit</button>
+          <button id="zoom-in" title="Zoom in">+</button>
+        </div>
         <div class="scrub">
           <input id="scrub" type="range" min="0" max="319" value="0" step="1" aria-label="Tick">
           <span class="tickcount" id="scrub-label">t0</span>
@@ -589,35 +599,102 @@
   let terrain = null;
   let terrainInk = "";
 
-  function solid(i) { return i >= 0 && i < data.walls.length && data.walls[i] !== "."; }
+  /* Any CSS colour to rgb, by asking the canvas rather than parsing. Tokens are
+     hex today and might not be tomorrow. */
+  function rgb(css) {
+    const c = document.createElement("canvas");
+    c.width = c.height = 1;
+    const g = c.getContext("2d", { willReadFrequently: true });
+    g.fillStyle = css;
+    g.fillRect(0, 0, 1, 1);
+    const d = g.getImageData(0, 0, 1, 1).data;
+    return [d[0], d[1], d[2]];
+  }
 
-  function bakeTerrain(wallColor, edgeColor) {
+  function bakeTerrain(wallColor, floorColor) {
+    const W = cols * SUPER;
+    const H = rows * SUPER;
     terrain = document.createElement("canvas");
-    terrain.width = cols * SUPER;
-    terrain.height = rows * SUPER;
+    terrain.width = W;
+    terrain.height = H;
     const tctx = terrain.getContext("2d");
+    const img = tctx.createImageData(W, H);
+    const px = img.data;
 
-    tctx.fillStyle = wallColor;
-    for (let i = 0; i < data.walls.length; i++) {
-      if (data.walls[i] !== ".") {
-        tctx.fillRect((i % cols) * SUPER, Math.floor(i / cols) * SUPER, SUPER, SUPER);
+    // Distance from the nearest wall, in baked pixels, by two-pass chamfer --
+    // the same transform the movement layer floods with, used here to draw.
+    // It is what makes this terrain rather than blocks: a corridor is dark
+    // along its whole length because every pixel of it is near a wall, and a
+    // room is light in the middle. The shading IS the structure, so a
+    // chokepoint looks like one before any overlay says so.
+    const INF = 1e9;
+    const dist = new Float32Array(W * H);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const wall = data.walls[(Math.floor(y / SUPER) * cols) + Math.floor(x / SUPER)] !== ".";
+        dist[(y * W) + x] = wall ? 0 : INF;
       }
     }
 
-    // A lip on faces that meet open ground, so a wall reads as having a top
-    // rather than being a hole. One pass at bake time; unaffordable per frame,
-    // free forever after.
-    tctx.fillStyle = edgeColor;
-    const lip = Math.max(1, SUPER / 4);
-    for (let i = 0; i < data.walls.length; i++) {
-      if (data.walls[i] === ".") { continue; }
-      const x = (i % cols) * SUPER;
-      const y = Math.floor(i / cols) * SUPER;
-      if (!solid(i - cols)) { tctx.fillRect(x, y, SUPER, lip); }
-      if (!solid(i - 1) && i % cols !== 0) { tctx.fillRect(x, y, lip, SUPER); }
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = (y * W) + x;
+        let d = dist[i];
+        if (x > 0) { d = Math.min(d, dist[i - 1] + 1); }
+        if (y > 0) { d = Math.min(d, dist[i - W] + 1); }
+        if (x > 0 && y > 0) { d = Math.min(d, dist[i - W - 1] + 1.4142); }
+        if (x < W - 1 && y > 0) { d = Math.min(d, dist[i - W + 1] + 1.4142); }
+        dist[i] = d;
+      }
     }
 
-    terrainInk = wallColor;
+    for (let y = H - 1; y >= 0; y--) {
+      for (let x = W - 1; x >= 0; x--) {
+        const i = (y * W) + x;
+        let d = dist[i];
+        if (x < W - 1) { d = Math.min(d, dist[i + 1] + 1); }
+        if (y < H - 1) { d = Math.min(d, dist[i + W] + 1); }
+        if (x < W - 1 && y < H - 1) { d = Math.min(d, dist[i + W + 1] + 1.4142); }
+        if (x > 0 && y < H - 1) { d = Math.min(d, dist[i + W - 1] + 1.4142); }
+        dist[i] = d;
+      }
+    }
+
+    const wall = rgb(wallColor);
+    const floor = rgb(floorColor);
+    const reach = SUPER * 2.5;
+
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = (y * W) + x;
+        const o = i * 4;
+        const isWall = data.walls[(Math.floor(y / SUPER) * cols) + Math.floor(x / SUPER)] !== ".";
+
+        // Deterministic per-pixel grain, so rock is not a flat slab. Cheap hash
+        // rather than a PRNG: the same map bakes identically every time, which
+        // a replay needs as much as the simulation does.
+        const n = (((x * 73856093) ^ (y * 19349663)) >>> 0) % 1000 / 1000;
+
+        if (isWall) {
+          const g = 0.92 + (n * 0.16);
+          px[o] = Math.min(255, wall[0] * g);
+          px[o + 1] = Math.min(255, wall[1] * g);
+          px[o + 2] = Math.min(255, wall[2] * g);
+        } else {
+          // Dark against the rock, opening out into the room.
+          const open = Math.min(1, dist[i] / reach);
+          const shade = 0.72 + (open * 0.28) + ((n - 0.5) * 0.03);
+          px[o] = Math.min(255, floor[0] * shade);
+          px[o + 1] = Math.min(255, floor[1] * shade);
+          px[o + 2] = Math.min(255, floor[2] * shade);
+        }
+
+        px[o + 3] = 255;
+      }
+    }
+
+    tctx.putImageData(img, 0, 0);
+    terrainInk = wallColor + "|" + floorColor;
   }
 
   /* ---------- camera ----------
@@ -734,7 +811,10 @@
     ctx.fillRect(0, 0, viewW, viewH);
 
     // Terrain: one blit. Rebaked only if the theme changed the wall colour.
-    if (!terrain || terrainInk !== colors.wall) { bakeTerrain(colors.wall, colors.ink3); }
+    if (!terrain || terrainInk !== colors.wall + "|" + colors.surface) {
+      bakeTerrain(colors.wall, colors.surface);
+    }
+
     ctx.fillStyle = colors.surface;
     ctx.fillRect(view.x, view.y, w, h);
 
@@ -1101,21 +1181,60 @@
     update();
   }
 
-  // Drag to pan, which is the gesture people try first. Left button, because
-  // this page has no selection to conflict with.
+  document.getElementById("zoom-in").addEventListener("click", function () { zoom(2); });
+  document.getElementById("zoom-out").addEventListener("click", function () { zoom(.5); });
+  document.getElementById("zoom-reset").addEventListener("click", resetView);
+
+  /* Drag pans, two fingers pinch. Pointer events cover mouse and touch with one
+     path, which is the only reason this is short -- the alternative is a mouse
+     branch and a touch branch that drift. */
+  const touches = new Map();
   let dragging = null;
+  let pinch = 0;
+
+  function spread() {
+    const p = [...touches.values()];
+    return p.length < 2 ? 0 : Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+  }
+
   canvas.addEventListener("pointerdown", function (e) {
-    dragging = { x: e.clientX, y: e.clientY, fx: focusX, fy: focusY };
     canvas.setPointerCapture(e.pointerId);
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (touches.size === 1) {
+      dragging = { x: e.clientX, y: e.clientY, fx: focusX, fy: focusY };
+    } else {
+      dragging = null;
+      pinch = spread();
+    }
   });
+
   canvas.addEventListener("pointermove", function (e) {
+    if (!touches.has(e.pointerId)) { return; }
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (touches.size >= 2) {
+      const now = spread();
+      // A whole doubling per step, so the scale stays a whole number of pixels
+      // per cell and a cell never straddles a half pixel.
+      if (pinch && now / pinch > 1.6) { zoom(2); pinch = now; }
+      else if (pinch && now / pinch < 0.625) { zoom(.5); pinch = now; }
+      return;
+    }
+
     if (!dragging) { return; }
     focusX = Math.max(0, Math.min(cols - 1, dragging.fx - Math.round((e.clientX - dragging.x) / cell)));
     focusY = Math.max(0, Math.min(rows - 1, dragging.fy - Math.round((e.clientY - dragging.y) / cell)));
     update();
   });
-  canvas.addEventListener("pointerup", function () { dragging = null; });
-  canvas.addEventListener("pointercancel", function () { dragging = null; });
+
+  function lift(e) {
+    touches.delete(e.pointerId);
+    dragging = null;
+    pinch = 0;
+  }
+
+  canvas.addEventListener("pointerup", lift);
+  canvas.addEventListener("pointercancel", lift);
 
   canvas.addEventListener("wheel", function (e) {
     e.preventDefault();

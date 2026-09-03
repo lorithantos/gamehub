@@ -136,6 +136,19 @@ public sealed class ViewerSession
     /// <summary>Each live group's leader, for the viewer's mark.</summary>
     public IReadOnlyList<int> Leaders => _system.Leaders;
 
+    /// <summary>
+    /// What the movement layer knows about one unit, for an instrument to show a
+    /// human. Any id is answered, including one that was never issued.
+    /// </summary>
+    /// <remarks>
+    /// A passthrough for the same reason <see cref="CurrentPlans"/> and
+    /// <see cref="Leaders"/> are: the system stays private, and a caller gets the
+    /// one narrow surface it needs rather than a handle it could plan or order
+    /// with. Nothing may branch on what comes back -- see
+    /// <see cref="IDebugView"/>.
+    /// </remarks>
+    public IDebugView DebugFor(int agent) => _system.DebugFor(agent);
+
     /// <summary>Distance fields cached, of <see cref="MovementSystem.FieldCapacity"/>.</summary>
     public int LiveFields => _system.LiveFields;
 

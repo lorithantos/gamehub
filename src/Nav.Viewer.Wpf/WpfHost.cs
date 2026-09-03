@@ -271,14 +271,14 @@ internal sealed class WpfHost(GridLayout layout, int? maxFrames) : IViewerHost
     /// changes rather than by grouping anything here.
     /// </para>
     /// </remarks>
-    private static string Format(IReadOnlyList<InspectorRow> rows)
+    private static string Format(IReadOnlyList<DebugRow> rows)
     {
         if (rows.Count == 0)
         {
             return string.Empty;
         }
 
-        var width = rows.Max(r => r.Label.Length);
+        var width = rows.Max(r => r.Key.Length);
         var text = new StringBuilder();
         var group = string.Empty;
 
@@ -295,7 +295,7 @@ internal sealed class WpfHost(GridLayout layout, int? maxFrames) : IViewerHost
                 text.AppendLine(group.ToUpperInvariant());
             }
 
-            text.Append("  ").Append(row.Label.PadRight(width)).Append("  ").AppendLine(row.Value);
+            text.Append("  ").Append(row.Key.PadRight(width)).Append("  ").AppendLine(row.Value);
         }
 
         return text.ToString().TrimEnd();

@@ -34,12 +34,6 @@ public sealed class ViewerApp : IViewerApp
     /// <summary>A drag smaller than this in both axes is a click.</summary>
     private const float ClickSlopPixels = 4.0f;
 
-    /// <summary>
-    /// How much of the route the inspector spells out. Enough to see the next
-    /// turn; a whole plan is what the overlay is for.
-    /// </summary>
-    private const int RoutePreviewCells = 6;
-
     private readonly ViewerSession _session;
     private readonly int _fitWidth;
     private readonly int _fitHeight;
@@ -181,8 +175,14 @@ public sealed class ViewerApp : IViewerApp
     /// The sole selection, or the lowest id when several are selected — one unit
     /// read properly beats forty summarised, and the lowest id is the one the
     /// box-select gesture puts first.
+    /// <para>
+    /// Mostly the movement layer's own words: these are
+    /// <see cref="IDebugView.Describe"/> rows, with the viewer's few additions in
+    /// a group of their own. Nothing may branch on them or parse a value back
+    /// into a number.
+    /// </para>
     /// </remarks>
-    public IReadOnlyList<InspectorRow> Inspector { get; private set; }
+    public IReadOnlyList<DebugRow> Inspector { get; private set; }
 
     /// <summary>
     /// Which keycap does what. Fixed for the life of the app: the hints in
@@ -590,7 +590,7 @@ public sealed class ViewerApp : IViewerApp
             // and are not the same set: a unit can be stuck while still walking
             // the plan it has, and a unit can be routeless on the very tick its
             // stall counter is zero. An instrument shows the present fact.
-            if (!routed.Contains(agent.Id) && agent.Alive && !agent.Arrived && !agent.Thinking)
+            if (HasNoRoute(agent, routed.Contains(agent.Id)))
             {
                 // A CROSS, not another circle. Every other mark at a unit's
                 // position is a filled disc -- the unit, the leader's doubled dot,
@@ -952,32 +952,34 @@ public sealed class ViewerApp : IViewerApp
         $"{Keys.KeycapFor(ViewerKeys.R)} {(_session.IsReplay ? "restart" : "regroup")}";
 
     /// <summary>
-    /// The watched unit spelled out, in group order: who it is, where it is,
-    /// what it is thinking, and what it plans to do next.
+    /// The watched unit spelled out: what the movement layer says about it,
+    /// then the few facts only this class can answer.
     /// </summary>
     /// <remarks>
-    /// Every field here is already on <see cref="AgentState"/> or
-    /// <see cref="PlanResult"/> — this reads what the simulation already
-    /// publishes rather than asking it for anything new, so nothing about the
-    /// tick path changes when nobody is watching.
+    /// <b>Most of this is no longer written here.</b> The bulk of the panel used
+    /// to be rows hand-built out of <see cref="AgentState"/> and
+    /// <see cref="PlanResult"/>, which is a second vocabulary for facts
+    /// <see cref="MovementSystem.DebugFor"/> already reports — and reports
+    /// better, because it reaches the slot, the blocked count and the retry
+    /// gate's REMAINING ticks, none of which are on the per-tick snapshot at
+    /// all. Two shapes for the same unit is the duplication this replaces.
+    /// <para>
+    /// <b>The viewer's own rows are a group of their own, and the separation is
+    /// the point.</b> A row under <c>Viewer</c> is one the movement layer cannot
+    /// answer, because it is not a fact about the unit: it is about what got
+    /// DRAWN — the wait marks on the route, the no-route cross — or about what
+    /// got SELECTED. Mixed in among the rest they would read as simulation
+    /// state, and somebody would go looking for the wait count in Nav.Core.
+    /// </para>
     /// <para>
     /// Rebuilt whole each time rather than cached: a cache is one more thing
-    /// that can go on describing a unit after it moved, and this is a few dozen
-    /// strings for ONE unit.
-    /// </para>
-    /// <para>
-    /// <b>Partial and waits are here because the map stopped drawing them.</b>
-    /// Both were map distinctions that fired almost every frame, and a
-    /// distinction that is always on is not one. A raw fact that is usually the
-    /// same reads fine as a row and reads as noise as a colour.
+    /// that can go on describing a unit after it moved, and this is a page of
+    /// strings for ONE unit, built only while somebody is watching it.
     /// </para>
     /// </remarks>
-    private IReadOnlyList<InspectorRow> BuildInspector()
+    private IReadOnlyList<DebugRow> BuildInspector()
     {
-        const string Identity = "Identity";
-        const string Position = "Position";
-        const string Planning = "Planning";
-        const string Route = "Route";
+        const string Viewer = "Viewer";
 
         var selection = _session.Selection;
         if (selection.Count == 0)
@@ -988,32 +990,14 @@ public sealed class ViewerApp : IViewerApp
         // The lowest id, because ViewerSession keeps the selection in ascending
         // order and a box-select has no other stable first member.
         var watched = selection[0];
-        var agent = _session.Agents[watched];
-
-        var rows = new List<InspectorRow>
-        {
-            new(Identity, "id", Number(agent.Id)),
-            new(Identity, "side", Number(agent.Side)),
-            new(Identity, "alive", YesNo(agent.Alive)),
-            new(Identity, "leader", YesNo(_session.Leaders.Contains(agent.Id))),
-        };
+        var rows = new List<DebugRow>(_session.DebugFor(watched).Describe());
 
         if (selection.Count > 1)
         {
             // Otherwise the panel silently describes one unit of a boxed group
             // and reads as though the box only caught one.
-            rows.Add(new InspectorRow(Identity, "others", $"{Number(selection.Count - 1)} also selected"));
+            rows.Add(new DebugRow(Viewer, "others", $"{Number(selection.Count - 1)} also selected"));
         }
-
-        rows.Add(new InspectorRow(Position, "cell", CellText(agent.Cell)));
-        rows.Add(new InspectorRow(Position, "goal", CellText(agent.Goal)));
-        rows.Add(new InspectorRow(Position, "arrived", YesNo(agent.Arrived)));
-        rows.Add(new InspectorRow(Position, "errand", CellText(agent.Errand)));
-
-        rows.Add(new InspectorRow(Planning, "thinking", YesNo(agent.Thinking)));
-        rows.Add(new InspectorRow(Planning, "waiting", YesNo(agent.Waiting)));
-        rows.Add(new InspectorRow(Planning, "stalled", Number(agent.StalledTicks)));
-        rows.Add(new InspectorRow(Planning, "stuck", YesNo(agent.Stuck)));
 
         PlanResult? route = null;
         foreach (var (id, plan) in _session.CurrentPlans())
@@ -1025,23 +1009,32 @@ public sealed class ViewerApp : IViewerApp
             }
         }
 
-        if (route is null)
-        {
-            rows.Add(new InspectorRow(Route, "plan", "none"));
-            return rows;
-        }
+        rows.Add(new DebugRow(Viewer, "waits", route is null ? "-" : Number(WaitCount(route))));
 
-        rows.Add(new InspectorRow(Route, "cells", Number(route.Cells.Count)));
-        rows.Add(new InspectorRow(Route, "cost", string.Create(CultureInfo.InvariantCulture, $"{route.Cost:0.##}")));
-        rows.Add(new InspectorRow(Route, "expanded", Number(route.Expanded)));
-        rows.Add(new InspectorRow(Route, "found", YesNo(route.Found)));
-        rows.Add(new InspectorRow(Route, "partial", YesNo(route.IsPartial)));
-        rows.Add(new InspectorRow(Route, "waits", Number(WaitCount(route))));
-        rows.Add(new InspectorRow(Route, "last tick", Number(route.LastTick)));
-        rows.Add(new InspectorRow(Route, "next", NextCells(route)));
+        // The orange cross, as a row. Render decides it from four conditions and
+        // the panel is the only place a watcher can read WHY the unit is crossed
+        // out, so both go through the one predicate rather than agreeing by hand.
+        var agent = _session.Agents[watched];
+        rows.Add(new DebugRow(Viewer, "no route", HasNoRoute(agent, route is not null)
+            ? "yes -- crossed out on the map"
+            : "no"));
 
         return rows;
     }
+
+    /// <summary>
+    /// Whether the map crosses this unit out: nothing to walk, and none of the
+    /// ordinary reasons to have nothing.
+    /// </summary>
+    /// <remarks>
+    /// The conditions are argued at the call site in <see cref="Render"/>, which
+    /// is where the drawing decision is made. It is a method rather than a line
+    /// there because the inspector reports the same fact, and a panel that
+    /// disagreed with the map about which units are crossed out would be worse
+    /// than no panel.
+    /// </remarks>
+    private static bool HasNoRoute(AgentState agent, bool routed) =>
+        !routed && agent.Alive && !agent.Arrived && !agent.Thinking;
 
     /// <summary>
     /// Ticks the plan spends standing still: a cell repeated from the one before
@@ -1067,30 +1060,6 @@ public sealed class ViewerApp : IViewerApp
 
         return waits;
     }
-
-    /// <summary>
-    /// Where the plan takes the unit from here, a handful of cells deep. Cut at
-    /// the current tick rather than at the plan's start, so it says what happens
-    /// next and not what already happened.
-    /// </summary>
-    private string NextCells(PlanResult plan)
-    {
-        var from = Math.Max(0, _session.CurrentTick - plan.StartTick);
-        var cells = plan.Cells.Skip(from).Take(RoutePreviewCells).Select(CellText);
-        var text = string.Join(" ", cells);
-        return text.Length > 0 ? text : "-";
-    }
-
-    /// <summary>
-    /// A cell as <c>col,row</c>, or <c>-</c> for the -1 that means "none" on
-    /// <see cref="AgentState.Errand"/>. Flat indices are how the simulation
-    /// talks; nobody reads a map in them.
-    /// </summary>
-    private string CellText(int cell) => cell < 0
-        ? "-"
-        : string.Create(CultureInfo.InvariantCulture, $"{_grid.ColumnOf(cell)},{_grid.RowOf(cell)}");
-
-    private static string YesNo(bool value) => value ? "yes" : "no";
 
     private static string Number(int value) => value.ToString(CultureInfo.InvariantCulture);
 }

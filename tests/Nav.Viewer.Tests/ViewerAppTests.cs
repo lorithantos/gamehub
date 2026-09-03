@@ -947,8 +947,8 @@ public sealed class ViewerAppTests
         Assert.False(Marks(mark, app.CenterOfCell(body.Cell)), "a body was marked as having no route");
     }
 
-    private static string InspectorValue(ViewerApp app, string label) =>
-        app.Inspector.Single(row => row.Group == "Route" && row.Label == label).Value;
+    private static string InspectorValue(ViewerApp app, string group, string key) =>
+        app.Inspector.Single(row => row.Group == group && row.Key == key).Value;
 
     [Fact]
     public void TheInspectorCarriesTheRouteFactsTheMapStoppedDrawing()
@@ -961,22 +961,27 @@ public sealed class ViewerAppTests
         // Here rather than in InspectorTests because it is the other half of the
         // two tests above: the same two corridors, one showing what the map
         // stopped saying and this one showing where it went.
+        //
+        // They land in two different groups now, and the split is the point. The
+        // plan's reach is the MOVEMENT LAYER's fact and comes from DebugFor; the
+        // wait count is the VIEWER's, because it is the count of the marks the
+        // route draws.
         var (whole, _) = Ordered(ShortCorridor, goalX: 4);
         var wholePlan = PlanOf(whole, 0);
 
         Assert.False(wholePlan.IsPartial);
-        Assert.Equal("no", InspectorValue(whole, "partial"));
+        Assert.StartsWith("reaches", InspectorValue(whole, "Plan", "reach"), StringComparison.Ordinal);
         Assert.NotEmpty(WaitsIn(whole, wholePlan));
         Assert.Equal(WaitsIn(whole, wholePlan).Count.ToString(CultureInfo.InvariantCulture),
-            InspectorValue(whole, "waits"));
+            InspectorValue(whole, "Viewer", "waits"));
 
         var (edge, _) = Ordered(LongCorridor, goalX: 42);
         var edgePlan = PlanOf(edge, 0);
 
         Assert.True(edgePlan.IsPartial);
-        Assert.Equal("yes", InspectorValue(edge, "partial"));
+        Assert.StartsWith("partial", InspectorValue(edge, "Plan", "reach"), StringComparison.Ordinal);
         Assert.Equal(WaitsIn(edge, edgePlan).Count.ToString(CultureInfo.InvariantCulture),
-            InspectorValue(edge, "waits"));
+            InspectorValue(edge, "Viewer", "waits"));
     }
 
     [Fact]

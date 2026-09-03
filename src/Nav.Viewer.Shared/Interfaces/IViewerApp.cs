@@ -38,8 +38,19 @@ public interface IViewerApp
     /// Empty when nothing is selected, which is a host's cue to show nothing
     /// rather than an empty frame.
     /// </para>
+    /// <para>
+    /// <see cref="DebugRow"/> rather than a viewer-owned row type: the movement
+    /// layer already publishes exactly this shape through
+    /// <see cref="IDebugView"/>, and it supplies most of what is in here. Two
+    /// identical three-string records one project apart is one to keep in step
+    /// for nothing.
+    /// </para>
+    /// <para>
+    /// Everything <see cref="IDebugView"/> forbids applies: a host lays these
+    /// out and nothing branches on them or parses a value back into a number.
+    /// </para>
     /// </remarks>
-    IReadOnlyList<InspectorRow> Inspector { get; }
+    IReadOnlyList<DebugRow> Inspector { get; }
 
     /// <summary>
     /// Which keycap does what. The host reads it to translate its own key type;

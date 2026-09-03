@@ -31,7 +31,11 @@
     <EmbeddedResource Include="Shaders\Viewer.hlsl" />
   </ItemGroup>
 
+  <!-- Nav.Core.Models is here for DebugRow: the inspector panel lays out the
+       movement layer's own debug rows rather than a viewer row type of the same
+       shape. -->
   <ItemGroup>
+    <Using Include="Nav.Core.Models" />
     <Using Include="Nav.Viewer.Interfaces" />
     <Using Include="Nav.Viewer.Models" />
   </ItemGroup>

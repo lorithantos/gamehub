@@ -71,6 +71,23 @@ internal sealed class RaylibHost(GridLayout layout, int statusHeight, int? maxFr
             _input.SetKeyState(ViewerKeys.Step, global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.S));
             _input.SetKeyState(ViewerKeys.Pace, global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.T));
 
+            // Arrows pan, +/- zoom, Home puts the whole map back. Which keycap
+            // means what is each host's business and appears nowhere in the
+            // shared project -- see ViewerKeys.
+            _input.SetKeyState(ViewerKeys.PanLeft, global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.Left));
+            _input.SetKeyState(ViewerKeys.PanRight, global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.Right));
+            _input.SetKeyState(ViewerKeys.PanUp, global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.Up));
+            _input.SetKeyState(ViewerKeys.PanDown, global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.Down));
+            _input.SetKeyState(
+                ViewerKeys.ZoomIn,
+                global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.Equal) ||
+                global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.KpAdd));
+            _input.SetKeyState(
+                ViewerKeys.ZoomOut,
+                global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.Minus) ||
+                global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.KpSubtract));
+            _input.SetKeyState(ViewerKeys.ResetView, global::Raylib_cs.Raylib.IsKeyDown(KeyboardKey.Home));
+
             // Raw frame time, unclamped: FixedTimestep.MaxStepsPerFrame is
             // already the circuit breaker, and a second one here would make the
             // two hosts disagree about how much time passed.

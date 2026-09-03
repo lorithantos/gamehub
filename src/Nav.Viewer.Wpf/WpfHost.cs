@@ -255,6 +255,31 @@ internal sealed class WpfHost(GridLayout layout, int? maxFrames) : IViewerHost
             case Key.T:
                 _input.SetKeyState(ViewerKeys.Pace, down);
                 break;
+
+            // Arrows pan, +/- zoom, Home puts the whole map back.
+            case Key.Left:
+                _input.SetKeyState(ViewerKeys.PanLeft, down);
+                break;
+            case Key.Right:
+                _input.SetKeyState(ViewerKeys.PanRight, down);
+                break;
+            case Key.Up:
+                _input.SetKeyState(ViewerKeys.PanUp, down);
+                break;
+            case Key.Down:
+                _input.SetKeyState(ViewerKeys.PanDown, down);
+                break;
+            case Key.OemPlus:
+            case Key.Add:
+                _input.SetKeyState(ViewerKeys.ZoomIn, down);
+                break;
+            case Key.OemMinus:
+            case Key.Subtract:
+                _input.SetKeyState(ViewerKeys.ZoomOut, down);
+                break;
+            case Key.Home:
+                _input.SetKeyState(ViewerKeys.ResetView, down);
+                break;
             case Key.Escape when down:
                 _window?.Close();
                 break;

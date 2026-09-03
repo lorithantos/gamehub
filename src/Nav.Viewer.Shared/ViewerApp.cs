@@ -38,6 +38,18 @@ public sealed class ViewerApp : IViewerApp
     private readonly int _fitWidth;
     private readonly int _fitHeight;
 
+    /// <summary>Never zoom past a cell this big; beyond it a screen holds nothing.</summary>
+    private const int MaxCellSize = 48;
+
+    // The camera. Fit settles the window and the zoomed-out floor once per load;
+    // these three are what panning and zooming move, and Layout is derived from
+    // them rather than stored twice.
+    private int _viewWidth;
+    private int _viewHeight;
+    private int _fitCellSize;
+    private int _cellSize;
+    private int _focusCell;
+
     // All derived from the session's content, and all rebuilt when its Version
     // moves: a load replaces the map, and everything below follows the map.
     private Grid _grid;
@@ -241,6 +253,11 @@ public sealed class ViewerApp : IViewerApp
             _session.OrderSelection(target);
         }
 
+        if (MoveCamera(input))
+        {
+            RefreshLayout();
+        }
+
         if (input.IsPressed(ViewerKeys.Space))
         {
             _session.ToggleRunning();
@@ -349,7 +366,13 @@ public sealed class ViewerApp : IViewerApp
         ArgumentNullException.ThrowIfNull(renderer);
 
         renderer.BeginFrame(RgbaColor.Black);
-        renderer.DrawTerrain(_terrain, new RectF(0, 0, Layout.PixelWidth, Layout.PixelHeight));
+        // The map's own extent, placed at the camera's origin -- NOT the window,
+        // which they stopped being the same rectangle when zooming arrived. The
+        // renderer already took a destination rect, so scrolling and scaling cost
+        // it nothing: it is one textured quad either way.
+        renderer.DrawTerrain(
+            _terrain,
+            new RectF(Layout.OriginX, Layout.OriginY, Layout.MapWidth(_grid), Layout.MapHeight(_grid)));
 
         // A route is drawn only when exactly one unit is selected. Drawing every
         // route at two dozen units is a ball of yarn, and at two hundred it is a
@@ -456,7 +479,19 @@ public sealed class ViewerApp : IViewerApp
     {
         _sessionVersion = _session.Version;
         _grid = _session.Grid;
-        Layout = GridLayout.Fit(_grid, _fitWidth, _fitHeight);
+
+        // Fit decides two things and then stops being consulted: the window's
+        // size, which the hosts follow and which must not change when somebody
+        // zooms, and the smallest useful cell -- there is no reason to zoom out
+        // past the whole map already being visible.
+        var fit = GridLayout.Fit(_grid, _fitWidth, _fitHeight);
+        _viewWidth = fit.PixelWidth;
+        _viewHeight = fit.PixelHeight;
+        _fitCellSize = fit.CellSize;
+        _cellSize = fit.CellSize;
+        _focusCell = _grid.Index(_grid.Width / 2, _grid.Height / 2);
+        RefreshLayout();
+
         _terrain = TerrainImage.FromGrid(_grid, RgbaColor.RayWhite, RgbaColor.DarkGray);
         // The pace survives a load: somebody watching at one tick a second who
         // opens another scenario wants to watch that one at the same speed.
@@ -464,6 +499,89 @@ public sealed class ViewerApp : IViewerApp
         _previousCells = [.. _session.Agents.Select(a => a.Cell)];
         _blend = 0f;
         _dragging = false;
+    }
+
+    /// <summary>Recomputes the window's view of the map from the camera.</summary>
+    private void RefreshLayout() =>
+        Layout = GridLayout.Viewing(_grid, _cellSize, _viewWidth, _viewHeight, _focusCell);
+
+    /// <summary>
+    /// Applies this frame's pan, zoom and reset. Returns whether anything moved,
+    /// so the layout is rebuilt on the frames that need it and not on the rest.
+    /// </summary>
+    /// <remarks>
+    /// Panning is a HALF SCREEN per press rather than a smooth glide, and that is
+    /// a choice rather than a limitation of the input snapshot. An instrument is
+    /// being read, not flown: half a screen is repeatable, lands in the same place
+    /// twice, and cannot overshoot the thing being looked at. It also asks nothing
+    /// new of the hosts, which report key presses as edges.
+    /// <para>
+    /// Zoom doubles and halves, so the scale is always a whole number of pixels
+    /// per cell and a cell never straddles a half-pixel and shimmers. It floors at
+    /// whatever fitted the whole map, because zooming out past that only adds
+    /// margin.
+    /// </para>
+    /// </remarks>
+    private bool MoveCamera(in InputState input)
+    {
+        var moved = false;
+
+        if (input.IsPressed(ViewerKeys.ResetView))
+        {
+            _cellSize = _fitCellSize;
+            _focusCell = _grid.Index(_grid.Width / 2, _grid.Height / 2);
+            return true;
+        }
+
+        if (input.IsPressed(ViewerKeys.ZoomIn) && _cellSize < MaxCellSize)
+        {
+            _cellSize = Math.Min(MaxCellSize, _cellSize * 2);
+            moved = true;
+        }
+
+        if (input.IsPressed(ViewerKeys.ZoomOut) && _cellSize > _fitCellSize)
+        {
+            _cellSize = Math.Max(_fitCellSize, _cellSize / 2);
+            moved = true;
+        }
+
+        var stepX = Math.Max(1, _viewWidth / _cellSize / 2);
+        var stepY = Math.Max(1, _viewHeight / _cellSize / 2);
+        var x = _grid.ColumnOf(_focusCell);
+        var y = _grid.RowOf(_focusCell);
+
+        if (input.IsPressed(ViewerKeys.PanLeft))
+        {
+            x -= stepX;
+            moved = true;
+        }
+
+        if (input.IsPressed(ViewerKeys.PanRight))
+        {
+            x += stepX;
+            moved = true;
+        }
+
+        if (input.IsPressed(ViewerKeys.PanUp))
+        {
+            y -= stepY;
+            moved = true;
+        }
+
+        if (input.IsPressed(ViewerKeys.PanDown))
+        {
+            y += stepY;
+            moved = true;
+        }
+
+        // Clamped to the map, not to what is visible: Viewing does the second
+        // clamp, and doing it twice here would make a pan at the edge feel stuck
+        // one press before it actually is.
+        _focusCell = _grid.Index(
+            Math.Clamp(x, 0, _grid.Width - 1),
+            Math.Clamp(y, 0, _grid.Height - 1));
+
+        return moved;
     }
 
     /// <summary>

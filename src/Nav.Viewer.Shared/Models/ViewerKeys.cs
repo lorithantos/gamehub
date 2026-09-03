@@ -50,4 +50,38 @@ public enum ViewerKeys
     /// hold the step key.
     /// </summary>
     Pace = 8,
+
+    /// <summary>Scroll the window left over the map.</summary>
+    /// <remarks>
+    /// The four pans and the two zooms exist for the same reason
+    /// <see cref="Pace"/> does, one axis over. Pace answers "this is happening too
+    /// fast to read"; these answer "this is too big to read". A 512x512 map fitted
+    /// to a window is one pixel per cell, which draws every unit, id, health bar
+    /// and route into a single dot -- the map is visible and the simulation is
+    /// not. Watching is how the group-movement defect was found, so a viewer that
+    /// goes blind at the scale the work is moving to costs more than it looks.
+    /// </remarks>
+    PanLeft = 16,
+
+    /// <summary>Scroll the window right over the map.</summary>
+    PanRight = 32,
+
+    /// <summary>Scroll the window up over the map.</summary>
+    PanUp = 64,
+
+    /// <summary>Scroll the window down over the map.</summary>
+    PanDown = 128,
+
+    /// <summary>Larger cells: less map, more legible.</summary>
+    ZoomIn = 256,
+
+    /// <summary>Smaller cells, down to the whole map at once.</summary>
+    ZoomOut = 512,
+
+    /// <summary>
+    /// Back to the whole map in the window, whatever the panning and zooming got
+    /// up to. The way out of being lost, which a viewer that scrolls needs and one
+    /// that cannot scroll does not.
+    /// </summary>
+    ResetView = 1024,
 }

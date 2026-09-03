@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace Nav.Core.Tests;
 
 /// <summary>
@@ -36,6 +38,14 @@ internal sealed class CountingFieldSource(IDistanceFieldSource inner) : IDistanc
         _last[destination] = field;
         return field;
     }
+
+    /// <summary>
+    /// Forwarded, and deliberately NOT recorded in <see cref="Asked"/>. A peek is
+    /// not an ask: counting it here would make this wrapper report the very
+    /// disturbance the member exists to avoid.
+    /// </summary>
+    public bool TryPeek(int destination, [NotNullWhen(true)] out DistanceField? field) =>
+        inner.TryPeek(destination, out field);
 }
 
 /// <summary>

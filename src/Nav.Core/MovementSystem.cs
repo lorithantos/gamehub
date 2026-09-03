@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Nav.Core;
 
 /// <summary>
@@ -23,7 +25,7 @@ namespace Nav.Core;
 /// future rather than in a past the reservation window has already dropped.
 /// </para>
 /// </remarks>
-public sealed class MovementSystem
+public sealed class MovementSystem : IDebugView
 {
     /// <summary>
     /// How far ahead a search is anchored to begin with, in ticks.
@@ -1921,6 +1923,280 @@ public sealed class MovementSystem
         Movement.OctileDistance(
             _grid.ColumnOf(from), _grid.RowOf(from),
             _grid.ColumnOf(agent.Goal), _grid.RowOf(agent.Goal));
+
+    private static string Number(int value) => value.ToString(CultureInfo.InvariantCulture);
+
+    private static string Number(long value) => value.ToString(CultureInfo.InvariantCulture);
+
+    private static string YesNo(bool value) => value ? "yes" : "no";
+
+    /// <summary>A cell as <c>col,row</c>, because nobody reads a map in flat indices.</summary>
+    private string CellText(int cell) => cell < 0
+        ? "-"
+        : string.Create(CultureInfo.InvariantCulture, $"{_grid.ColumnOf(cell)},{_grid.RowOf(cell)} (#{cell})");
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// EXPLICIT, so <c>Describe</c> does not sit in this class's own surface
+    /// beside <see cref="Tick"/> and <see cref="Order(IReadOnlyList{int}, int)"/>,
+    /// where it would read as another verb and invite exactly the production use
+    /// <see cref="IDebugView"/> forbids. Casting is the right amount of friction
+    /// for a surface nothing may depend on.
+    /// <para>
+    /// Everything here is already kept for the tick's own reasons. Nothing is
+    /// accumulated so that this can report it.
+    /// </para>
+    /// </remarks>
+    IReadOnlyList<DebugRow> IDebugView.Describe()
+    {
+        const string World = "World";
+        const string Spend = "Last tick";
+        const string Limits = "Limits";
+
+        var alive = 0;
+        foreach (var agent in _agents)
+        {
+            if (agent.Alive)
+            {
+                alive++;
+            }
+        }
+
+        return new List<DebugRow>
+        {
+            new(World, "tick", Number(CurrentTick)),
+            new(World, "agents", $"{Number(alive)} alive of {Number(_agents.Count)} ever added"),
+            new(World, "groups", Number(_groups.Count)),
+            new(World, "live fields", $"{Number(LiveFields)} of {Number(FieldCapacity)}"),
+            new(World, "total expanded", $"{Number(TotalExpanded)} nodes over this system's life"),
+
+            new(Spend, "nodes spent", $"{Number(LastTick.NodesSpent)} of {Number(_nodeBudgetPerTick)}"),
+            new(Spend, "searches started", Number(LastTick.SearchesStarted)),
+            new(Spend, "searches finished", Number(LastTick.SearchesFinished)),
+            new(Spend, "searches abandoned", Number(LastTick.SearchesAbandoned)),
+            new(Spend, "queued", $"{Number(LastTick.Queued)} waiting for a planning slot"),
+            new(Spend, "in flight", $"{Number(InFlight())} of {Number(_maxSearchesInFlight)}"),
+
+            new(Limits, "horizon", $"{Number(_horizon)} ticks of booked future"),
+            new(Limits, "planning latency", $"{Number(InitialPlanningLatency)} ticks, doubling on a discard"),
+            new(Limits, "stall backstop", $"{Number(StallBackstopTicks)} ticks"),
+            new(Limits, "follow blocked", $"{Number(FollowBlockedTicks)} ticks before a follower may search"),
+        };
+    }
+
+    /// <summary>
+    /// What this system knows about ONE agent, for a human reading an instrument.
+    /// </summary>
+    /// <remarks>
+    /// The answer to "why is that unit not moving", which nothing else here can
+    /// give: the slot it has not claimed, the ticks it has stood blocked, the
+    /// gate it is waiting behind, and how far it really is by the field rather
+    /// than by the crow.
+    /// <para>
+    /// It is deliberately NOT on <see cref="AgentState"/>. That is a hot
+    /// per-tick snapshot copied for every agent; this is one unit, asked for by
+    /// hand, and it costs nothing while nobody is watching -- the view holds an
+    /// id and reads state only when <see cref="IDebugView.Describe"/> is called.
+    /// </para>
+    /// <para>
+    /// An id this system has never issued, and one that has been removed, are
+    /// both answered rather than refused. An instrument pointed at the wrong
+    /// unit should say so, not throw at the panel.
+    /// </para>
+    /// </remarks>
+    /// <param name="agent">Who to describe. Any int; see the remarks.</param>
+    public IDebugView DebugFor(int agent) => new AgentDebugView(this, agent);
+
+    /// <summary>One agent's state, read at <see cref="Describe"/> time and never before.</summary>
+    private sealed class AgentDebugView(MovementSystem system, int id) : IDebugView
+    {
+        public IReadOnlyList<DebugRow> Describe()
+        {
+            const string Unit = "Unit";
+            const string Progress = "Progress";
+            const string Route = "Plan";
+            const string Formation = "Formation";
+            const string Field = "Field";
+            const string Planning = "Planning";
+
+            if (id < 0 || id >= system._agents.Count)
+            {
+                return
+                [
+                    new DebugRow(
+                        Unit,
+                        "id",
+                        $"{Number(id)} -- no such agent; this system has {Number(system._agents.Count)}"),
+                ];
+            }
+
+            var agent = system._agents[id];
+
+            // A corpse gets four rows and no more. Its plan, group, slot and
+            // field key were all cleared by Remove, so running the rest would
+            // print a page of zeroes and nulls that read as facts about a unit
+            // rather than as the absence of one.
+            if (!agent.Alive)
+            {
+                return
+                [
+                    new DebugRow(Unit, "id", Number(agent.Id)),
+                    new DebugRow(Unit, "alive", "no -- removed from the world; it holds no ground"),
+                    new DebugRow(Unit, "side", Number(agent.Side)),
+                    new DebugRow(Unit, "cell", $"{system.CellText(agent.Cell)}, where it fell"),
+                ];
+            }
+
+            var rows = new List<DebugRow>
+            {
+                new(Unit, "id", Number(agent.Id)),
+                new(Unit, "side", Number(agent.Side)),
+                new(Unit, "cell", system.CellText(agent.Cell)),
+                new(Unit, "goal", system.CellText(agent.Goal)),
+                new(Unit, "arrived", YesNo(agent.Cell == agent.Goal)),
+            };
+
+            if (agent.Errand >= 0)
+            {
+                rows.Add(new DebugRow(
+                    Unit,
+                    "errand",
+                    $"{system.CellText(agent.Errand)} -- away, and its formation is keeping its place"));
+            }
+
+            rows.Add(new DebugRow(Progress, "follows", IsFollower(agent)
+                ? "yes -- one step down the group's field per tick, no search"
+                : "no -- it plans its own route"));
+
+            // THE ROW THIS VIEW WAS BUILT FOR. A group member starts without a
+            // slot and claims one on approach, so "no" is the whole answer to
+            // why a unit is still walking with the formation already settled.
+            rows.Add(new DebugRow(Progress, "slot", agent.HasSlot
+                ? $"held: {system.CellText(agent.Goal)}"
+                : "none -- walking to the shared destination; it claims one on approach"));
+
+            rows.Add(new DebugRow(Progress, "blocked", agent.BlockedTicks == 0
+                ? "0 ticks -- it had a free step"
+                : $"{Number(agent.BlockedTicks)} ticks with no free step, of " +
+                  $"{Number(FollowBlockedTicks)} before it may search instead"));
+
+            // TICKS REMAINING, NOT THE RAW TICK. RetryAfterTick means nothing
+            // without the clock beside it, and the bool the seam exposes today
+            // says only that there is a gate, never how long is left of it.
+            var gate = agent.RetryAfterTick - system.CurrentTick;
+            rows.Add(new DebugRow(Progress, "retry gate", gate <= 0
+                ? "open -- it may start a search this tick"
+                : $"{Number(gate)} ticks until it lifts (backstop {Number(StallBackstopTicks)})"));
+
+            rows.Add(new DebugRow(Progress, "stalled", agent.StalledTicks == 0
+                ? "no"
+                : $"{Number(agent.StalledTicks)} replans that got it no closer"));
+
+            rows.Add(new DebugRow(Progress, "searching", agent.Search is null
+                ? "no"
+                : $"yes -- in flight; its plan will start at tick {Number(agent.AnchorTick)}"));
+
+            rows.Add(new DebugRow(Progress, "wants plan", YesNo(agent.WantsPlan)));
+
+            if (agent.Plan is not { } plan)
+            {
+                rows.Add(new DebugRow(Route, "plan", "none -- it is standing where it is"));
+            }
+            else
+            {
+                rows.Add(new DebugRow(
+                    Route,
+                    "cells",
+                    $"{Number(plan.Cells.Count)}, ticks {Number(plan.StartTick)} to {Number(plan.LastTick)}"));
+                rows.Add(new DebugRow(Route, "cost", string.Create(CultureInfo.InvariantCulture, $"{plan.Cost:0.##}")));
+                rows.Add(new DebugRow(Route, "expanded", $"{Number(plan.Expanded)} nodes"));
+                rows.Add(new DebugRow(Route, "reach", plan switch
+                {
+                    { IsStuck: true } => "stuck -- no plan at all, not even a tick of waiting",
+                    { Found: true } => "reaches the goal",
+                    _ => "partial -- as far as the window allows, which is progress",
+                }));
+
+                var next = plan.CellAt(system.CurrentTick + 1);
+                rows.Add(new DebugRow(Route, "next", next < 0 || next == agent.Cell
+                    ? "stands"
+                    : system.CellText(next)));
+            }
+
+            if (agent.Group is not { } group)
+            {
+                rows.Add(new DebugRow(Formation, "formation", "none -- it has never been ordered"));
+            }
+            else
+            {
+                rows.Add(new DebugRow(Formation, "destination", system.CellText(group.Destination)));
+                rows.Add(new DebugRow(Formation, "members", Number(group.Members.Count)));
+                rows.Add(new DebugRow(Formation, "leader", group.Leader switch
+                {
+                    < 0 => "none",
+                    var leader when leader == agent.Id => "this unit",
+                    var leader => $"agent {Number(leader)}",
+                }));
+                rows.Add(new DebugRow(Formation, "ring", $"{Number(group.Slots.Count)} parking slots"));
+
+                // HOW FAR IT REALLY IS. Follow and ElectLeader both compute this
+                // and neither keeps it, so the number that decides which way the
+                // unit steps has never been readable.
+                //
+                // PEEKED, NEVER ASKED FOR. ElectLeader asks for every live group's
+                // field each tick, so a look here practically always finds one --
+                // but "practically always" is not the property that matters. A hit
+                // through For marks the field most recently used, and once there
+                // are more live destinations than the cache holds, that reorders
+                // eviction: some colder field is dropped in this one's place and
+                // rebuilt later. Nobody moves differently, because a rebuilt field
+                // has identical contents -- the field count moves, and this
+                // project decides things on counts.
+                if (system._fields.TryPeek(group.Destination, out var field))
+                {
+                    rows.Add(new DebugRow(Field, "from here", FieldText(field, agent.Cell)));
+                    rows.Add(new DebugRow(Field, "from goal", FieldText(field, agent.Goal)));
+                }
+                else
+                {
+                    // ONE ROW SAYING NOTHING IS KNOWN, the way an absent plan and
+                    // an absent formation are reported. A blank or a zero under
+                    // "from here" would read as a distance of nought -- a unit
+                    // standing on its destination -- which is the one thing this
+                    // situation is not.
+                    rows.Add(new DebugRow(
+                        Field,
+                        "field",
+                        "not cached, so no distance is shown -- building one to fill in this row " +
+                        "would change which fields survive"));
+                }
+            }
+
+            rows.Add(new DebugRow(
+                Planning,
+                "latency",
+                $"{Number(agent.Latency)} ticks of slack for its next search " +
+                $"(starts at {Number(InitialPlanningLatency)}, doubles on a discard)"));
+            rows.Add(new DebugRow(Planning, "anchor", agent.Search is null
+                ? "-"
+                : $"tick {Number(agent.AnchorTick)}"));
+            rows.Add(new DebugRow(Planning, "last attempt", agent.LastPlanAttemptTick < 0
+                ? "never given a planning slot"
+                : $"tick {Number(agent.LastPlanAttemptTick)}"));
+            rows.Add(new DebugRow(Planning, "vacancy wake", agent.LastVacancyWakeTick < 0
+                ? "never woken by a nearby vacancy"
+                : $"tick {Number(agent.LastVacancyWakeTick)}"));
+            rows.Add(new DebugRow(Planning, "field key", agent.FieldKey < 0
+                ? "none"
+                : system.CellText(agent.FieldKey)));
+
+            return rows;
+        }
+
+        private static string FieldText(DistanceField field, int cell) => field.Reaches(cell)
+            ? string.Create(CultureInfo.InvariantCulture, $"{field.CostFrom(cell):0.##} to the destination")
+            : "unreachable from there";
+    }
 
     /// <summary>
     /// The one implementation of <see cref="IGroupOps"/>, and the reason the

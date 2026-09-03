@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace Nav.Core;
 
 /// <summary>
@@ -172,4 +174,13 @@ internal sealed class FieldCache : IDistanceFieldSource
         _recency.Add(destination);
         return field;
     }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// A dictionary lookup and NOTHING else. The absent line is the member: no
+    /// touch of <c>_recency</c>, so a look leaves the eviction order exactly as
+    /// the run's own asks left it.
+    /// </remarks>
+    public bool TryPeek(int destination, [NotNullWhen(true)] out DistanceField? field) =>
+        _fields.TryGetValue(destination, out field);
 }

@@ -974,7 +974,7 @@ public sealed class ViewerAppTests
         Assert.StartsWith("no", InspectorValue(whole, "Plan", "partial"), StringComparison.Ordinal);
         Assert.NotEmpty(WaitsIn(whole, wholePlan));
         Assert.Equal(WaitsIn(whole, wholePlan).Count.ToString(CultureInfo.InvariantCulture),
-            InspectorValue(whole, "Viewer", "waits"));
+            InspectorValue(whole, "Sources", "waits"));
 
         var (edge, _) = Ordered(LongCorridor, goalX: 42);
         var edgePlan = PlanOf(edge, 0);
@@ -983,7 +983,7 @@ public sealed class ViewerAppTests
         Assert.StartsWith("yes", InspectorValue(edge, "Plan", "partial"), StringComparison.Ordinal);
         Assert.StartsWith("no", InspectorValue(edge, "Plan", "found"), StringComparison.Ordinal);
         Assert.Equal(WaitsIn(edge, edgePlan).Count.ToString(CultureInfo.InvariantCulture),
-            InspectorValue(edge, "Viewer", "waits"));
+            InspectorValue(edge, "Sources", "waits"));
     }
 
     [Fact]

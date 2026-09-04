@@ -12,8 +12,11 @@ namespace Nav.Core.Models;
 /// <param name="Value">The fact, already formatted -- see the remarks.</param>
 /// <param name="Note">
 /// The sentence saying what the fact MEANS, or null where the fact speaks for
-/// itself. Optional and last, so a row with nothing to explain is still three
-/// arguments.
+/// itself. Optional, so a row with nothing to explain is still three arguments.
+/// </param>
+/// <param name="Section">
+/// Which LAYER answered: the caption above the group, empty until somebody
+/// stamps it. See the remarks -- a producer must leave this alone.
 /// </param>
 /// <remarks>
 /// <b>A LIST, NOT A DICTIONARY.</b> A dictionary has no contractual ordering, and
@@ -50,5 +53,21 @@ namespace Nav.Core.Models;
 /// half is which by constructing both, and a row with nothing to add leaves
 /// <see cref="Note"/> null rather than repeating its value into it.
 /// </para>
+/// <para>
+/// <b><see cref="Section"/> IS STAMPED BY THE INSTRUMENT, NEVER BY THE
+/// PRODUCER.</b> It says which layer answered, and no producer is in a position
+/// to know that: a class describing itself knows what it is, not what it is one
+/// of, and the same rows can be merged by two instruments that would caption
+/// them differently. So every producer leaves it empty and the instrument that
+/// merged the rows writes it in with <c>row with { Section = ... }</c> as it
+/// appends each block. That is the whole reason this is a fifth member rather
+/// than a prefix on <see cref="Group"/> -- a producer would have had to learn
+/// what layer it was in to write one.
+/// </para>
 /// </remarks>
-public readonly record struct DebugRow(string Group, string Key, string Value, string? Note = null);
+public readonly record struct DebugRow(
+    string Group,
+    string Key,
+    string Value,
+    string? Note = null,
+    string Section = "");

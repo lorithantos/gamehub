@@ -1,4 +1,5 @@
 using Nav.Viewer;
+using Nav.Viewer.Models;
 
 namespace Nav.Viewer.Wpf.Tests;
 
@@ -38,6 +39,41 @@ public sealed class InspectorHeadingTests
         var runs = new List<string>();
         foreach (var row in rows)
         {
+            if (runs.Count == 0 || !string.Equals(runs[^1], row.Group, StringComparison.Ordinal))
+            {
+                runs.Add(row.Group);
+            }
+        }
+
+        return runs;
+    }
+
+    /// <summary>The sections a host would print, in the order it would print them.</summary>
+    private static List<string> SectionRuns(IReadOnlyList<DebugRow> rows)
+    {
+        var runs = new List<string>();
+        foreach (var row in rows)
+        {
+            if (runs.Count == 0 || !string.Equals(runs[^1], row.Section, StringComparison.Ordinal))
+            {
+                runs.Add(row.Section);
+            }
+        }
+
+        return runs;
+    }
+
+    /// <summary>The groups a host would print under one section, in order.</summary>
+    private static List<string> GroupsUnder(IReadOnlyList<DebugRow> rows, string section)
+    {
+        var runs = new List<string>();
+        foreach (var row in rows)
+        {
+            if (!string.Equals(row.Section, section, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
             if (runs.Count == 0 || !string.Equals(runs[^1], row.Group, StringComparison.Ordinal))
             {
                 runs.Add(row.Group);
@@ -89,5 +125,32 @@ public sealed class InspectorHeadingTests
         // act is the march to its station. That is exactly what the doctrine
         // branches on, read off the panel.
         Assert.Equal("none", Value(rows, "Squad", "anchor"));
+    }
+
+    [Fact]
+    public void ThePanelIsThreeSectionsEachNamingTheLayerThatAnswered()
+    {
+        // THE WHOLE PANEL A READER OPENS, read off the composition the window
+        // opens with. Sixteen headings as flat peers said nothing about where
+        // one set of information started and the next began; three captions say
+        // which layer answered, which is the seam this project is built around
+        // made visible in the instrument.
+        var rows = GuardWorld().Inspector;
+
+        Assert.Equal(
+            [InspectorLayout.MovementSection, InspectorLayout.TacticsSection, InspectorLayout.ViewerSection],
+            SectionRuns(rows));
+
+        Assert.Equal(
+            ["Agent", "Progress", "Plan", "Formation", "Planning"],
+            GroupsUnder(rows, InspectorLayout.MovementSection));
+
+        Assert.Equal(
+            ["Squad", "Condition", "Kit", "Fight", "Perception", "World", "Rates", "Rank"],
+            GroupsUnder(rows, InspectorLayout.TacticsSection));
+
+        Assert.Equal(
+            [InspectorLayout.SourcesGroup, InspectorLayout.ControlsGroup],
+            GroupsUnder(rows, InspectorLayout.ViewerSection));
     }
 }

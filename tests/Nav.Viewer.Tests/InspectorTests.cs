@@ -32,6 +32,10 @@ public sealed class InspectorTests
     private const int StatusHeight = 26;
     private const int Squad = 4;
 
+    private const string Movement = InspectorLayout.MovementSection;
+    private const string Tactics = InspectorLayout.TacticsSection;
+    private const string Viewer = InspectorLayout.ViewerSection;
+
     private static Grid Fixture() => Grid.FromMapText(SampleMaps.CornerCutTrap);
 
     private static GridLayout LayoutFor(Grid grid) => GridLayout.Fit(grid, 1000, 1000 - StatusHeight);
@@ -71,6 +75,53 @@ public sealed class InspectorTests
 
         return runs;
     }
+
+    /// <summary>
+    /// The same runs with the section each was printed under, which is what a
+    /// heading actually IS now that the panel has two levels.
+    /// </summary>
+    private static List<(string Section, string Group)> HeadingRuns(IReadOnlyList<DebugRow> rows)
+    {
+        var runs = new List<(string Section, string Group)>();
+        foreach (var row in rows)
+        {
+            if (runs.Count == 0 ||
+                !string.Equals(runs[^1].Section, row.Section, StringComparison.Ordinal) ||
+                !string.Equals(runs[^1].Group, row.Group, StringComparison.Ordinal))
+            {
+                runs.Add((row.Section, row.Group));
+            }
+        }
+
+        return runs;
+    }
+
+    /// <summary>The sections a host would print, in the order it would print them.</summary>
+    private static List<string> SectionRuns(IReadOnlyList<DebugRow> rows)
+    {
+        var runs = new List<string>();
+        foreach (var row in rows)
+        {
+            if (runs.Count == 0 || !string.Equals(runs[^1], row.Section, StringComparison.Ordinal))
+            {
+                runs.Add(row.Section);
+            }
+        }
+
+        return runs;
+    }
+
+    private static string ValueIn(IReadOnlyList<DebugRow> rows, string section, string group, string key) =>
+        rows.Single(r =>
+            string.Equals(r.Section, section, StringComparison.Ordinal) &&
+            string.Equals(r.Group, group, StringComparison.Ordinal) &&
+            string.Equals(r.Key, key, StringComparison.Ordinal)).Value;
+
+    private static bool HasKeyIn(IReadOnlyList<DebugRow> rows, string section, string group, string key) =>
+        rows.Any(r =>
+            string.Equals(r.Section, section, StringComparison.Ordinal) &&
+            string.Equals(r.Group, group, StringComparison.Ordinal) &&
+            string.Equals(r.Key, key, StringComparison.Ordinal));
 
     [Fact]
     public void TheWatchedUnitIsSpelledOut()
@@ -150,7 +201,7 @@ public sealed class InspectorTests
     }
 
     [Fact]
-    public void TheViewerGroupCarriesTheFactsOnlyTheViewerKnows()
+    public void TheViewersOwnGroupCarriesTheFactsOnlyTheViewerKnows()
     {
         // What got DRAWN and what got SELECTED, which the movement layer cannot
         // answer because neither is a fact about the unit. They are in one group
@@ -160,8 +211,8 @@ public sealed class InspectorTests
         var app = new ViewerApp(grid, layout, Squad);
 
         // Standing on its goal: nothing to walk, and nothing missing either.
-        Assert.Equal("no", Value(app.Inspector, "Viewer", "no route"));
-        Assert.Equal("-", Value(app.Inspector, "Viewer", "waits"));
+        Assert.Equal("no", Value(app.Inspector, "Sources", "no route"));
+        Assert.Equal("-", Value(app.Inspector, "Sources", "waits"));
 
         // Ordered, and drawn before the clock buys a tick to plan it in: it has
         // somewhere to be and no route there, which is exactly the state the
@@ -172,7 +223,7 @@ public sealed class InspectorTests
         ordered.Run(app);
 
         Assert.Empty(app.Session.CurrentPlans());
-        Assert.StartsWith("yes", Value(app.Inspector, "Viewer", "no route"), StringComparison.Ordinal);
+        Assert.StartsWith("yes", Value(app.Inspector, "Sources", "no route"), StringComparison.Ordinal);
 
         // Then let it plan. The wait count is every repeated cell in the plan --
         // one tick of standing still apiece -- and the panel carries the whole
@@ -186,8 +237,8 @@ public sealed class InspectorTests
             .Count(i => plan.Cells[i - 1] == plan.Cells[i]);
 
         Assert.True(waits > 0, "the fixture stopped producing a plan with any repeats in it");
-        Assert.Equal(waits.ToString(), Value(app.Inspector, "Viewer", "waits"));
-        Assert.Equal("no", Value(app.Inspector, "Viewer", "no route"));
+        Assert.Equal(waits.ToString(), Value(app.Inspector, "Sources", "waits"));
+        Assert.Equal("no", Value(app.Inspector, "Sources", "no route"));
     }
 
     [Fact]
@@ -384,7 +435,7 @@ public sealed class InspectorTests
 
         Assert.Equal(Squad, app.Selection.Count);
         Assert.Equal("0", Value(app.Inspector, "Agent", "id"));
-        Assert.Equal("3 also selected", Value(app.Inspector, "Viewer", "others"));
+        Assert.Equal("3 also selected", Value(app.Inspector, "Sources", "others"));
     }
 
     [Fact]
@@ -409,7 +460,7 @@ public sealed class InspectorTests
         // has never been ordered here, so it has no formation and therefore no
         // field rows, and the sequence is exact.
         Assert.Equal(
-            ["Agent", "Progress", "Plan", "Formation", "Planning", "Viewer", "Controls"],
+            ["Agent", "Progress", "Plan", "Formation", "Planning", "Sources", "Controls"],
             GroupRuns(app.Inspector));
 
         using var host = new ScriptedHost(
@@ -429,7 +480,162 @@ public sealed class InspectorTests
         Assert.Equal(runs.Count, runs.Distinct().Count());
         Assert.Contains("Formation", runs);
         Assert.Equal("Controls", runs[^1]);
-        Assert.Equal("Viewer", runs[^2]);
+        Assert.Equal("Sources", runs[^2]);
+    }
+
+    [Fact]
+    public void EveryRowSaysWhichLayerAnsweredAndNothingElseEverAppearsAsASection()
+    {
+        // THE SWEEP ONE LEVEL UP FROM THE " -- " ONE. A row with no section is a
+        // row the panel has nowhere to put, and a section nobody recognises is
+        // the app inventing a caption -- and neither shows up anywhere but in a
+        // running window. Every panel this project can arrange is swept, so a
+        // block somebody adds later and forgets to stamp fails here.
+        string[] layers = [Movement, Tactics, Viewer];
+        var seen = 0;
+        var found = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var (state, rows) in EveryPanel())
+        {
+            foreach (var row in rows)
+            {
+                seen++;
+                Assert.False(
+                    string.IsNullOrEmpty(row.Section),
+                    $"'{state}' left {row.Group}/{row.Key} with no section on it");
+                Assert.Contains(row.Section, layers);
+                found.Add(row.Section);
+            }
+        }
+
+        Assert.True(seen > 100, $"the sweep only saw {seen} rows");
+
+        // And all three layers did answer somewhere, so this cannot pass by two
+        // of them having quietly stopped contributing.
+        Assert.Equal(layers.Order(), found.Order());
+    }
+
+    [Fact]
+    public void AGroupSitsUnderTheSectionOfTheLayerThatProducedIt()
+    {
+        // A real row from each of the three, asserted by SECTION as well as by
+        // group. A row that drifted into the wrong caption still reads fine in a
+        // flat list, which is exactly why this is worth pinning.
+        //
+        // The source here never writes a section of its own -- see Source, which
+        // is written out of the interface and knows nothing about layers -- so
+        // this also proves the stamp is the app's and not the producer's.
+        var grid = Fixture();
+        var app = new ViewerApp(grid, LayoutFor(grid), Squad, sources: [new Source("Fight", 0)]);
+
+        Assert.Equal("0", ValueIn(app.Inspector, Movement, "Agent", "id"));
+        Assert.Equal("no", ValueIn(app.Inspector, Movement, "Progress", "searching"));
+        Assert.Equal("0 by Fight", ValueIn(app.Inspector, Tactics, "Fight", "watched"));
+        Assert.Equal("Fight", ValueIn(app.Inspector, Tactics, "Fight world", "source"));
+        Assert.Equal("no", ValueIn(app.Inspector, Viewer, "Sources", "no route"));
+        Assert.Equal("pause", ValueIn(app.Inspector, Viewer, "Controls", "SPACE"));
+
+        // Each layer is one run, in table order, so a host prints three captions.
+        Assert.Equal([Movement, Tactics, Viewer], SectionRuns(app.Inspector));
+    }
+
+    [Fact]
+    public void AGroupTheTableNeverHeardOfStillAppearsAndSortsAfterTheOnesItKnows()
+    {
+        // A source may name a group anything, so a group the arrangement has
+        // never heard of is a NORMAL case rather than an error: it keeps the
+        // section of the layer that produced it and goes after every group the
+        // table does know, in the order it arrived.
+        //
+        // "Rates" is in the table and arrives SECOND here, behind a name that is
+        // not -- so a panel that laid blocks out in arrival order fails this.
+        var grid = Fixture();
+        var app = new ViewerApp(
+            grid,
+            LayoutFor(grid),
+            Squad,
+            sources: [new Source("Zebra", 0) { UnitGroup = "Zebra", WorldGroup = "Rates" }]);
+
+        Assert.Equal(
+            [(Tactics, "Rates"), (Tactics, "Zebra")],
+            HeadingRuns(app.Inspector).Where(r => string.Equals(r.Section, Tactics, StringComparison.Ordinal)));
+
+        // Nothing vanished on the way.
+        Assert.Equal("0 by Zebra", ValueIn(app.Inspector, Tactics, "Zebra", "watched"));
+        Assert.Equal("Zebra", ValueIn(app.Inspector, Tactics, "Rates", "source"));
+    }
+
+    [Fact]
+    public void TheSectionsAndTheGroupsInThemComeOutInTheOrderTheTableDeclares()
+    {
+        // ORDER IS THE TABLE'S, not the order blocks happened to be appended in.
+        // Checked against InspectorLayout.Arrangement rather than against a list
+        // written here, so a reader who reorders the table gets a panel that
+        // reordered with it and this test goes on being true.
+        var grid = Fixture();
+        var layout = LayoutFor(grid);
+        var app = new ViewerApp(grid, layout, Squad, sources: [new Source("Fight", 0)]);
+
+        using var host = new ScriptedHost(
+            [new ScriptedFrame(Mouse: layout.CenterOf(10, 5), ButtonsDown: MouseButtons.Right), new ScriptedFrame()],
+            new RecordingRenderer());
+        host.Run(app);
+
+        var runs = HeadingRuns(app.Inspector);
+        Assert.True(runs.Count > 8, $"only {runs.Count} headings, so this swept almost nothing");
+
+        for (var i = 1; i < runs.Count; i++)
+        {
+            var (beforeSection, beforeGroup) = (SectionRank(runs[i - 1].Section), GroupRank(runs[i - 1]));
+            var (afterSection, afterGroup) = (SectionRank(runs[i].Section), GroupRank(runs[i]));
+
+            Assert.True(
+                beforeSection < afterSection || (beforeSection == afterSection && beforeGroup <= afterGroup),
+                $"'{runs[i - 1]}' came out before '{runs[i]}', which the table does not say");
+        }
+
+        // And the movement layer's own groups are in the table's order rather
+        // than merely in SOME order, so a table that listed them backwards would
+        // have to show a panel that read backwards.
+        Assert.Equal(
+            InspectorLayout.Arrangement[0].Groups.Where(g => runs.Contains((Movement, g))),
+            runs.Where(r => string.Equals(r.Section, Movement, StringComparison.Ordinal)).Select(r => r.Group));
+    }
+
+    /// <summary>Where the table puts a section, or after every one it knows.</summary>
+    private static int SectionRank(string section)
+    {
+        for (var i = 0; i < InspectorLayout.Arrangement.Count; i++)
+        {
+            if (string.Equals(InspectorLayout.Arrangement[i].Section, section, StringComparison.Ordinal))
+            {
+                return i;
+            }
+        }
+
+        return InspectorLayout.Arrangement.Count;
+    }
+
+    /// <summary>Where the table puts a group inside its section, or after every one it knows.</summary>
+    private static int GroupRank((string Section, string Group) heading)
+    {
+        foreach (var (section, groups) in InspectorLayout.Arrangement)
+        {
+            if (!string.Equals(section, heading.Section, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            for (var i = 0; i < groups.Count; i++)
+            {
+                if (string.Equals(groups[i], heading.Group, StringComparison.Ordinal))
+                {
+                    return i;
+                }
+            }
+        }
+
+        return int.MaxValue;
     }
 
     [Fact]
@@ -443,7 +649,7 @@ public sealed class InspectorTests
 
         Assert.Equal(plain.Inspector, empty.Inspector);
         Assert.Equal(
-            ["Agent", "Progress", "Plan", "Formation", "Planning", "Viewer", "Controls"],
+            ["Agent", "Progress", "Plan", "Formation", "Planning", "Sources", "Controls"],
             GroupRuns(plain.Inspector));
 
         // Nothing renamed, and no source reported broken, because there was
@@ -451,7 +657,7 @@ public sealed class InspectorTests
         Assert.DoesNotContain(plain.Inspector, r => r.Group.Contains('('));
         Assert.Equal(
             ["waits", "no route"],
-            plain.Inspector.Where(r => string.Equals(r.Group, "Viewer", StringComparison.Ordinal))
+            plain.Inspector.Where(r => string.Equals(r.Group, "Sources", StringComparison.Ordinal))
                            .Select(r => r.Key));
     }
 
@@ -464,7 +670,7 @@ public sealed class InspectorTests
         // The unit's rows first and the source's own rows after them, as one
         // block, between what the movement layer said and what the viewer says.
         Assert.Equal(
-            ["Agent", "Progress", "Plan", "Formation", "Planning", "Fight", "Fight world", "Viewer", "Controls"],
+            ["Agent", "Progress", "Plan", "Formation", "Planning", "Fight", "Fight world", "Sources", "Controls"],
             GroupRuns(app.Inspector));
 
         Assert.Equal("0 by Fight", Value(app.Inspector, "Fight", "watched"));
@@ -473,29 +679,34 @@ public sealed class InspectorTests
         // And the movement layer's own rows are exactly what they were.
         Assert.Equal("0", Value(app.Inspector, "Agent", "id"));
         Assert.Equal("no", Value(app.Inspector, "Progress", "searching"));
-        Assert.Equal("no", Value(app.Inspector, "Viewer", "no route"));
+        Assert.Equal("no", Value(app.Inspector, "Sources", "no route"));
     }
 
     [Fact]
-    public void TwoSourcesArriveInTheOrderTheyWereHandedOver()
+    public void TwoSourcesArriveInTheOrderTheyWereHandedOverWhereTheTableSaysNothing()
     {
         // Supply order, not name order and not whichever answered first: the
         // composer decided, and a panel that reshuffled between frames would be
         // unreadable however it sorted.
+        //
+        // NEITHER OF THESE NAMES IS IN THE ARRANGEMENT, deliberately. Supply
+        // order is what breaks a tie the table does not break, so a fixture that
+        // borrowed a name the table ranks would be testing the table instead --
+        // which is what "Fight" used to do here by coincidence, and it is ranked.
         var grid = Fixture();
         var forward = new ViewerApp(
-            grid, LayoutFor(grid), Squad, sources: [new Source("Fight", 0), new Source("Supply", 0)]);
+            grid, LayoutFor(grid), Squad, sources: [new Source("Recon", 0), new Source("Supply", 0)]);
         var backward = new ViewerApp(
-            grid, LayoutFor(grid), Squad, sources: [new Source("Supply", 0), new Source("Fight", 0)]);
+            grid, LayoutFor(grid), Squad, sources: [new Source("Supply", 0), new Source("Recon", 0)]);
 
         Assert.Equal(
             ["Agent", "Progress", "Plan", "Formation", "Planning",
-             "Fight", "Fight world", "Supply", "Supply world", "Viewer", "Controls"],
+             "Recon", "Recon world", "Supply", "Supply world", "Sources", "Controls"],
             GroupRuns(forward.Inspector));
 
         Assert.Equal(
             ["Agent", "Progress", "Plan", "Formation", "Planning",
-             "Supply", "Supply world", "Fight", "Fight world", "Viewer", "Controls"],
+             "Supply", "Supply world", "Recon", "Recon world", "Sources", "Controls"],
             GroupRuns(backward.Inspector));
 
         Assert.Equal("0 by Supply", Value(forward.Inspector, "Supply", "watched"));
@@ -504,9 +715,11 @@ public sealed class InspectorTests
     [Fact]
     public void AGroupNameThePanelAlreadyUsesIsRenamedRatherThanMergedIntoIt()
     {
-        // Two sources both calling their group "Agent", which the movement layer
-        // already uses. Interleaved they would read as the movement layer's own
-        // answers about the unit, which is the worst thing this panel could say.
+        // Two sources both calling their unit block "Agent" and both calling
+        // their world block "Progress". They land in ONE section, so interleaved
+        // they would read as each other's answers -- two identical headings under
+        // TACTICS, printed twice by a host that prints one on each change, and
+        // folding as one in a panel that keys its fold state by section and name.
         //
         // NO REAL PAIR OF SOURCES COLLIDES TODAY -- the movement layer says
         // Agent and the tactics view says Condition, since a panel heading of
@@ -517,47 +730,61 @@ public sealed class InspectorTests
         var grid = Fixture();
         var app = new ViewerApp(grid, LayoutFor(grid), Squad, sources:
         [
-            new Source("Fight", 0) { UnitGroup = "Agent", WorldGroup = "Viewer" },
+            new Source("Fight", 0) { UnitGroup = "Agent", WorldGroup = "Progress" },
             new Source("Supply", 0) { UnitGroup = "Agent", WorldGroup = "Progress" },
         ]);
 
-        var runs = GroupRuns(app.Inspector);
+        // No heading repeats, where a heading is now its section AND its name.
+        var runs = HeadingRuns(app.Inspector);
         Assert.Equal(runs.Count, runs.Distinct().Count());
 
         // The movement layer keeps its headings and its rows, and neither source
         // is inside them.
-        Assert.Equal("0", Value(app.Inspector, "Agent", "id"));
-        Assert.Equal("no", Value(app.Inspector, "Progress", "searching"));
-        Assert.False(HasKey(app.Inspector, "Agent", "watched"), "a source landed in the movement layer's group");
+        Assert.Equal("0", ValueIn(app.Inspector, Movement, "Agent", "id"));
+        Assert.Equal("no", ValueIn(app.Inspector, Movement, "Progress", "searching"));
+        Assert.False(
+            HasKeyIn(app.Inspector, Movement, "Agent", "watched"),
+            "a source landed in the movement layer's group");
 
-        // Numbered in the order they were handed over, and nothing is lost.
-        Assert.Equal("0 by Fight", Value(app.Inspector, "Agent (2)", "watched"));
-        Assert.Equal("0 by Supply", Value(app.Inspector, "Agent (3)", "watched"));
-        Assert.Equal("Fight", Value(app.Inspector, "Viewer (2)", "source"));
-        Assert.Equal("Supply", Value(app.Inspector, "Progress (2)", "source"));
+        // ACROSS SECTIONS NOTHING IS RENAMED, and that is the change two levels
+        // bought. MOVEMENT > AGENT and TACTICS > AGENT are two visibly different
+        // headings, so numbering one of them would put a "(2)" on the panel that
+        // says nothing -- the exact complaint that got the names pulled apart.
+        Assert.Equal("0 by Fight", ValueIn(app.Inspector, Tactics, "Agent", "watched"));
+        Assert.Equal("Fight", ValueIn(app.Inspector, Tactics, "Progress", "source"));
 
-        // Viewer is reserved before a source is asked anything, so the viewer's
-        // own group is still called Viewer and is still the last one about the
-        // unit. Controls is reserved the same way and sits behind it.
-        Assert.Equal("Controls", runs[^1]);
-        Assert.Equal("Viewer", runs[^2]);
-        Assert.Equal("no", Value(app.Inspector, "Viewer", "no route"));
+        // WITHIN a section it still is. The second source finds both of its names
+        // taken and is numbered in the order it was handed over, and nothing of
+        // what it said is lost.
+        Assert.Equal("0 by Supply", ValueIn(app.Inspector, Tactics, "Agent (2)", "watched"));
+        Assert.Equal("Supply", ValueIn(app.Inspector, Tactics, "Progress (2)", "source"));
+
+        // The viewer's own two groups are in a section of their own, so no source
+        // can be inside them however it names itself, and they are still last.
+        Assert.Equal((Viewer, "Controls"), runs[^1]);
+        Assert.Equal((Viewer, "Sources"), runs[^2]);
+        Assert.Equal("no", ValueIn(app.Inspector, Viewer, "Sources", "no route"));
     }
 
     [Fact]
-    public void ASourceCannotTakeTheControlsHeadingEither()
+    public void ASourceThatTakesTheControlsNameLandsInItsOwnSectionRatherThanTheFolder()
     {
-        // Reserved from the start, the way Viewer is and for the same reason: a
-        // source's rows landing under CONTROLS would read as things the keyboard
-        // does, which is the one heading in the panel a reader acts on.
+        // Controls used to be RESERVED, because a heading was its name alone and
+        // a source's rows under CONTROLS would have read as things the keyboard
+        // does -- the one heading in the panel a reader acts on. The section says
+        // that now: the source's block is under TACTICS, the folder is under
+        // VIEWER, and the reader can see which is which without a "(2)".
         var grid = Fixture();
         var app = new ViewerApp(
             grid, LayoutFor(grid), Squad, sources: [new Source("Fight", 0) { UnitGroup = "Controls" }]);
 
-        Assert.Equal("0 by Fight", Value(app.Inspector, "Controls (2)", "watched"));
+        Assert.Equal("0 by Fight", ValueIn(app.Inspector, Tactics, "Controls", "watched"));
+        Assert.False(
+            HasKeyIn(app.Inspector, Viewer, "Controls", "watched"),
+            "a source landed in the viewer's own controls folder");
 
         // And the folder is still the folder.
-        Assert.Equal("pause", Value(app.Inspector, "Controls", "SPACE"));
+        Assert.Equal("pause", ValueIn(app.Inspector, Viewer, "Controls", "SPACE"));
     }
 
     [Fact]
@@ -589,18 +816,18 @@ public sealed class InspectorTests
         // that works.
         Assert.Equal(
             ["waits", "no route", "source 1", "source 2", "source 3"],
-            app.Inspector.Where(r => string.Equals(r.Group, "Viewer", StringComparison.Ordinal))
+            app.Inspector.Where(r => string.Equals(r.Group, "Sources", StringComparison.Ordinal))
                          .Select(r => r.Key));
 
         // The type is the value and the message is the note: an exception message
         // is somebody else's arbitrary-length string, and the panel column cannot
         // be sized for one.
-        Assert.Equal("threw InvalidOperationException", Value(app.Inspector, "Viewer", "source 1"));
-        Assert.Equal("Early will not answer for unit 0", Note(app.Inspector, "Viewer", "source 1"));
-        Assert.Equal("threw InvalidOperationException", Value(app.Inspector, "Viewer", "source 2"));
-        Assert.Equal("Late cannot read unit 0", Note(app.Inspector, "Viewer", "source 2"));
-        Assert.Equal("threw InvalidOperationException", Value(app.Inspector, "Viewer", "source 3"));
-        Assert.Equal("Own cannot read itself", Note(app.Inspector, "Viewer", "source 3"));
+        Assert.Equal("threw InvalidOperationException", Value(app.Inspector, "Sources", "source 1"));
+        Assert.Equal("Early will not answer for unit 0", Note(app.Inspector, "Sources", "source 1"));
+        Assert.Equal("threw InvalidOperationException", Value(app.Inspector, "Sources", "source 2"));
+        Assert.Equal("Late cannot read unit 0", Note(app.Inspector, "Sources", "source 2"));
+        Assert.Equal("threw InvalidOperationException", Value(app.Inspector, "Sources", "source 3"));
+        Assert.Equal("Own cannot read itself", Note(app.Inspector, "Sources", "source 3"));
     }
 
     [Fact]

@@ -63,10 +63,10 @@ public sealed class ViewerApp : IViewerApp
     private const int CounterDigits = 4;
 
     /// <summary>
-    /// The heading the controls folder sits under, and a name no source may
-    /// take -- the same reservation "Viewer" has had, one block further down.
+    /// The heading the controls folder sits under, taken from the one table that
+    /// says where it is laid out.
     /// </summary>
-    private const string Controls = "Controls";
+    private const string Controls = InspectorLayout.ControlsGroup;
 
     private readonly ViewerSession _session;
     private readonly int _fitWidth;
@@ -1501,11 +1501,18 @@ public sealed class ViewerApp : IViewerApp
     /// all. Two shapes for the same unit is the duplication this replaces.
     /// <para>
     /// <b>The viewer's own rows are a group of their own, and the separation is
-    /// the point.</b> A row under <c>Viewer</c> is one the movement layer cannot
+    /// the point.</b> A row under <c>Sources</c> is one the movement layer cannot
     /// answer, because it is not a fact about the unit: it is about what got
     /// DRAWN — the wait marks on the route, the no-route cross — or about what
     /// got SELECTED. Mixed in among the rest they would read as simulation
     /// state, and somebody would go looking for the wait count in Nav.Core.
+    /// </para>
+    /// <para>
+    /// <b>Every block is stamped with the layer that answered</b> — see
+    /// <see cref="InSection"/> — and <see cref="InspectorLayout.Arrange"/> lays
+    /// the stamped blocks out. Which means the ORDER of the panel is not decided
+    /// here: it is one table, in one place, and this method decides only what is
+    /// asked and whose answer it is.
     /// </para>
     /// <para>
     /// Rebuilt whole each time rather than cached: a cache is one more thing
@@ -1531,7 +1538,7 @@ public sealed class ViewerApp : IViewerApp
     [Observes]
     private IReadOnlyList<DebugRow> BuildInspector()
     {
-        const string Viewer = "Viewer";
+        const string Sources = InspectorLayout.SourcesGroup;
 
         var selection = _session.Selection;
         if (selection.Count == 0)
@@ -1541,29 +1548,31 @@ public sealed class ViewerApp : IViewerApp
             // about a unit and indefensible the moment one of them is about the
             // keyboard: the instant a reader most needs to know which key does
             // what is BEFORE they have worked out how to select anything.
-            return ControlRows();
+            return InspectorLayout.Arrange(InSection(ControlRows(), InspectorLayout.ViewerSection));
         }
 
         // The lowest id, because ViewerSession keeps the selection in ascending
         // order and a box-select has no other stable first member.
         var watched = selection[0];
-        var rows = new List<DebugRow>(_session.DebugFor(watched).Describe());
+        var rows = new List<DebugRow>();
+        rows.AddRange(InSection(_session.DebugFor(watched).Describe(), InspectorLayout.MovementSection));
 
-        // Headings already spoken for. A source is free to call a group anything,
-        // and without this a source that picked a name the movement layer already
-        // uses would land its rows under that heading and read as the movement
-        // layer's own answers. Viewer is reserved from the start for the same
-        // reason, one block further down.
+        // Headings already spoken for WITHIN THE TACTICS SECTION, which is the
+        // whole domain a collision can now happen in. A source is free to call a
+        // group anything, and two sources that both said "Agent" would print two
+        // identical headings under one section and fold as one -- so the second
+        // becomes "Agent (2)" exactly as before.
         //
-        // The names shipped today were pulled apart so no such collision happens
-        // -- the movement layer says Agent and the tactics view says Condition --
-        // and that changes nothing here: what a source calls its groups is not
-        // this panel's to know in advance.
-        var taken = new HashSet<string>(StringComparer.Ordinal) { Viewer, Controls };
-        foreach (var row in rows)
-        {
-            taken.Add(row.Group);
-        }
+        // WHAT IS NO LONGER RESERVED IS EVERY OTHER SECTION'S NAMES. The movement
+        // layer's groups and the viewer's own two used to be seeded in here,
+        // because a heading was identified by its name alone and a source landing
+        // on "Agent" would have read as the movement layer's own answers. A
+        // heading is now identified by its section and its name, MOVEMENT > AGENT
+        // and TACTICS > AGENT are two visibly different headings, and renaming
+        // one of them would put a "(2)" on the panel that means nothing to
+        // anybody looking at it -- the complaint that got the group names pulled
+        // apart in the first place.
+        var taken = new HashSet<string>(StringComparer.Ordinal);
 
         // A source that broke, reported after everything that worked. Collected
         // rather than written in place so a failure cannot push the rows above it
@@ -1586,8 +1595,12 @@ public sealed class ViewerApp : IViewerApp
                 // described. Losing the whole block rather than the rows after
                 // the throw is also deliberate -- half a source's page, with no
                 // way to tell which half is missing, is worse than none of it.
+                //
+                // THE VIEWER'S SECTION, not the source's: a source that threw
+                // said nothing, and the sentence about it is the viewer's own
+                // report of asking.
                 broke.Add(new DebugRow(
-                    Viewer,
+                    Sources,
                     $"source {Number(i + 1)}",
                     $"threw {e.GetType().Name}",
                     e.Message.ReplaceLineEndings(" ")));
@@ -1599,14 +1612,18 @@ public sealed class ViewerApp : IViewerApp
                 taken.Add(row.Group);
             }
 
-            rows.AddRange(supplied);
+            rows.AddRange(InSection(supplied, InspectorLayout.TacticsSection));
         }
+
+        // The viewer's own answers, gathered before they are stamped so that the
+        // section is written in one place rather than onto each row.
+        var mine = new List<DebugRow>();
 
         if (selection.Count > 1)
         {
             // Otherwise the panel silently describes one unit of a boxed group
             // and reads as though the box only caught one.
-            rows.Add(new DebugRow(Viewer, "others", $"{Number(selection.Count - 1)} also selected"));
+            mine.Add(new DebugRow(Sources, "others", $"{Number(selection.Count - 1)} also selected"));
         }
 
         PlanResult? route = null;
@@ -1619,25 +1636,49 @@ public sealed class ViewerApp : IViewerApp
             }
         }
 
-        rows.Add(new DebugRow(Viewer, "waits", route is null ? "-" : Number(WaitCount(route))));
+        mine.Add(new DebugRow(Sources, "waits", route is null ? "-" : Number(WaitCount(route))));
 
         // The orange cross, as a row. Render decides it from four conditions and
         // the panel is the only place a watcher can read WHY the unit is crossed
         // out, so both go through the one predicate rather than agreeing by hand.
         var agent = _session.Agents[watched];
-        rows.Add(HasNoRoute(agent, route is not null)
-            ? new DebugRow(Viewer, "no route", "yes", "crossed out on the map")
-            : new DebugRow(Viewer, "no route", "no"));
+        mine.Add(HasNoRoute(agent, route is not null)
+            ? new DebugRow(Sources, "no route", "yes", "crossed out on the map")
+            : new DebugRow(Sources, "no route", "no"));
 
-        rows.AddRange(broke);
+        mine.AddRange(broke);
 
         // LAST, so that adding it moved nothing. Every row above this line is
         // where it was before there was a controls folder, and a reader who
         // knows the keys never has to look past the unit again -- which is also
         // the argument for folding this one shut, if anyone wants it shut.
-        rows.AddRange(ControlRows());
+        mine.AddRange(ControlRows());
 
-        return rows;
+        rows.AddRange(InSection(mine, InspectorLayout.ViewerSection));
+
+        return InspectorLayout.Arrange(rows);
+    }
+
+    /// <summary>
+    /// The same rows, each stamped with the layer that answered.
+    /// </summary>
+    /// <remarks>
+    /// <b>Here and not in the producers.</b> There are around a hundred places a
+    /// <see cref="DebugRow"/> is constructed across three projects, and not one
+    /// of them is in a position to know what layer it is: a source knows what it
+    /// is, not what it is one of, and a producer that named its own section would
+    /// be reaching up through the seam that exists to stop exactly that. This
+    /// class asked the question, so this class knows whose answer came back.
+    /// </remarks>
+    private static List<DebugRow> InSection(IReadOnlyList<DebugRow> rows, string section)
+    {
+        var stamped = new List<DebugRow>(rows.Count);
+        foreach (var row in rows)
+        {
+            stamped.Add(row with { Section = section });
+        }
+
+        return stamped;
     }
 
     /// <summary>
@@ -1655,8 +1696,8 @@ public sealed class ViewerApp : IViewerApp
     /// that says what the numbers mean.
     /// <para>
     /// <b>A group name already in the panel is renamed rather than merged or
-    /// dropped.</b> Two blocks called <c>Unit</c>, interleaved, would be a panel
-    /// quietly claiming that a tactics world's rows are the movement layer's --
+    /// dropped.</b> Two blocks called <c>Unit</c> under one section, interleaved,
+    /// would be a panel quietly claiming that one source's rows are another's --
     /// the one outcome worth going out of the way to prevent. Dropping the rows
     /// instead would lose whatever the source had to say for the sake of a name
     /// collision it cannot see. So the second one becomes <c>Unit (2)</c>, the

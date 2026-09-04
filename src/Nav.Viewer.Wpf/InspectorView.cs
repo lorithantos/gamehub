@@ -6,8 +6,8 @@ using System.Windows.Media;
 namespace Nav.Viewer.Wpf;
 
 /// <summary>
-/// The inspector panel as real controls: a foldable heading per group, a row per
-/// fact, and the row's note on hover.
+/// The inspector panel as real controls: a foldable section per layer, a foldable
+/// heading per group inside it, a row per fact, and the row's note on hover.
 /// </summary>
 /// <remarks>
 /// <b>What this replaced and why.</b> The panel used to be one monospace
@@ -18,21 +18,39 @@ namespace Nav.Viewer.Wpf;
 /// trim, so every value longer than the column was hard-clipped mid-word with
 /// nothing on screen saying so.
 /// <para>
+/// <b>Two levels, because sixteen headings as flat peers is a list with no shape
+/// to it.</b> Nothing on a flat panel said that FORMATION and SQUAD are two
+/// layers looking at the same thing, or that RATES and KIT have nothing to do
+/// with each other. A section names the LAYER that answered, so the seam this
+/// project is built around is visible in the instrument: what the movement layer
+/// knows, what the tactics layer knows, and what the viewer knows about itself.
+/// What the caption says is <see cref="DebugRow.Section"/>, decided upstream --
+/// this host still invents no claim about anybody's rows.
+/// </para>
+/// <para>
 /// <b>Rebuilt on SHAPE, updated on value.</b> The elements are built once for a
-/// given set of groups and keys and then only their text is written. Two reasons,
-/// and the second is the one that bites: laying out thirty elements sixty times a
-/// second is work nobody asked for, and a rebuilt tree loses which groups the
-/// reader folded -- so a panel that rebuilt each frame would present as folders
-/// that will not stay shut. It is the same discipline the fog overlay keeps,
-/// where <c>TerrainImage</c> is rebuilt only when the visible cell set actually
-/// changes rather than every time it is drawn.
+/// given set of sections, groups and keys and then only their text is written.
+/// Two reasons, and the second is the one that bites: laying out thirty elements
+/// sixty times a second is work nobody asked for, and a rebuilt tree loses which
+/// groups the reader folded -- so a panel that rebuilt each frame would present
+/// as folders that will not stay shut. It is the same discipline the fog overlay
+/// keeps, where <c>TerrainImage</c> is rebuilt only when the visible cell set
+/// actually changes rather than every time it is drawn.
 /// </para>
 /// <para>
 /// <b>The fold state belongs here.</b> It is a fact about this window and about
 /// nothing else -- not about the simulation, not about the app -- so it lives in
 /// the host beside the elements it hides, and no <c>[Observes]</c> member can
-/// reach it. It also survives a rebuild, keyed by group name: a group that comes
-/// back after a shape change comes back folded if the reader folded it.
+/// reach it. It also survives a rebuild: a section is keyed by its name, and a
+/// group is keyed by ITS SECTION AND its name, so two groups that happen to share
+/// a name in two sections fold independently. Keyed by group name alone they
+/// would fold as one, which is the bug two levels makes possible and this is the
+/// line that prevents.
+/// </para>
+/// <para>
+/// The two states are independent in the other direction too: folding a section
+/// hides its groups without touching how each of them is folded, so unfolding it
+/// gives the reader back exactly the panel they left.
 /// </para>
 /// </remarks>
 /// <param name="host">
@@ -40,7 +58,7 @@ namespace Nav.Viewer.Wpf;
 /// </param>
 internal sealed class InspectorView(Panel host)
 {
-    /// <summary>Joins a group and a key into one comparable shape entry.</summary>
+    /// <summary>Joins a section, a group and a key into one comparable shape entry.</summary>
     /// <remarks>
     /// A unit separator rather than a space or a colon, because a source names
     /// its own groups and keys and either of those could occur inside one --
@@ -48,18 +66,31 @@ internal sealed class InspectorView(Panel host)
     /// </remarks>
     private const char Separator = (char)0x1F;
 
+    /// <summary>How far a group heading is inset from its section's.</summary>
+    private const double Indent = 10.0;
+
+    private static readonly SolidColorBrush SectionBrush = Frozen(0xFF, 0xD8, 0x9A);
     private static readonly SolidColorBrush HeadingBrush = Frozen(0xA0, 0xC8, 0xFF);
     private static readonly SolidColorBrush KeyBrush = Frozen(0x9A, 0x9A, 0x9A);
     private static readonly SolidColorBrush ValueBrush = Frozen(0xF5, 0xF5, 0xF5);
 
-    /// <summary>Folded groups, by group name. Absent means expanded.</summary>
+    /// <summary>Folded sections, by section name. Absent means expanded.</summary>
     /// <remarks>
     /// Expanded is the default because expanded is what the panel has always
     /// done. Folding is the reader's tool, not a state they have to discover
     /// their way out of.
     /// </remarks>
-    private readonly Dictionary<string, bool> _folded = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, bool> _foldedSections = new(StringComparer.Ordinal);
 
+    /// <summary>Folded groups, by section AND group name. Absent means expanded.</summary>
+    /// <remarks>
+    /// THE SECTION IS PART OF THE KEY. Two layers may both call a group
+    /// "Formation" -- that they can is half the point of showing the sections --
+    /// and folding one of those must not fold the other.
+    /// </remarks>
+    private readonly Dictionary<string, bool> _foldedGroups = new(StringComparer.Ordinal);
+
+    private readonly List<Section> _sections = [];
     private readonly List<Group> _groups = [];
     private readonly List<Row> _rows = [];
 
@@ -72,19 +103,35 @@ internal sealed class InspectorView(Panel host)
     /// </remarks>
     internal int Rebuilds { get; private set; }
 
-    /// <summary>Whether <paramref name="group"/> is currently folded shut.</summary>
-    internal bool IsFolded(string group) => _folded.TryGetValue(group, out var shut) && shut;
+    /// <summary>Whether <paramref name="section"/> is currently folded shut.</summary>
+    internal bool IsSectionFolded(string section) =>
+        _foldedSections.TryGetValue(section, out var shut) && shut;
+
+    /// <summary>
+    /// Whether <paramref name="group"/> inside <paramref name="section"/> is
+    /// currently folded shut.
+    /// </summary>
+    internal bool IsFolded(string section, string group) =>
+        _foldedGroups.TryGetValue(Key(section, group), out var shut) && shut;
+
+    /// <summary>Folds or unfolds a section, as a click on its heading would.</summary>
+    internal void FoldSection(string section, bool shut)
+    {
+        _foldedSections[section] = shut;
+        ApplySection(section);
+    }
 
     /// <summary>Folds or unfolds a group, as a click on its heading would.</summary>
-    internal void Fold(string group, bool shut)
+    internal void Fold(string section, string group, bool shut)
     {
-        _folded[group] = shut;
-        Apply(group);
+        _foldedGroups[Key(section, group)] = shut;
+        ApplyGroup(section, group);
     }
 
     /// <summary>Shows <paramref name="rows"/>, building elements only if the shape changed.</summary>
     /// <param name="rows">
-    /// The panel's rows, already in group order. Rows are read and never held.
+    /// The panel's rows, already in section and group order. Rows are read and
+    /// never held.
     /// </param>
     internal void Update(IReadOnlyList<DebugRow> rows)
     {
@@ -108,15 +155,18 @@ internal sealed class InspectorView(Panel host)
         return brush;
     }
 
+    private static string Key(string section, string group) => $"{section}{Separator}{group}";
+
     /// <summary>
-    /// Whether the built elements still describe these rows: the same groups and
-    /// keys, in the same order.
+    /// Whether the built elements still describe these rows: the same sections,
+    /// groups and keys, in the same order.
     /// </summary>
     /// <remarks>
-    /// GROUP AND KEY, NOT VALUE. Value is what changes every frame and note is
-    /// what changes with it; neither adds or removes an element, so neither may
-    /// force a rebuild. The unit separator cannot occur in either half, so a key
-    /// containing whatever a source likes cannot collide with a group name.
+    /// SECTION, GROUP AND KEY, NOT VALUE. Value is what changes every frame and
+    /// note is what changes with it; neither adds or removes an element, so
+    /// neither may force a rebuild. The unit separator cannot occur in any of the
+    /// three, so a key containing whatever a source likes cannot collide with a
+    /// group name.
     /// </remarks>
     private bool SameShape(IReadOnlyList<DebugRow> rows)
     {
@@ -136,53 +186,113 @@ internal sealed class InspectorView(Panel host)
         return true;
     }
 
-    private static string Shape(DebugRow row) => $"{row.Group}{Separator}{row.Key}";
+    private static string Shape(DebugRow row) =>
+        $"{row.Section}{Separator}{row.Group}{Separator}{row.Key}";
 
     private void Rebuild(IReadOnlyList<DebugRow> rows)
     {
         Rebuilds++;
         host.Children.Clear();
+        _sections.Clear();
         _groups.Clear();
         _rows.Clear();
 
         var shape = new string[rows.Count];
-        Group? current = null;
+        Section? section = null;
+        Group? group = null;
 
         for (var i = 0; i < rows.Count; i++)
         {
             var row = rows[i];
             shape[i] = Shape(row);
 
-            if (current is null || !string.Equals(current.Name, row.Group, StringComparison.Ordinal))
+            if (section is null || !string.Equals(section.Name, row.Section, StringComparison.Ordinal))
             {
-                current = NewGroup(row.Group);
-                _groups.Add(current);
+                section = NewSection(row.Section);
+                _sections.Add(section);
+
+                // A new section starts a new group whatever it is called, so a
+                // name repeated across the boundary opens a second heading
+                // rather than pouring into the one above it.
+                group = null;
+            }
+
+            if (group is null || !string.Equals(group.Name, row.Group, StringComparison.Ordinal))
+            {
+                group = NewGroup(section, row.Group);
+                section.Count++;
+                _groups.Add(group);
             }
 
             var built = NewRow();
-            current.Body.Children.Add(built.Element);
-            current.Count++;
+            group.Body.Children.Add(built.Element);
+            group.Count++;
             _rows.Add(built);
         }
 
         _shape = shape;
 
-        foreach (var group in _groups)
+        foreach (var built in _groups)
         {
             // The tooltip counts rows, so it is written once the group is whole.
             // It says nothing about what the group MEANS: group names come from
             // sources this host has never heard of, and a heading that explained
             // "Fight" would be a host inventing a claim about somebody else's
             // rows.
-            group.Heading.ToolTip = group.Count == 1
+            built.Heading.ToolTip = built.Count == 1
                 ? "1 row -- click to fold"
-                : $"{group.Count} rows -- click to fold";
+                : $"{built.Count} rows -- click to fold";
 
-            Apply(group.Name);
+            ApplyGroup(built.Section, built.Name);
+        }
+
+        foreach (var built in _sections)
+        {
+            built.Heading.ToolTip = built.Count == 1
+                ? "1 group -- click to fold"
+                : $"{built.Count} groups -- click to fold";
+
+            ApplySection(built.Name);
         }
     }
 
-    private Group NewGroup(string name)
+    private Section NewSection(string name)
+    {
+        var chevron = new TextBlock { Foreground = SectionBrush, Margin = new Thickness(0, 0, 4, 0) };
+        var caption = new TextBlock
+        {
+            Foreground = SectionBrush,
+            FontWeight = FontWeights.Bold,
+            Text = name.ToUpperInvariant(),
+        };
+
+        var line = new StackPanel { Orientation = Orientation.Horizontal };
+        line.Children.Add(chevron);
+        line.Children.Add(caption);
+
+        var heading = new Border
+        {
+            Background = Brushes.Transparent,
+            Cursor = Cursors.Hand,
+            Padding = new Thickness(0, 10, 0, 2),
+            Child = line,
+        };
+
+        var body = new StackPanel();
+        var section = new Section(name, heading, chevron, body);
+
+        heading.MouseLeftButtonDown += (_, e) =>
+        {
+            FoldSection(name, !IsSectionFolded(name));
+            e.Handled = true;
+        };
+
+        host.Children.Add(heading);
+        host.Children.Add(body);
+        return section;
+    }
+
+    private Group NewGroup(Section section, string name)
     {
         var chevron = new TextBlock { Foreground = HeadingBrush, Margin = new Thickness(0, 0, 4, 0) };
         var caption = new TextBlock { Foreground = HeadingBrush, Text = name.ToUpperInvariant() };
@@ -198,21 +308,21 @@ internal sealed class InspectorView(Panel host)
         {
             Background = Brushes.Transparent,
             Cursor = Cursors.Hand,
-            Padding = new Thickness(0, 6, 0, 2),
+            Padding = new Thickness(Indent, 4, 0, 2),
             Child = line,
         };
 
-        var body = new StackPanel();
-        var group = new Group(name, heading, chevron, body);
+        var body = new StackPanel { Margin = new Thickness(Indent, 0, 0, 0) };
+        var group = new Group(section.Name, name, heading, chevron, body);
 
         heading.MouseLeftButtonDown += (_, e) =>
         {
-            Fold(name, !IsFolded(name));
+            Fold(section.Name, name, !IsFolded(section.Name, name));
             e.Handled = true;
         };
 
-        host.Children.Add(heading);
-        host.Children.Add(body);
+        section.Body.Children.Add(heading);
+        section.Body.Children.Add(body);
         return group;
     }
 
@@ -240,13 +350,28 @@ internal sealed class InspectorView(Panel host)
         return new Row(element, key, value);
     }
 
-    /// <summary>Puts a group's body where its fold state says it should be.</summary>
-    private void Apply(string name)
+    /// <summary>Puts a section's body where its fold state says it should be.</summary>
+    private void ApplySection(string name)
     {
-        var shut = IsFolded(name);
+        var shut = IsSectionFolded(name);
+        foreach (var section in _sections)
+        {
+            if (string.Equals(section.Name, name, StringComparison.Ordinal))
+            {
+                section.Body.Visibility = shut ? Visibility.Collapsed : Visibility.Visible;
+                section.Chevron.Text = shut ? "▸" : "▾";
+            }
+        }
+    }
+
+    /// <summary>Puts a group's body where its fold state says it should be.</summary>
+    private void ApplyGroup(string section, string name)
+    {
+        var shut = IsFolded(section, name);
         foreach (var group in _groups)
         {
-            if (string.Equals(group.Name, name, StringComparison.Ordinal))
+            if (string.Equals(group.Section, section, StringComparison.Ordinal) &&
+                string.Equals(group.Name, name, StringComparison.Ordinal))
             {
                 group.Body.Visibility = shut ? Visibility.Collapsed : Visibility.Visible;
                 group.Chevron.Text = shut ? "▸" : "▾";
@@ -254,9 +379,25 @@ internal sealed class InspectorView(Panel host)
         }
     }
 
-    /// <summary>One heading and the rows under it.</summary>
-    private sealed class Group(string name, Border heading, TextBlock chevron, StackPanel body)
+    /// <summary>One section heading and the groups under it.</summary>
+    private sealed class Section(string name, Border heading, TextBlock chevron, StackPanel body)
     {
+        public string Name { get; } = name;
+
+        public Border Heading { get; } = heading;
+
+        public TextBlock Chevron { get; } = chevron;
+
+        public StackPanel Body { get; } = body;
+
+        public int Count { get; set; }
+    }
+
+    /// <summary>One heading and the rows under it, and which section it is in.</summary>
+    private sealed class Group(string section, string name, Border heading, TextBlock chevron, StackPanel body)
+    {
+        public string Section { get; } = section;
+
         public string Name { get; } = name;
 
         public Border Heading { get; } = heading;

@@ -66,6 +66,20 @@ public sealed class InstrumentMutationTests
     public void TheDoctrineReadsCauseNothingEither(string member) =>
         Clean(typeof(DemoWorld).GetMethod(member)!);
 
+    /// <summary>
+    /// The panel's read of who a unit is shooting at, walked the same way.
+    /// </summary>
+    /// <remarks>
+    /// Apart from the two theories above because nothing in the tick asks it:
+    /// <c>Fire</c> writes the map and never reads it back, so
+    /// this is the one read here whose only caller is a watcher. That is exactly
+    /// the shape the attribute exists for -- a member nobody would notice
+    /// causing something, because nobody but an observer calls it.
+    /// </remarks>
+    [Fact]
+    public void TheTargetReadCausesNothing() =>
+        Clean(typeof(DemoWorld).GetMethod(nameof(DemoWorld.TargetOf))!);
+
     [Fact]
     public void TheWalkStillFindsWhatSettleCauses()
     {

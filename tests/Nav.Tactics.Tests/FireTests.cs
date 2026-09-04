@@ -217,6 +217,151 @@ public sealed class FireTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void TheRetainedTargetIsTheOneTheRuleChose()
+    {
+        // The same scene as ThreatIsJudgedByWhatItCanDoToMe, asked the other
+        // question: not who was hurt, but who the world says was being shot at.
+        var combat = Shipped();
+        var (system, grid) = Scene((5, 5, 0), (5, 8, 1), (9, 5, 1));
+        var world = new DemoWorld(grid, combat: combat, scale: Scale);
+        world.Enlist(0, "tank");
+        world.Enlist(1, "buggy");
+        world.Enlist(2, "rocketbike");
+
+        system.Tick();
+        world.Listen(system);
+        world.Settle();
+
+        // The rule read off the table rather than named: the enemy that can hurt
+        // THIS shooter fastest. The buggy is nearer, so a retained value that
+        // had drifted to distance or to id would answer 1 here.
+        var plated = combat.KitFor("tank").Armour;
+        var expected = new[] { 1, 2 }
+            .OrderByDescending(enemy => combat.ThreatPerSecond(world.KitOf(enemy)!, plated))
+            .First();
+
+        output.WriteLine($"the tank's threat table says {expected}, and it holds {world.TargetOf(0)}");
+
+        Assert.Equal(expected, world.TargetOf(0));
+        Assert.Equal(2, expected);
+
+        // Tied to the shot that was actually fired: the named unit is the one
+        // that took the damage, and the other is untouched.
+        Assert.True(world.HealthOf(expected) < 1.0, "the retained target is not the unit that was hit");
+        Assert.Equal(1.0, world.HealthOf(1), 9);
+
+        // And both of theirs, which have only one enemy to choose from.
+        Assert.Equal(0, world.TargetOf(1));
+        Assert.Equal(0, world.TargetOf(2));
+    }
+
+    [Fact]
+    public void AUnitThatFiredAtNobodyThisTickHasNoTarget()
+    {
+        // Two riflemen close enough to shoot and one standing ten cells off.
+        var combat = Shipped();
+        var (system, grid) = Scene((5, 5, 0), (8, 5, 1), (15, 5, 1));
+        var world = new DemoWorld(grid, combat: combat, scale: Scale);
+        world.Enlist(0, "rifleman");
+        world.Enlist(1, "rifleman");
+        world.Enlist(2, "rifleman");
+
+        system.Tick();
+        world.Listen(system);
+        world.Settle();
+
+        Assert.Equal(1, world.TargetOf(0));
+        Assert.Equal(0, world.TargetOf(1));
+        Assert.Equal(-1, world.TargetOf(2));
+
+        // A unit nobody has ever heard of never fired either.
+        Assert.Equal(-1, world.TargetOf(9));
+
+        // The target goes away, and with it the answer. A per-tick fact kept
+        // from the last tick something happened would still say 1 here, which
+        // is the exact lie a watching panel would draw.
+        system.Remove(1);
+        system.Tick();
+        world.Settle();
+
+        Assert.Equal(-1, world.TargetOf(0));
+    }
+
+    [Fact]
+    public void ATargetThatFellToTheShotIsNotReportedAsATarget()
+    {
+        // A tank reaches six cells and a rifleman four, so the shooting is one
+        // way: the tank kills, nothing shoots back, and the shooter is plainly
+        // alive when the question is asked.
+        var combat = Shipped();
+        var (system, grid) = Scene((5, 5, 0), (10, 5, 1));
+        var world = new DemoWorld(grid, combat: combat, scale: Scale);
+        world.Enlist(0, "tank");
+        world.Enlist(1, "rifleman");
+        world.SetHealth(1, 0.001);
+
+        system.Tick();
+        world.Listen(system);
+        world.Settle();
+
+        Assert.Equal([new Casualty(Victim: 1, Killer: 0)], world.Fallen);
+        Assert.Equal(0.0, world.HealthOf(1), 9);
+        Assert.Equal(1.0, world.HealthOf(0), 9);
+
+        Assert.Equal(-1, world.TargetOf(0));
+    }
+
+    [Fact]
+    public void AShooterThatFellThisTickIsNotShootingAtAnything()
+    {
+        // The shot lands and the shooter dies of something else: a scripted
+        // threat one cell away, on a radius tight enough that the rifleman five
+        // cells further out is not standing in it. So the target survives, and
+        // the only reason the answer changes is that the shooter is a corpse.
+        var combat = Shipped();
+        var (system, grid) = Scene((5, 5, 0), (10, 5, 1));
+        var world = new DemoWorld(grid, combat: combat, scale: Scale, exposureRadius: 1.0, damagePerTick: 0.5);
+        world.Enlist(0, "tank");
+        world.Enlist(1, "rifleman");
+        world.SetHealth(0, 0.1);
+        world.HostileCells.Add(grid.Index(4, 5));
+
+        system.Tick();
+        world.Listen(system);
+        world.Settle();
+
+        // Fired, and the shot landed: the rifleman is wounded by a tank that no
+        // longer exists.
+        Assert.True(world.HealthOf(1) < 1.0, "the dying tank's shot was lost");
+        Assert.Equal(0.0, world.HealthOf(0), 9);
+
+        Assert.Equal(-1, world.TargetOf(0));
+    }
+
+    [Fact]
+    public void NobodyIsShootingAtAnythingBeforeTheFirstSettle()
+    {
+        // The same shape as AsOf being -1 until an edge has happened. These two
+        // are in range of each other and will both have a target one line later.
+        var combat = Shipped();
+        var (system, grid) = Scene((5, 5, 0), (8, 5, 1));
+        var world = new DemoWorld(grid, combat: combat, scale: Scale);
+        world.Enlist(0, "rifleman");
+        world.Enlist(1, "rifleman");
+
+        system.Tick();
+        world.Listen(system);
+
+        Assert.Equal(-1, world.TargetOf(0));
+        Assert.Equal(-1, world.TargetOf(1));
+
+        world.Settle();
+
+        Assert.Equal(1, world.TargetOf(0));
+        Assert.Equal(0, world.TargetOf(1));
+    }
+
+    [Fact]
     public void AKitNeedsATableAndAKnownName()
     {
         var combat = Shipped();

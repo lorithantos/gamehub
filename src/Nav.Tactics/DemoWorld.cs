@@ -50,6 +50,7 @@ public sealed class DemoWorld : IPerception, IPerceptionView
     private readonly Dictionary<int, int> _side = [];
     private readonly SortedDictionary<int, int> _cell = [];
     private readonly Dictionary<int, Kit> _kit = [];
+    private readonly Dictionary<int, int> _target = [];
     private readonly List<Casualty> _fallen = [];
     private readonly Dictionary<int, Dictionary<int, Sighting>> _memory = [];
     private readonly Dictionary<int, SortedSet<int>> _visible = [];
@@ -287,6 +288,39 @@ public sealed class DemoWorld : IPerception, IPerceptionView
     /// about it; typically <see cref="MovementSystem.Remove"/>.
     /// </summary>
     public IReadOnlyList<Casualty> Fallen => _fallen;
+
+    /// <summary>
+    /// Who this unit was shooting at when the last <see cref="Settle"/> ended;
+    /// -1 for a unit shooting at nobody.
+    /// </summary>
+    /// <remarks>
+    /// The value <see cref="Settle"/> already computed and used to throw away.
+    /// Nothing in the tick reads it back -- the shot was resolved from it and
+    /// then it was gone -- so keeping it changes what a panel can ask and
+    /// nothing else.
+    /// <para>
+    /// <b>A per-tick fact, not a standing order.</b> The map is rebuilt by every
+    /// pass, so a unit that fired at nothing this tick answers -1 rather than
+    /// whatever it was shooting at before. Who a unit HAS been ordered to
+    /// attack is the movement layer's question and is not this.
+    /// </para>
+    /// <para>
+    /// Both ends have to be standing. A shooter that fell taking its shot, and a
+    /// target that fell to it, both answer -1: at the edge neither is shooting
+    /// at anything, and a corpse is never named as somebody's target. The kill
+    /// itself is in <see cref="Fallen"/>, which is where it belongs.
+    /// </para>
+    /// <para>
+    /// -1 before the first <see cref="Settle"/> as well, the way
+    /// <see cref="AsOf"/> is, and for the same reason: no edge has happened yet,
+    /// so there is nothing to answer with.
+    /// </para>
+    /// </remarks>
+    [Observes]
+    public int TargetOf(int agent) =>
+        HealthOf(agent) > 0.0 && _target.TryGetValue(agent, out var target) && HealthOf(target) > 0.0
+            ? target
+            : -1;
 
     /// <summary>
     /// The world as one side perceives it: health and rank as anybody sees them,
@@ -807,7 +841,8 @@ public sealed class DemoWorld : IPerception, IPerceptionView
     /// <para>
     /// A shooter takes the highest THREAT in range: the enemy that can hurt it
     /// fastest right now, by the table, not the one with the most to lose.
-    /// Ties go to the nearer, then the lower id.
+    /// Ties go to the nearer, then the lower id. What each shooter chose is kept
+    /// and readable at this edge through <see cref="TargetOf"/>.
     /// </para>
     /// <para>
     /// A blast hits every unit within the weapon's radius of the target's cell,
@@ -902,9 +937,15 @@ public sealed class DemoWorld : IPerception, IPerceptionView
         Look();
     }
 
-    /// <summary>Every armed unit shoots once: targets chosen from the start of the pass, shots landed in id order.</summary>
+    /// <summary>
+    /// Every armed unit shoots once: targets chosen from the start of the pass,
+    /// shots landed in id order, each choice kept for <see cref="TargetOf"/>.
+    /// </summary>
     private void Fire()
     {
+        // Cleared before the guard, so the map is always what THIS pass chose
+        // rather than what some earlier one did.
+        _target.Clear();
         if (_combat is null || _kit.Count == 0)
         {
             return;
@@ -919,6 +960,7 @@ public sealed class DemoWorld : IPerception, IPerceptionView
                 if (target >= 0)
                 {
                     shots.Add((shooter, target));
+                    _target[shooter] = target;
                 }
             }
         }

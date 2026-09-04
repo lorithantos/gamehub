@@ -2021,12 +2021,16 @@ public sealed class MovementSystem : IDebugView
     {
         public IReadOnlyList<DebugRow> Describe()
         {
-            const string Agent = "Agent";
-            const string Progress = "Progress";
-            const string Route = "Plan";
-            const string Formation = "Formation";
-            const string Field = "Field";
-            const string Planning = "Planning";
+            // The layer's own vocabulary, named once in MovementGroups so that a
+            // panel laying these out cannot quote a name this method has stopped
+            // emitting. Route keeps its local name because that is what the rows
+            // below are about; the heading it prints under is Plan.
+            const string Agent = MovementGroups.Agent;
+            const string Progress = MovementGroups.Progress;
+            const string Route = MovementGroups.Plan;
+            const string Formation = MovementGroups.Formation;
+            const string Field = MovementGroups.Field;
+            const string Planning = MovementGroups.Planning;
 
             if (id < 0 || id >= system._agents.Count)
             {

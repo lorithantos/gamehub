@@ -40,9 +40,11 @@ namespace Nav.Viewer.Tactics;
 /// </remarks>
 public sealed class DemoWorldDebugView : IWorldDebugView
 {
-    private const string World = "World";
-    private const string Rates = "Rates";
-    private const string Ranks = "Rank";
+    // Named once in DemoWorldGroups, so a composition root laying these out
+    // cannot go on quoting a heading this view has stopped emitting.
+    private const string World = DemoWorldGroups.World;
+    private const string Rates = DemoWorldGroups.Rates;
+    private const string Ranks = DemoWorldGroups.Rank;
 
     private readonly DemoWorld _world;
     private readonly ISquadView[] _squads;
@@ -215,11 +217,11 @@ public sealed class DemoWorldDebugView : IWorldDebugView
     /// </remarks>
     private sealed class UnitDebugView(DemoWorld world, IReadOnlyList<ISquadView> squads, int id) : IDebugView
     {
-        private const string Squad = "Squad";
-        private const string Condition = "Condition";
-        private const string Loadout = "Kit";
-        private const string Fight = "Fight";
-        private const string Perception = "Perception";
+        private const string Squad = DemoWorldGroups.Squad;
+        private const string Condition = DemoWorldGroups.Condition;
+        private const string Loadout = DemoWorldGroups.Kit;
+        private const string Fight = DemoWorldGroups.Fight;
+        private const string Perception = DemoWorldGroups.Perception;
 
         [Observes]
         public IReadOnlyList<DebugRow> Describe()

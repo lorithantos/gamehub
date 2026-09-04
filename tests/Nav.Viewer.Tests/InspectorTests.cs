@@ -36,6 +36,37 @@ public sealed class InspectorTests
     private const string Tactics = InspectorLayout.TacticsSection;
     private const string Viewer = InspectorLayout.ViewerSection;
 
+    /// <summary>
+    /// An arrangement, standing in for the one a composition root hands over.
+    /// </summary>
+    /// <remarks>
+    /// <b>WRITTEN HERE BECAUSE THE ARRANGEMENT IS THE COMPOSER'S, NOT THE
+    /// VIEWER'S.</b> Nav.Viewer.Shared holds the mechanism and names no group;
+    /// the order comes in as data. So a test that wants a panel in a particular
+    /// order composes one, exactly as a host does.
+    /// <para>
+    /// The movement section is named through <see cref="MovementGroups"/>, which
+    /// is the layer's own vocabulary and reachable here because Nav.Core is.
+    /// The tactics section is named with the fixture <see cref="Source"/>'s own
+    /// invented headings -- this project cannot see a real tactics source and
+    /// must not learn its words to test the ordering.
+    /// </para>
+    /// </remarks>
+    private static readonly InspectorArrangement Arranged = new(
+    [
+        (Movement, new[]
+        {
+            MovementGroups.Agent,
+            MovementGroups.Progress,
+            MovementGroups.Plan,
+            MovementGroups.Formation,
+            MovementGroups.Field,
+            MovementGroups.Planning,
+        }),
+        (Tactics, new[] { "Fight", "Fight world", "Ranked" }),
+        (Viewer, new[] { InspectorLayout.SourcesGroup, InspectorLayout.ControlsGroup }),
+    ]);
+
     private static Grid Fixture() => Grid.FromMapText(SampleMaps.CornerCutTrap);
 
     private static GridLayout LayoutFor(Grid grid) => GridLayout.Fit(grid, 1000, 1000 - StatusHeight);
@@ -547,34 +578,37 @@ public sealed class InspectorTests
         // section of the layer that produced it and goes after every group the
         // table does know, in the order it arrived.
         //
-        // "Rates" is in the table and arrives SECOND here, behind a name that is
-        // not -- so a panel that laid blocks out in arrival order fails this.
+        // "Ranked" is in the arrangement and arrives SECOND here, behind a name
+        // that is not -- so a panel that laid blocks out in arrival order fails
+        // this.
         var grid = Fixture();
         var app = new ViewerApp(
             grid,
             LayoutFor(grid),
             Squad,
-            sources: [new Source("Zebra", 0) { UnitGroup = "Zebra", WorldGroup = "Rates" }]);
+            sources: [new Source("Zebra", 0) { UnitGroup = "Zebra", WorldGroup = "Ranked" }],
+            arrangement: Arranged);
 
         Assert.Equal(
-            [(Tactics, "Rates"), (Tactics, "Zebra")],
+            [(Tactics, "Ranked"), (Tactics, "Zebra")],
             HeadingRuns(app.Inspector).Where(r => string.Equals(r.Section, Tactics, StringComparison.Ordinal)));
 
         // Nothing vanished on the way.
         Assert.Equal("0 by Zebra", ValueIn(app.Inspector, Tactics, "Zebra", "watched"));
-        Assert.Equal("Zebra", ValueIn(app.Inspector, Tactics, "Rates", "source"));
+        Assert.Equal("Zebra", ValueIn(app.Inspector, Tactics, "Ranked", "source"));
     }
 
     [Fact]
     public void TheSectionsAndTheGroupsInThemComeOutInTheOrderTheTableDeclares()
     {
-        // ORDER IS THE TABLE'S, not the order blocks happened to be appended in.
-        // Checked against InspectorLayout.Arrangement rather than against a list
-        // written here, so a reader who reorders the table gets a panel that
-        // reordered with it and this test goes on being true.
+        // ORDER IS THE ARRANGEMENT'S, not the order blocks happened to be
+        // appended in. Checked against Arranged rather than against a list
+        // written out again below, so a reader who reorders the arrangement gets
+        // a panel that reordered with it and this test goes on being true.
         var grid = Fixture();
         var layout = LayoutFor(grid);
-        var app = new ViewerApp(grid, layout, Squad, sources: [new Source("Fight", 0)]);
+        var app = new ViewerApp(
+            grid, layout, Squad, sources: [new Source("Fight", 0)], arrangement: Arranged);
 
         using var host = new ScriptedHost(
             [new ScriptedFrame(Mouse: layout.CenterOf(10, 5), ButtonsDown: MouseButtons.Right), new ScriptedFrame()],
@@ -598,28 +632,149 @@ public sealed class InspectorTests
         // than merely in SOME order, so a table that listed them backwards would
         // have to show a panel that read backwards.
         Assert.Equal(
-            InspectorLayout.Arrangement[0].Groups.Where(g => runs.Contains((Movement, g))),
+            Arranged.Sections[0].Groups.Where(g => runs.Contains((Movement, g))),
             runs.Where(r => string.Equals(r.Section, Movement, StringComparison.Ordinal)).Select(r => r.Group));
     }
 
-    /// <summary>Where the table puts a section, or after every one it knows.</summary>
+    [Fact]
+    public void TheArrangementTheComposerHandsOverIsWhatDrivesTheOrder()
+    {
+        // CHANGE THE COMPOSER'S TABLE, CHANGE THE PANEL. Two apps over identical
+        // content, an identical source and identical rows, differing in nothing
+        // but the arrangement handed to the constructor -- which is the whole
+        // claim of moving the table out of this project and into a host.
+        var grid = Fixture();
+        var layout = LayoutFor(grid);
+
+        var forward = new InspectorArrangement(
+        [
+            (Movement, new[] { MovementGroups.Agent, MovementGroups.Progress }),
+            (Tactics, new[] { "Fight", "Fight world" }),
+        ]);
+
+        var backward = new InspectorArrangement(
+        [
+            (Tactics, new[] { "Fight world", "Fight" }),
+            (Movement, new[] { MovementGroups.Progress, MovementGroups.Agent }),
+        ]);
+
+        var first = new ViewerApp(
+            grid, layout, Squad, sources: [new Source("Fight", 0)], arrangement: forward);
+        var second = new ViewerApp(
+            grid, layout, Squad, sources: [new Source("Fight", 0)], arrangement: backward);
+
+        // Named groups in the arrangement's order, then everything it did not
+        // name after them in the order it arrived.
+        Assert.Equal(
+            [
+                (Movement, MovementGroups.Agent),
+                (Movement, MovementGroups.Progress),
+                (Movement, MovementGroups.Plan),
+                (Movement, MovementGroups.Formation),
+                (Movement, MovementGroups.Planning),
+                (Tactics, "Fight"),
+                (Tactics, "Fight world"),
+                (Viewer, InspectorLayout.SourcesGroup),
+                (Viewer, InspectorLayout.ControlsGroup),
+            ],
+            HeadingRuns(first.Inspector));
+
+        // Sections swapped, groups swapped inside both of them, and the section
+        // neither arrangement names still last.
+        Assert.Equal(
+            [
+                (Tactics, "Fight world"),
+                (Tactics, "Fight"),
+                (Movement, MovementGroups.Progress),
+                (Movement, MovementGroups.Agent),
+                (Movement, MovementGroups.Plan),
+                (Movement, MovementGroups.Formation),
+                (Movement, MovementGroups.Planning),
+                (Viewer, InspectorLayout.SourcesGroup),
+                (Viewer, InspectorLayout.ControlsGroup),
+            ],
+            HeadingRuns(second.Inspector));
+
+        // The same rows either way: an arrangement moves blocks and creates,
+        // drops and rewrites nothing.
+        Assert.Equal(
+            first.Inspector.Order(RowOrder).ToList(),
+            second.Inspector.Order(RowOrder).ToList());
+    }
+
+    [Fact]
+    public void AViewerHandedNoArrangementLaysItsBlocksOutInTheOrderTheyArrived()
+    {
+        // THE CONTRACT DebugRow ALREADY STATES, restored rather than fallen back
+        // on: rows arrive already in group order, so a panel renders headings by
+        // watching the group change rather than by sorting. A host with no
+        // inspector -- the raylib one -- composes a ViewerApp without knowing an
+        // arrangement exists, and this is what it gets.
+        var grid = Fixture();
+        var layout = LayoutFor(grid);
+        var app = new ViewerApp(grid, layout, Squad, sources: [new Source("Fight", 0)]);
+
+        Assert.Equal(
+            [
+                (Movement, MovementGroups.Agent),
+                (Movement, MovementGroups.Progress),
+                (Movement, MovementGroups.Plan),
+                (Movement, MovementGroups.Formation),
+                (Movement, MovementGroups.Planning),
+                (Tactics, "Fight"),
+                (Tactics, "Fight world"),
+                (Viewer, InspectorLayout.SourcesGroup),
+                (Viewer, InspectorLayout.ControlsGroup),
+            ],
+            HeadingRuns(app.Inspector));
+
+        // And the source's two blocks DO move when somebody asks for them the
+        // other way round, so the sequence above is a result and not the only
+        // order this panel is capable of.
+        var reordered = new ViewerApp(
+            grid,
+            layout,
+            Squad,
+            sources: [new Source("Fight", 0)],
+            arrangement: new InspectorArrangement([(Tactics, new[] { "Fight world", "Fight" })]));
+
+        Assert.Equal(
+            [(Tactics, "Fight world"), (Tactics, "Fight")],
+            HeadingRuns(reordered.Inspector)
+                .Where(r => string.Equals(r.Section, Tactics, StringComparison.Ordinal)));
+    }
+
+    /// <summary>A total order over rows, for comparing two panels as sets.</summary>
+    private static Comparer<DebugRow> RowOrder { get; } = Comparer<DebugRow>.Create((a, b) =>
+    {
+        var section = string.CompareOrdinal(a.Section, b.Section);
+        if (section != 0)
+        {
+            return section;
+        }
+
+        var group = string.CompareOrdinal(a.Group, b.Group);
+        return group != 0 ? group : string.CompareOrdinal(a.Key, b.Key);
+    });
+
+    /// <summary>Where the arrangement puts a section, or after every one it names.</summary>
     private static int SectionRank(string section)
     {
-        for (var i = 0; i < InspectorLayout.Arrangement.Count; i++)
+        for (var i = 0; i < Arranged.Sections.Count; i++)
         {
-            if (string.Equals(InspectorLayout.Arrangement[i].Section, section, StringComparison.Ordinal))
+            if (string.Equals(Arranged.Sections[i].Section, section, StringComparison.Ordinal))
             {
                 return i;
             }
         }
 
-        return InspectorLayout.Arrangement.Count;
+        return Arranged.Sections.Count;
     }
 
-    /// <summary>Where the table puts a group inside its section, or after every one it knows.</summary>
+    /// <summary>Where the arrangement puts a group inside its section, or after every one it names.</summary>
     private static int GroupRank((string Section, string Group) heading)
     {
-        foreach (var (section, groups) in InspectorLayout.Arrangement)
+        foreach (var (section, groups) in Arranged.Sections)
         {
             if (!string.Equals(section, heading.Section, StringComparison.Ordinal))
             {

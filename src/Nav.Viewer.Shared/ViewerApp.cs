@@ -197,6 +197,23 @@ public sealed class ViewerApp : IViewerApp
     /// </remarks>
     private readonly IVisibilityView? _eyes;
 
+    /// <summary>
+    /// What order the panel lays its blocks out in, or
+    /// <see cref="InspectorArrangement.ArrivalOrder"/> where nobody said.
+    /// </summary>
+    /// <remarks>
+    /// <b>DATA, FROM WHOEVER COMPOSED THE APPLICATION.</b> A group name is a
+    /// producer's vocabulary and this project can see only one producer's -- the
+    /// movement layer's, through Nav.Core. Laying the movement layer's words out
+    /// next to a source's is a decision only a host holding both halves of the
+    /// seam can take, so it takes it and hands the answer over.
+    /// <para>
+    /// A host with no inspector -- the raylib one -- hands over nothing and gets
+    /// arrival order, which is what <see cref="DebugRow"/> promises anyway.
+    /// </para>
+    /// </remarks>
+    private readonly InspectorArrangement _arrangement;
+
     /// <summary>Whose eyes the board is drawn through, or <see cref="Observer"/>.</summary>
     private int _viewpoint = Observer;
 
@@ -252,7 +269,8 @@ public sealed class ViewerApp : IViewerApp
         int maxPixelHeight,
         Keymap? keys = null,
         IReadOnlyList<IWorldDebugView>? sources = null,
-        IVisibilityView? eyes = null)
+        IVisibilityView? eyes = null,
+        InspectorArrangement? arrangement = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(maxPixelWidth, 0);
@@ -263,6 +281,7 @@ public sealed class ViewerApp : IViewerApp
         _fitHeight = maxPixelHeight;
         _sources = Copy(sources);
         _eyes = eyes;
+        _arrangement = arrangement ?? InspectorArrangement.ArrivalOrder;
         Keys = keys ?? Keymap.Default;
         AdoptContent();
         StatusText = BuildStatus();
@@ -282,8 +301,16 @@ public sealed class ViewerApp : IViewerApp
         RecordedScenario? scenario = null,
         Keymap? keys = null,
         IReadOnlyList<IWorldDebugView>? sources = null,
-        IVisibilityView? eyes = null)
-        : this(BuildSession(grid, scenario, squad), layout.PixelWidth, layout.PixelHeight, keys, sources, eyes)
+        IVisibilityView? eyes = null,
+        InspectorArrangement? arrangement = null)
+        : this(
+            BuildSession(grid, scenario, squad),
+            layout.PixelWidth,
+            layout.PixelHeight,
+            keys,
+            sources,
+            eyes,
+            arrangement)
     {
     }
 
@@ -1548,7 +1575,8 @@ public sealed class ViewerApp : IViewerApp
             // about a unit and indefensible the moment one of them is about the
             // keyboard: the instant a reader most needs to know which key does
             // what is BEFORE they have worked out how to select anything.
-            return InspectorLayout.Arrange(InSection(ControlRows(), InspectorLayout.ViewerSection));
+            return InspectorLayout.Arrange(
+                InSection(ControlRows(), InspectorLayout.ViewerSection), _arrangement);
         }
 
         // The lowest id, because ViewerSession keeps the selection in ascending
@@ -1656,7 +1684,7 @@ public sealed class ViewerApp : IViewerApp
 
         rows.AddRange(InSection(mine, InspectorLayout.ViewerSection));
 
-        return InspectorLayout.Arrange(rows);
+        return InspectorLayout.Arrange(rows, _arrangement);
     }
 
     /// <summary>

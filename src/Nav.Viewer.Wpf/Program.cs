@@ -34,6 +34,67 @@ internal static class Program
     /// <summary>Room left under the map for the status line, in pixels.</summary>
     internal const int StatusHeight = 26;
 
+    /// <summary>
+    /// THE PANEL, DECLARED: sections in the order they are shown, each with the
+    /// groups it holds in the order they are shown.
+    /// </summary>
+    /// <remarks>
+    /// <b>THIS IS THE GOD CLASS, IN THE GOOD WAY, AND THAT IS WHY THE TABLE IS
+    /// HERE.</b> Laying the movement layer's headings out next to a tactics
+    /// source's is a statement about BOTH, and this host is the only place in the
+    /// viewer entitled to hold both: Nav.Viewer.Shared references Nav.Core alone
+    /// so that it cannot name a Kit or a Squad, and the table used to walk around
+    /// that with quoted strings -- the seam breached in the one form the compiler
+    /// cannot see. There was nowhere legal to put these names as a type, and that
+    /// absence was the proof the table was in the wrong project.
+    /// <para>
+    /// <b>Every name is a CONSTANT, so a rename fails to compile.</b> Quoted, a
+    /// heading that drifted did not break: it stopped matching, dropped to
+    /// unknown-order and sank to the bottom of its section, silently, in a window
+    /// nobody had open. <see cref="MovementGroups"/> and
+    /// <see cref="DemoWorldGroups"/> are the producers' own vocabulary, and this
+    /// is the one list that says what order to read them in.
+    /// </para>
+    /// <para>
+    /// No file format and no settings type: it is a static table today, and the
+    /// extension point is that a loader would build this object instead. That is
+    /// the same shape <c>Keymap</c> uses, and for the same reason.
+    /// </para>
+    /// <para>
+    /// Reachable from the test project so the panel can be asserted against the
+    /// arrangement the window actually opens with. A test that restated the list
+    /// would be measuring its own composition.
+    /// </para>
+    /// </remarks>
+    internal static readonly InspectorArrangement Arrangement = new(
+    [
+        (InspectorLayout.MovementSection, new[]
+        {
+            MovementGroups.Agent,
+            MovementGroups.Progress,
+            MovementGroups.Plan,
+            MovementGroups.Formation,
+            MovementGroups.Field,
+            MovementGroups.Planning,
+        }),
+        (InspectorLayout.TacticsSection, new[]
+        {
+            DemoWorldGroups.Squad,
+            DemoWorldGroups.Condition,
+            DemoWorldGroups.Kit,
+            DemoWorldGroups.Fight,
+            DemoWorldGroups.Perception,
+            DemoWorldGroups.World,
+            DemoWorldGroups.Rates,
+            DemoWorldGroups.Rank,
+        }),
+        (InspectorLayout.ViewerSection, new[]
+        {
+            InspectorLayout.SourcesGroup,
+            InspectorLayout.ControlsGroup,
+        }),
+    ]);
+
     [STAThread]
     private static int Main(string[] args)
     {
@@ -78,7 +139,11 @@ internal static class Program
 
         // The same budget the raylib host uses, so the two windows are the
         // same size for the same map by construction rather than by agreement.
-        var app = new ViewerApp(session, MaxMapPixels, MaxMapPixels - StatusHeight, keys: null, sources, eyes);
+        // The arrangement is handed over as DATA, from the one place that can see
+        // both halves of the seam. The app orders blocks by it and never learns
+        // what any of the names mean.
+        var app = new ViewerApp(
+            session, MaxMapPixels, MaxMapPixels - StatusHeight, keys: null, sources, eyes, Arrangement);
         using var host = new WpfHost(app.Layout, options.MaxFrames);
         host.Run(app);
 

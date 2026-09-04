@@ -1,5 +1,6 @@
 using Nav.Viewer;
 using Nav.Viewer.Models;
+using Nav.Viewer.Tactics;
 
 namespace Nav.Viewer.Wpf.Tests;
 
@@ -30,7 +31,8 @@ public sealed class InspectorHeadingTests
             Program.MaxMapPixels - Program.StatusHeight,
             keys: null,
             sources,
-            eyes);
+            eyes,
+            Program.Arrangement);
     }
 
     /// <summary>The headings a host would print, in the order it would print them.</summary>
@@ -152,5 +154,63 @@ public sealed class InspectorHeadingTests
         Assert.Equal(
             [InspectorLayout.SourcesGroup, InspectorLayout.ControlsGroup],
             GroupsUnder(rows, InspectorLayout.ViewerSection));
+    }
+
+    [Fact]
+    public void TheHostsArrangementAndTheProducersCannotDriftApart()
+    {
+        // THE TEST THAT MAKES LIFTING THE CONSTANTS WORTH ANYTHING. The host
+        // orders the panel by naming groups; a name that stops matching does not
+        // throw and does not go missing -- the block drops to unknown-order and
+        // sinks to the bottom of its section, silently, in a window nobody has
+        // open. That was the failure mode while the names were quoted.
+        //
+        // Both directions are checked. A group the arrangement names that nobody
+        // produces is a dead entry; a group produced that the arrangement does
+        // not name is an unordered block. Naming them through MovementGroups and
+        // DemoWorldGroups is what turns either into a build error instead, and
+        // this is the assertion that says so out loud.
+        var arrangement = Program.Arrangement;
+
+        Assert.Equal(
+            [InspectorLayout.MovementSection, InspectorLayout.TacticsSection, InspectorLayout.ViewerSection],
+            arrangement.Sections.Select(s => s.Section));
+
+        // Every heading each producer can emit, and no invented extras.
+        Assert.Equal(MovementGroups.All.Order(), GroupsNamed(arrangement, InspectorLayout.MovementSection).Order());
+        Assert.Equal(DemoWorldGroups.All.Order(), GroupsNamed(arrangement, InspectorLayout.TacticsSection).Order());
+        Assert.Equal(
+            new[] { InspectorLayout.SourcesGroup, InspectorLayout.ControlsGroup }.Order(),
+            GroupsNamed(arrangement, InspectorLayout.ViewerSection).Order());
+
+        // And the constants are the strings the producers actually emit, read
+        // off the real composition rather than off the holders. A producer that
+        // stopped saying "Squad" while the constant still said so would pass the
+        // three assertions above and fail this one.
+        var emitted = GuardWorld().Inspector
+            .Select(r => (r.Section, r.Group))
+            .Distinct()
+            .ToList();
+
+        Assert.True(emitted.Count > 12, $"the panel only produced {emitted.Count} headings");
+
+        foreach (var (section, group) in emitted)
+        {
+            Assert.Contains(group, GroupsNamed(arrangement, section));
+        }
+    }
+
+    /// <summary>The groups the arrangement names under one section.</summary>
+    private static IReadOnlyList<string> GroupsNamed(InspectorArrangement arrangement, string section)
+    {
+        foreach (var (named, groups) in arrangement.Sections)
+        {
+            if (string.Equals(named, section, StringComparison.Ordinal))
+            {
+                return groups;
+            }
+        }
+
+        return [];
     }
 }

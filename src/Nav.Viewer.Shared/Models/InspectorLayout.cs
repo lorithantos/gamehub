@@ -1,39 +1,31 @@
 namespace Nav.Viewer.Models;
 
 /// <summary>
-/// How the inspector panel is arranged: which sections it shows, in what order,
-/// and which groups sit under each of them, in what order.
+/// The inspector's sections, and the mechanism that lays a panel's blocks out in
+/// the order an <see cref="InspectorArrangement"/> asks for.
 /// </summary>
 /// <remarks>
-/// <b>ONE TABLE, IN ONE PLACE.</b> <see cref="Arrangement"/> is the whole of the
-/// arrangement. Everything else in this class reads it. Nothing else in the
-/// viewer holds an opinion about what order a panel is in, so a reader who wants
-/// a different panel -- movement at two hundred agents wants FIELD and PLANNING
-/// and none of KIT or RATES; a fight wants SQUAD, CONDITION and FIGHT and none of
-/// FIELD -- has one list to change and one place for a loader to point at later.
+/// <b>MECHANISM HERE, POLICY IN THE COMPOSITION ROOT.</b> This class can order
+/// blocks; it does not know what order anyone wants. The arrangement is handed
+/// in, from the host that composed the application, because that host is the one
+/// place entitled to see both halves of the seam at once -- see
+/// <see cref="InspectorArrangement"/> for what a list of group names written
+/// down here would have cost.
 /// <para>
-/// No file format, no settings type and no interface: this is a static table
-/// today, and the extension point is that <see cref="Arrangement"/> is the only
-/// thing that would have to come from somewhere else. That is the same shape
-/// <see cref="Keymap"/> uses -- the bindings are a table and the extension point
-/// is its constructor -- and for the same reason.
+/// <b>A SECTION SAYS WHICH LAYER ANSWERED, and that is why the section names
+/// stay.</b> They come from PROVENANCE -- the movement layer answered, a
+/// supplied source answered, the viewer answered about itself -- which this
+/// project knows without naming anybody's vocabulary, and
+/// <see cref="ViewerApp"/> stamps them onto the blocks as it merges them.
+/// Deciding a section from the GROUP NAME instead would hand a stranger the
+/// movement layer's caption: a source is somebody else's code and may name a
+/// group anything, which is the whole reason the de-collision machinery exists.
 /// </para>
 /// <para>
-/// <b>A SECTION SAYS WHICH LAYER ANSWERED, so the table does not get to decide
-/// it.</b> The instrument stamps <see cref="DebugRow.Section"/> from the question
-/// it asked -- the movement layer, a supplied source, or itself -- and this table
-/// says how the answers are laid out. Deciding a section from the GROUP NAME
-/// instead would hand a stranger the movement layer's caption: a source is
-/// somebody else's code and may name a group anything, which is the whole reason
-/// the de-collision machinery exists, and a source that happened to say "Agent"
-/// would land its rows under MOVEMENT and the panel would be claiming the
-/// movement layer answered when it did not.
-/// </para>
-/// <para>
-/// So the group lists here are ORDER, and a declaration of what each layer is
-/// expected to say. A group the table has never heard of is a normal case rather
-/// than an error: it keeps the section of the layer that produced it and sorts
-/// after every group the table does know, in the order it arrived.
+/// So an arrangement is ORDER, and a declaration of what each layer is expected
+/// to say. A group it has never heard of is a normal case rather than an error:
+/// it keeps the section of the layer that produced it and sorts after every
+/// group the arrangement does name, in the order it arrived.
 /// </para>
 /// </remarks>
 public static class InspectorLayout
@@ -57,25 +49,8 @@ public static class InspectorLayout
     public const string ControlsGroup = "Controls";
 
     /// <summary>
-    /// The panel, declared: sections in the order they are shown, each with the
-    /// groups it holds in the order they are shown.
-    /// </summary>
-    public static IReadOnlyList<(string Section, IReadOnlyList<string> Groups)> Arrangement { get; } =
-    [
-        (MovementSection, new[] { "Agent", "Progress", "Plan", "Formation", "Field", "Planning" }),
-        (TacticsSection, new[] { "Squad", "Condition", "Kit", "Fight", "Perception", "World", "Rates", "Rank" }),
-        (ViewerSection, new[] { SourcesGroup, ControlsGroup }),
-    ];
-
-    /// <summary>Where each section sits, by name.</summary>
-    private static readonly Dictionary<string, int> SectionRanks = BuildSectionRanks();
-
-    /// <summary>Where each group sits inside its section, by section then name.</summary>
-    private static readonly Dictionary<string, Dictionary<string, int>> GroupRanks = BuildGroupRanks();
-
-    /// <summary>
-    /// The same rows, laid out: sections in table order, groups in table order
-    /// inside them, and the rows of a group untouched.
+    /// The same rows, laid out: sections in the arrangement's order, groups in
+    /// its order inside them, and the rows of a group untouched.
     /// </summary>
     /// <remarks>
     /// <b>Blocks move, rows do not.</b> A group is gathered whole and the group
@@ -88,15 +63,24 @@ public static class InspectorLayout
     /// alternative: a host prints a heading when the group changes, so two runs
     /// would print two identical headings.
     /// </para>
+    /// <para>
+    /// With <see cref="InspectorArrangement.ArrivalOrder"/> every heading ranks
+    /// the same and the stable sort is a no-op, so the rows come back in the
+    /// order the producers wrote them.
+    /// </para>
     /// </remarks>
     /// <param name="rows">Rows with their sections already stamped.</param>
-    public static IReadOnlyList<DebugRow> Arrange(IReadOnlyList<DebugRow> rows)
+    /// <param name="arrangement">What order to lay the blocks out in.</param>
+    public static IReadOnlyList<DebugRow> Arrange(
+        IReadOnlyList<DebugRow> rows,
+        InspectorArrangement arrangement)
     {
         ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(arrangement);
 
         // The headings, in the order they arrived. A list rather than a set
-        // because arrival order is what breaks a tie between two groups the table
-        // says nothing about, and there are a dozen or so of these.
+        // because arrival order is what breaks a tie between two groups the
+        // arrangement says nothing about, and there are a dozen or so of these.
         var headings = new List<(string Section, string Group)>();
         foreach (var row in rows)
         {
@@ -107,11 +91,12 @@ public static class InspectorLayout
             }
         }
 
-        // OrderBy is stable, so two headings the table ranks the same come out in
-        // the order they arrived in -- which is what an unranked group gets.
+        // OrderBy is stable, so two headings the arrangement ranks the same come
+        // out in the order they arrived in -- which is what an unranked group
+        // gets, and what every group gets under ArrivalOrder.
         var laid = new List<DebugRow>(rows.Count);
-        foreach (var heading in headings.OrderBy(h => SectionRank(h.Section))
-                                        .ThenBy(h => GroupRank(h.Section, h.Group)))
+        foreach (var heading in headings.OrderBy(h => arrangement.SectionRank(h.Section))
+                                        .ThenBy(h => arrangement.GroupRank(h.Section, h.Group)))
         {
             foreach (var row in rows)
             {
@@ -124,49 +109,5 @@ public static class InspectorLayout
         }
 
         return laid;
-    }
-
-    /// <summary>
-    /// Where <paramref name="section"/> sits, or after every section the table
-    /// knows.
-    /// </summary>
-    internal static int SectionRank(string section) =>
-        SectionRanks.TryGetValue(section, out var rank) ? rank : SectionRanks.Count;
-
-    /// <summary>
-    /// Where <paramref name="group"/> sits inside <paramref name="section"/>, or
-    /// after every group the table knows about that section.
-    /// </summary>
-    internal static int GroupRank(string section, string group) =>
-        GroupRanks.TryGetValue(section, out var groups) && groups.TryGetValue(group, out var rank)
-            ? rank
-            : int.MaxValue;
-
-    private static Dictionary<string, int> BuildSectionRanks()
-    {
-        var ranks = new Dictionary<string, int>(StringComparer.Ordinal);
-        for (var i = 0; i < Arrangement.Count; i++)
-        {
-            ranks[Arrangement[i].Section] = i;
-        }
-
-        return ranks;
-    }
-
-    private static Dictionary<string, Dictionary<string, int>> BuildGroupRanks()
-    {
-        var ranks = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
-        foreach (var (section, groups) in Arrangement)
-        {
-            var inside = new Dictionary<string, int>(StringComparer.Ordinal);
-            for (var i = 0; i < groups.Count; i++)
-            {
-                inside[groups[i]] = i;
-            }
-
-            ranks[section] = inside;
-        }
-
-        return ranks;
     }
 }

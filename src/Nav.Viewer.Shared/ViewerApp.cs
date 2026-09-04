@@ -62,6 +62,12 @@ public sealed class ViewerApp : IViewerApp
     /// </remarks>
     private const int CounterDigits = 4;
 
+    /// <summary>
+    /// The heading the controls folder sits under, and a name no source may
+    /// take -- the same reservation "Viewer" has had, one block further down.
+    /// </summary>
+    private const string Controls = "Controls";
+
     private readonly ViewerSession _session;
     private readonly int _fitWidth;
     private readonly int _fitHeight;
@@ -304,14 +310,21 @@ public sealed class ViewerApp : IViewerApp
     public string StatusText { get; private set; }
 
     /// <summary>
-    /// The watched unit, spelled out. Rebuilt alongside
-    /// <see cref="StatusText"/>, on the same occasions and for the same reason:
-    /// it describes the state a frame is about to be drawn from.
+    /// The watched unit, spelled out, and under it the controls. Rebuilt
+    /// alongside <see cref="StatusText"/>, on the same occasions and for the
+    /// same reason: it describes the state a frame is about to be drawn from.
     /// </summary>
     /// <remarks>
     /// The sole selection, or the lowest id when several are selected — one unit
     /// read properly beats forty summarised, and the lowest id is the one the
     /// box-select gesture puts first.
+    /// <para>
+    /// <b>The controls are here whether or not anything is selected</b>, and they
+    /// are the one block that is not about a unit. A reader who has not yet
+    /// worked out how to select anything is exactly the reader who needs to know
+    /// which key does what, so a folder that only appeared once they had managed
+    /// it would be missing on the only occasion it mattered.
+    /// </para>
     /// <para>
     /// Mostly other people's words: these are <see cref="IDebugView.Describe"/>
     /// rows from the movement layer and from every source the application handed
@@ -1388,10 +1401,10 @@ public sealed class ViewerApp : IViewerApp
     /// </para>
     /// </remarks>
     private string Hints() =>
-        $"{Keys.KeycapFor(ViewerKeys.Space)} pause  " +
-        $"{Keys.KeycapFor(ViewerKeys.Step)} step  " +
-        $"{Keys.KeycapFor(ViewerKeys.Pace)} pace  " +
-        $"{Keys.KeycapFor(ViewerKeys.R)} {(_session.CanRestart ? "restart" : "regroup")}" +
+        $"{Keys.KeycapFor(ViewerKeys.Space)} {Does(ViewerKeys.Space)}  " +
+        $"{Keys.KeycapFor(ViewerKeys.Step)} {Does(ViewerKeys.Step)}  " +
+        $"{Keys.KeycapFor(ViewerKeys.Pace)} {Does(ViewerKeys.Pace)}  " +
+        $"{Keys.KeycapFor(ViewerKeys.R)} {Does(ViewerKeys.R)}" +
         Eyes();
 
     /// <summary>
@@ -1415,9 +1428,68 @@ public sealed class ViewerApp : IViewerApp
     }
 
     /// <summary>
+    /// What one action does, in the words the status line and the controls
+    /// folder both use.
+    /// </summary>
+    /// <remarks>
+    /// ONE VOCABULARY, so the hint at the end of the status line and the row in
+    /// the panel cannot come to disagree about the same key. They already share
+    /// the keycap -- that is what <see cref="Keymap"/> is for -- and this is the
+    /// other half of the same sentence.
+    /// <para>
+    /// <b>An action that does nothing right now says so.</b> Two of the overlays
+    /// are bound and carried and not wired to anything, and the viewpoint key is
+    /// inert in a viewer nobody lent eyes to. The status line deals with that by
+    /// leaving them out; the folder cannot, because a folder that quietly omits
+    /// three of the fourteen keys is a list the reader stops trusting. So they
+    /// appear, and what they say is what pressing them will actually get you.
+    /// </para>
+    /// </remarks>
+    private string Does(ViewerKeys action) => action switch
+    {
+        ViewerKeys.Space => "pause",
+        ViewerKeys.Step => "step",
+        ViewerKeys.Pace => "pace",
+        ViewerKeys.R => _session.CanRestart ? "restart" : "regroup",
+        ViewerKeys.PanLeft => "pan left",
+        ViewerKeys.PanRight => "pan right",
+        ViewerKeys.PanUp => "pan up",
+        ViewerKeys.PanDown => "pan down",
+        ViewerKeys.ZoomIn => "zoom in",
+        ViewerKeys.ZoomOut => "zoom out",
+        ViewerKeys.ResetView => "whole map again",
+        ViewerKeys.Viewpoint => _eyes is null ? "cycle viewpoint (nothing to cycle here)" : "cycle viewpoint",
+        ViewerKeys.PathOverlay => "route overlay (not wired yet)",
+        ViewerKeys.LosOverlay => "sight overlay (not wired yet)",
+        _ => "-",
+    };
+
+    /// <summary>
+    /// The controls, one row per bound key, read off the keymap.
+    /// </summary>
+    /// <remarks>
+    /// <b>Generated, never written out.</b> The rows come from
+    /// <see cref="Keymap.Bindings"/>, which is the same map the hosts translate
+    /// through and the status line hints from -- so a rebound key moves in all
+    /// three at once and none of them can be left claiming the old one. A
+    /// hand-kept list here would be a second source of truth about the one thing
+    /// a reader has no way to check except by pressing the key.
+    /// </remarks>
+    private List<DebugRow> ControlRows()
+    {
+        var rows = new List<DebugRow>(Keys.Bindings.Count);
+        foreach (var (keycap, action) in Keys.Bindings)
+        {
+            rows.Add(new DebugRow(Controls, keycap, Does(action)));
+        }
+
+        return rows;
+    }
+
+    /// <summary>
     /// The watched unit spelled out: what the movement layer says about it, what
-    /// every other source says about it, then the few facts only this class can
-    /// answer.
+    /// every other source says about it, the few facts only this class can
+    /// answer, and last the controls.
     /// </summary>
     /// <remarks>
     /// <b>Most of this is no longer written here.</b> The bulk of the panel used
@@ -1464,7 +1536,12 @@ public sealed class ViewerApp : IViewerApp
         var selection = _session.Selection;
         if (selection.Count == 0)
         {
-            return [];
+            // THE CONTROLS ARE NOT SOMETHING A SELECTION REVEALS. This used to
+            // answer with nothing at all, which is defensible while every row is
+            // about a unit and indefensible the moment one of them is about the
+            // keyboard: the instant a reader most needs to know which key does
+            // what is BEFORE they have worked out how to select anything.
+            return ControlRows();
         }
 
         // The lowest id, because ViewerSession keeps the selection in ascending
@@ -1477,7 +1554,7 @@ public sealed class ViewerApp : IViewerApp
         // without this a tactics world's unit rows would land under the movement
         // layer's own heading and read as the movement layer's answers. Viewer is
         // reserved from the start for the same reason, one block further down.
-        var taken = new HashSet<string>(StringComparer.Ordinal) { Viewer };
+        var taken = new HashSet<string>(StringComparer.Ordinal) { Viewer, Controls };
         foreach (var row in rows)
         {
             taken.Add(row.Group);
@@ -1548,6 +1625,12 @@ public sealed class ViewerApp : IViewerApp
             : new DebugRow(Viewer, "no route", "no"));
 
         rows.AddRange(broke);
+
+        // LAST, so that adding it moved nothing. Every row above this line is
+        // where it was before there was a controls folder, and a reader who
+        // knows the keys never has to look past the unit again -- which is also
+        // the argument for folding this one shut, if anyone wants it shut.
+        rows.AddRange(ControlRows());
 
         return rows;
     }

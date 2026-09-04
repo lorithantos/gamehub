@@ -50,7 +50,25 @@ public sealed class Keymap
 
     private readonly IReadOnlyDictionary<PhysicalKey, ViewerKeys> _bindings;
 
-    private Keymap(IReadOnlyDictionary<PhysicalKey, ViewerKeys> bindings) => _bindings = bindings;
+    private Keymap(IReadOnlyDictionary<PhysicalKey, ViewerKeys> bindings)
+    {
+        _bindings = bindings;
+
+        // Built here rather than on demand because this map is immutable: the
+        // answer cannot change, and a caller asking once a frame should not pay
+        // for a sort it will get the same result from every time.
+        //
+        // Keycaps is read during this, and Default is one of these -- so Keycaps
+        // has to be initialised first. It is declared above for that reason.
+        Bindings =
+        [
+            .. bindings.Where(b => b.Value != ViewerKeys.None)
+                       .OrderBy(b => b.Key)
+                       .Select(b => (
+                           Keycap: Keycaps.TryGetValue(b.Key, out var cap) ? cap : "-",
+                           Action: b.Value)),
+        ];
+    }
 
     /// <summary>
     /// The keys the viewer shipped with, to the letter. A user who rebinds
@@ -80,6 +98,29 @@ public sealed class Keymap
             [PhysicalKey.P] = ViewerKeys.PathOverlay,
             [PhysicalKey.L] = ViewerKeys.LosOverlay,
         });
+
+    /// <summary>
+    /// Every key that does something: its keycap and what it does, in
+    /// <see cref="PhysicalKey"/> order.
+    /// </summary>
+    /// <remarks>
+    /// So that a panel listing the controls is GENERATED FROM THIS MAP rather
+    /// than written out beside it. The status line already reads its hints off
+    /// here; a second list, kept by hand, would be right until the first rebind
+    /// and then be confidently wrong -- and a list of keys that lies is worse
+    /// than no list, because the reader believes it.
+    /// <para>
+    /// A key bound to <see cref="ViewerKeys.None"/> is unbound and does not
+    /// appear at all. That is the same rule <see cref="KeycapFor"/> keeps from
+    /// the other direction, where an action nothing reaches prints as a dash.
+    /// </para>
+    /// <para>
+    /// <see cref="PhysicalKey"/> order rather than binding order, so the list is
+    /// the same on every frame and does not reshuffle under a reader when a map
+    /// is rebuilt by <see cref="Rebound"/>.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<(string Keycap, ViewerKeys Action)> Bindings { get; }
 
     /// <summary>
     /// What <paramref name="key"/> does, or <see cref="ViewerKeys.None"/> for a

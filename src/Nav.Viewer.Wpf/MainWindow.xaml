@@ -8,7 +8,7 @@
         ResizeMode="CanMinimize"
         WindowStartupLocation="CenterScreen"
         Focusable="True">
-    <Grid>
+    <Grid x:Name="Chrome">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -34,13 +34,40 @@
             The status line is WPF chrome, not something the renderer draws.
             That decision is why IRenderer has no DrawText, and why raw Direct3D
             11, which cannot draw a glyph at all, needed no font machinery here.
+
+            IT SPANS BOTH COLUMNS. It used to sit in column 0 alone and be sized
+            to the MAP's pixel width, with the inspector's 260 points beside it
+            so the line was clipped to make room for a panel it was not even
+            allowed to reach under. Everything past the halfway point went: the
+            tick, the run state, the pace, the selection count and every key
+            hint, all of it swallowed by one ellipsis.
+
+            WRAPPING, NOT TRIMMING, and the arithmetic is the argument: the
+            guard world's line is 222 characters, which is 1464 points of
+            Consolas 12, while the map and the panel together are 1240. The
+            whole window is not wide enough for one line and never was, so
+            trimming here could only ever mean hiding the end of it behind an
+            ellipsis the reader cannot open, the same call InspectorView makes
+            one column over, for the same reason.
+
+            Wrapping is safe here for the one reason it would not be anywhere
+            else: THE LINE NEVER CHANGES LENGTH. Its counters are padded to a
+            constant and two tests pin it, so it always breaks in the same place
+            and the bar is always the same height. A line that breathed would
+            change its line count instead of its width, and shake a window sized
+            to its content exactly the way the padding was added to stop.
         -->
-        <Border x:Name="StatusBar" Grid.Row="1" Grid.Column="0" Background="Black" Padding="6,5">
+        <Border x:Name="StatusBar"
+                Grid.Row="1"
+                Grid.Column="0"
+                Grid.ColumnSpan="2"
+                Background="Black"
+                Padding="6,5">
             <TextBlock x:Name="Status"
                        Foreground="#F5F5F5"
                        FontFamily="Consolas"
                        FontSize="12"
-                       TextTrimming="CharacterEllipsis"
+                       TextWrapping="Wrap"
                        Text="starting..." />
         </Border>
 

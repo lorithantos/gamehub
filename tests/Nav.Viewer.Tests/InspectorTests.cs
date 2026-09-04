@@ -233,10 +233,15 @@ public sealed class InspectorTests
     }
 
     [Fact]
-    public void NothingSelectedSaysNothing()
+    public void NothingSelectedSaysNothingAboutAUnitAndStillShowsTheControls()
     {
         // Rows 3-5 on the right are open floor with nobody standing on it, and
         // boxing empty ground clears the selection.
+        //
+        // THE CONTROLS SURVIVE IT, and that is the point of them: this is the
+        // state the viewer opens in and the state a reader lands back in every
+        // time they miss a unit, so a key list that needed a selection to appear
+        // would be missing on precisely the occasions it was wanted.
         var grid = Fixture();
         var layout = LayoutFor(grid);
         var app = new ViewerApp(grid, layout, Squad);
@@ -251,7 +256,112 @@ public sealed class InspectorTests
         host.Run(app);
 
         Assert.Empty(app.Selection);
-        Assert.Empty(app.Inspector);
+
+        Assert.Equal(["Controls"], GroupRuns(app.Inspector));
+        Assert.Equal("pause", Value(app.Inspector, "Controls", "SPACE"));
+    }
+
+    [Fact]
+    public void EveryKeyTheMapBindsGetsARowAndNoRowIsInventedBesides()
+    {
+        // THE TEST THAT STOPS THE TWO LISTS DRIFTING. The folder is generated
+        // from the keymap, so this compares it against the keymap rather than
+        // against a list written here -- a copy of the keys in this file would
+        // go stale in exactly the way the folder is built not to.
+        var grid = Fixture();
+        var app = new ViewerApp(grid, LayoutFor(grid), Squad);
+
+        Assert.Equal(
+            app.Keys.Bindings.Select(b => b.Keycap),
+            app.Inspector.Where(r => string.Equals(r.Group, "Controls", StringComparison.Ordinal))
+                         .Select(r => r.Key));
+
+        // And the map had something to say, so an empty folder matching an empty
+        // map would not pass this.
+        Assert.Equal(14, app.Keys.Bindings.Count);
+    }
+
+    [Fact]
+    public void AKeyReboundMovesInTheFolderAndInTheStatusLineWithNobodyEditingEither()
+    {
+        // Both readings of the same map, so neither can be left claiming a key
+        // that no longer does the thing. Two keys swap jobs here rather than one
+        // moving, because a folder that printed the ACTION's name against a
+        // fixed keycap would pass a one-way move by coincidence.
+        var grid = Fixture();
+        var keys = Keymap.Default
+            .Rebound(PhysicalKey.Space, ViewerKeys.ResetView)
+            .Rebound(PhysicalKey.Home, ViewerKeys.Space);
+        var app = new ViewerApp(grid, LayoutFor(grid), Squad, keys: keys);
+
+        Assert.Equal("whole map again", Value(app.Inspector, "Controls", "SPACE"));
+        Assert.Equal("pause", Value(app.Inspector, "Controls", "HOME"));
+
+        Assert.Contains("HOME pause", app.StatusText, StringComparison.Ordinal);
+        Assert.DoesNotContain("SPACE pause", app.StatusText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AKeyNothingIsBoundToIsNotInTheFolderUntilSomethingIs()
+    {
+        // A key ARRIVING is the case the folder has to get right without anyone
+        // touching it, and unbinding one and binding it back is the only way
+        // this project can arrange that -- every PhysicalKey the viewer has is
+        // already bound in the default map.
+        var grid = Fixture();
+
+        var unbound = new ViewerApp(
+            grid, LayoutFor(grid), Squad,
+            keys: Keymap.Default.Rebound(PhysicalKey.Home, ViewerKeys.None));
+
+        Assert.False(
+            HasKey(unbound.Inspector, "Controls", "HOME"),
+            "a key bound to nothing was still listed as doing something");
+
+        var rebound = new ViewerApp(
+            grid, LayoutFor(grid), Squad,
+            keys: Keymap.Default
+                .Rebound(PhysicalKey.Home, ViewerKeys.None)
+                .Rebound(PhysicalKey.Home, ViewerKeys.ResetView));
+
+        Assert.Equal("whole map again", Value(rebound.Inspector, "Controls", "HOME"));
+    }
+
+    [Fact]
+    public void TheStatusLineAndTheFolderCannotDisagreeAboutWhatAKeyDoes()
+    {
+        // One vocabulary, asserted from the folder's side: whatever the row
+        // says, the hint says, keycap included. A second wording for the same
+        // action is how a panel and a status line come to contradict each other
+        // about a key, which is worse than either of them saying nothing.
+        var grid = Fixture();
+        var app = new ViewerApp(grid, LayoutFor(grid), Squad);
+
+        foreach (var action in new[] { ViewerKeys.Space, ViewerKeys.Step, ViewerKeys.Pace, ViewerKeys.R })
+        {
+            var keycap = app.Keys.KeycapFor(action);
+            var says = Value(app.Inspector, "Controls", keycap);
+            Assert.Contains($"{keycap} {says}", app.StatusText, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void AKeyThatDoesNothingYetSaysSoRatherThanNamingSomethingItCannotDo()
+    {
+        // The status line leaves these out, and a folder cannot: a list of the
+        // controls that quietly omits three of the fourteen is a list the reader
+        // stops believing. So they are listed, and what is listed is what
+        // pressing them actually gets you today.
+        var grid = Fixture();
+        var app = new ViewerApp(grid, LayoutFor(grid), Squad);
+
+        Assert.Equal("route overlay (not wired yet)", Value(app.Inspector, "Controls", "P"));
+        Assert.Equal("sight overlay (not wired yet)", Value(app.Inspector, "Controls", "L"));
+
+        // Nobody lent this viewer eyes, so the viewpoint key has nothing to
+        // cycle -- the same rule the status line follows by staying quiet.
+        Assert.Equal("cycle viewpoint (nothing to cycle here)", Value(app.Inspector, "Controls", "V"));
+        Assert.DoesNotContain("V view", app.StatusText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -299,7 +409,7 @@ public sealed class InspectorTests
         // has never been ordered here, so it has no formation and therefore no
         // field rows, and the sequence is exact.
         Assert.Equal(
-            ["Unit", "Progress", "Plan", "Formation", "Planning", "Viewer"],
+            ["Unit", "Progress", "Plan", "Formation", "Planning", "Viewer", "Controls"],
             GroupRuns(app.Inspector));
 
         using var host = new ScriptedHost(
@@ -308,12 +418,18 @@ public sealed class InspectorTests
         host.Run(app);
 
         // Ordered, which adds a formation and the field rows measured against it.
-        // No heading may repeat, and the viewer's own group stays LAST -- after
-        // everything the movement layer had to say, never interleaved with it.
+        // No heading may repeat, and the viewer's own group stays LAST OF THE
+        // ONES ABOUT THE UNIT -- after everything the movement layer had to say,
+        // never interleaved with it.
+        //
+        // Controls is behind it and is not part of that ordering at all: it is
+        // the one group that is not about the unit, it is the same fourteen rows
+        // whoever is selected, and it is last so that adding it moved nothing.
         var runs = GroupRuns(app.Inspector);
         Assert.Equal(runs.Count, runs.Distinct().Count());
         Assert.Contains("Formation", runs);
-        Assert.Equal("Viewer", runs[^1]);
+        Assert.Equal("Controls", runs[^1]);
+        Assert.Equal("Viewer", runs[^2]);
     }
 
     [Fact]
@@ -327,7 +443,7 @@ public sealed class InspectorTests
 
         Assert.Equal(plain.Inspector, empty.Inspector);
         Assert.Equal(
-            ["Unit", "Progress", "Plan", "Formation", "Planning", "Viewer"],
+            ["Unit", "Progress", "Plan", "Formation", "Planning", "Viewer", "Controls"],
             GroupRuns(plain.Inspector));
 
         // Nothing renamed, and no source reported broken, because there was
@@ -348,7 +464,7 @@ public sealed class InspectorTests
         // The unit's rows first and the source's own rows after them, as one
         // block, between what the movement layer said and what the viewer says.
         Assert.Equal(
-            ["Unit", "Progress", "Plan", "Formation", "Planning", "Fight", "Fight world", "Viewer"],
+            ["Unit", "Progress", "Plan", "Formation", "Planning", "Fight", "Fight world", "Viewer", "Controls"],
             GroupRuns(app.Inspector));
 
         Assert.Equal("0 by Fight", Value(app.Inspector, "Fight", "watched"));
@@ -374,12 +490,12 @@ public sealed class InspectorTests
 
         Assert.Equal(
             ["Unit", "Progress", "Plan", "Formation", "Planning",
-             "Fight", "Fight world", "Supply", "Supply world", "Viewer"],
+             "Fight", "Fight world", "Supply", "Supply world", "Viewer", "Controls"],
             GroupRuns(forward.Inspector));
 
         Assert.Equal(
             ["Unit", "Progress", "Plan", "Formation", "Planning",
-             "Supply", "Supply world", "Fight", "Fight world", "Viewer"],
+             "Supply", "Supply world", "Fight", "Fight world", "Viewer", "Controls"],
             GroupRuns(backward.Inspector));
 
         Assert.Equal("0 by Supply", Value(forward.Inspector, "Supply", "watched"));
@@ -414,9 +530,27 @@ public sealed class InspectorTests
         Assert.Equal("Supply", Value(app.Inspector, "Progress (2)", "source"));
 
         // Viewer is reserved before a source is asked anything, so the viewer's
-        // own group is still called Viewer and is still last.
-        Assert.Equal("Viewer", runs[^1]);
+        // own group is still called Viewer and is still the last one about the
+        // unit. Controls is reserved the same way and sits behind it.
+        Assert.Equal("Controls", runs[^1]);
+        Assert.Equal("Viewer", runs[^2]);
         Assert.Equal("no", Value(app.Inspector, "Viewer", "no route"));
+    }
+
+    [Fact]
+    public void ASourceCannotTakeTheControlsHeadingEither()
+    {
+        // Reserved from the start, the way Viewer is and for the same reason: a
+        // source's rows landing under CONTROLS would read as things the keyboard
+        // does, which is the one heading in the panel a reader acts on.
+        var grid = Fixture();
+        var app = new ViewerApp(
+            grid, LayoutFor(grid), Squad, sources: [new Source("Fight", 0) { UnitGroup = "Controls" }]);
+
+        Assert.Equal("0 by Fight", Value(app.Inspector, "Controls (2)", "watched"));
+
+        // And the folder is still the folder.
+        Assert.Equal("pause", Value(app.Inspector, "Controls", "SPACE"));
     }
 
     [Fact]

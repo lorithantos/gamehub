@@ -20,8 +20,19 @@ namespace Nav.Viewer.Wpf;
 /// </remarks>
 internal static class Program
 {
-    private const int MaxMapPixels = 1000;
-    private const int StatusHeight = 26;
+    /// <summary>
+    /// The budget a map is fitted into, and the room left under it for the
+    /// status line.
+    /// </summary>
+    /// <remarks>
+    /// Reachable from the test project because the chrome tests measure the
+    /// status line at the size THIS host gives it. A test that restated 1000
+    /// would be measuring a window nobody opens.
+    /// </remarks>
+    internal const int MaxMapPixels = 1000;
+
+    /// <summary>Room left under the map for the status line, in pixels.</summary>
+    internal const int StatusHeight = 26;
 
     [STAThread]
     private static int Main(string[] args)
@@ -100,8 +111,14 @@ internal static class Program
     /// against <see cref="ViewerOptions.KnownWorlds"/>, so the default arm here is
     /// the two lists having drifted apart rather than anything a user typed.
     /// </para>
+    /// <para>
+    /// Reachable from the test project for one reason: the status line has to be
+    /// measured against the world the user is actually looking at, and a test
+    /// that built its own guard fight would be measuring its own composition.
+    /// </para>
     /// </remarks>
-    private static (ViewerSession Session, IReadOnlyList<IWorldDebugView> Sources, IVisibilityView Eyes)
+    /// <param name="world">A name from <see cref="ViewerOptions.KnownWorlds"/>.</param>
+    internal static (ViewerSession Session, IReadOnlyList<IWorldDebugView> Sources, IVisibilityView Eyes)
         Compose(string world)
     {
         switch (world)

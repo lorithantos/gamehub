@@ -395,6 +395,30 @@ public sealed class FogTests
         Assert.Single(lengths);
     }
 
+    [Fact]
+    public void TheViewpointKeyIsListedAsDoingSomethingOnlyWhereItDoes()
+    {
+        // The folder lists every bound key, so it cannot deal with an inert one
+        // by leaving it out the way the status line does. What it does instead
+        // is say which it is -- and the same map, drawn through somebody's eyes,
+        // has to stop saying it.
+        var grid = Room();
+        var eyes = new FakeEyes([0, 1]);
+        eyes.Seen[0] = [grid.Index(2, 2)];
+
+        var (lent, _, _) = Viewer(grid, [(grid.Index(2, 2), 0)], eyes);
+        var (blind, _, _) = Viewer(grid, [(grid.Index(2, 2), 0)], null);
+
+        Assert.Equal("cycle viewpoint", Row(lent, "V"));
+        Assert.Equal("cycle viewpoint (nothing to cycle here)", Row(blind, "V"));
+    }
+
+    /// <summary>What the controls folder says one keycap does.</summary>
+    private static string Row(ViewerApp app, string keycap) =>
+        app.Inspector.Single(r =>
+            string.Equals(r.Group, "Controls", StringComparison.Ordinal) &&
+            string.Equals(r.Key, keycap, StringComparison.Ordinal)).Value;
+
     /// <summary>One texel of an image, as the colour it was painted with.</summary>
     private static RgbaColor Texel(TerrainImage image, int cell)
     {

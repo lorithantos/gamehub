@@ -118,21 +118,19 @@ internal sealed class WpfHost(GridLayout layout, int? maxFrames) : IViewerHost
     /// Otherwise the status line is the widest element on small maps, and
     /// SizeToContent re-measures the WHOLE WINDOW every time a counter changes
     /// digit count — the window visibly shakes while an agent replans.
-    /// <para>The text trims instead.</para>
+    /// <para>The text wraps instead -- see MainWindow.xaml.</para>
     /// <para>
     /// The inspector column joined that arithmetic and had to be pinned at both
     /// ends to stay out of it: a fixed width in the XAML, and its height taken
-    /// from the surface here. Left to size itself it would have driven the
-    /// window from whichever unit happened to be selected.
+    /// from the surface. Left to size itself it would have driven the window
+    /// from whichever unit happened to be selected.
+    /// </para>
+    /// <para>
+    /// The arithmetic itself is <see cref="MainWindow.SizeTo"/>, so a test can
+    /// ask for it without standing up a Direct3D device.
     /// </para>
     /// </remarks>
-    private void SizeChrome()
-    {
-        _window!.Surface.Width = _layout.PixelWidth / _dpiScale;
-        _window.Surface.Height = _layout.PixelHeight / _dpiScale;
-        _window.StatusBar.Width = _layout.PixelWidth / _dpiScale;
-        _window.InspectorPanel.Height = _layout.PixelHeight / _dpiScale;
-    }
+    private void SizeChrome() => _window!.SizeTo(_layout, _dpiScale);
 
     /// <summary>
     /// The map changed size, so everything sized from it follows: the D3D

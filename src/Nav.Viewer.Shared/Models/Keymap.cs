@@ -59,8 +59,8 @@ public sealed class Keymap
     /// </summary>
     /// <remarks>
     /// V, P and L are the three that did not exist before, chosen for the word:
-    /// viewpoint, path, line of sight. They are bound and carried, and they do
-    /// nothing yet.
+    /// viewpoint, path, line of sight. V cycles whose knowledge the board is
+    /// drawn from; P and L are bound and carried and do nothing yet.
     /// </remarks>
     public static Keymap Default { get; } = new(
         new Dictionary<PhysicalKey, ViewerKeys>

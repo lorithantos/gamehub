@@ -55,6 +55,20 @@ public sealed class DemoWorld : IPerception, IPerceptionView
     private readonly Dictionary<int, Dictionary<int, Sighting>> _memory = [];
     private readonly Dictionary<int, SortedSet<int>> _visible = [];
     private readonly Dictionary<int, List<int>> _pads = [];
+
+    /// <summary>
+    /// What each side was looking WITH at the last edge: every watcher's cell
+    /// and reach.
+    /// </summary>
+    /// <remarks>
+    /// Kept so <see cref="PeekVisibleCells"/> can answer for ground nobody was
+    /// standing on without a per-cell sweep in the tick. The sweep costs a
+    /// distance per cell per watcher and nothing in the tick wants it, so it is
+    /// paid by whoever asks; what is stored here is the small thing -- one entry
+    /// per unit and per pad -- and it is what makes the answer as of the edge
+    /// rather than as of the asking.
+    /// </remarks>
+    private readonly Dictionary<int, List<(int Cell, double Sight)>> _watchers = [];
     private readonly Grid _grid;
     private readonly double[] _rankAt;
     private readonly Combat? _combat;
@@ -392,6 +406,61 @@ public sealed class DemoWorld : IPerception, IPerceptionView
     /// </remarks>
     public IReadOnlyList<int> PeekRepairPoints(int side) => [.. RepairPointsFor(side)];
 
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Swept here rather than in <see cref="Look"/>, from the watchers that edge
+    /// left. Nothing in the tick asks this, so a run nobody is watching pays
+    /// nothing for it; what it costs whoever does ask is one distance per cell
+    /// per watcher, over the whole map, once per call.
+    /// <para>
+    /// A world without <see cref="Fog"/> stored no watchers and hides no ground,
+    /// so it answers with every cell there is.
+    /// </para>
+    /// </remarks>
+    [Observes]
+    public IReadOnlyList<int> PeekVisibleCells(int side)
+    {
+        if (!Fog)
+        {
+            var everywhere = new int[_grid.CellCount];
+            for (var cell = 0; cell < everywhere.Length; cell++)
+            {
+                everywhere[cell] = cell;
+            }
+
+            return everywhere;
+        }
+
+        if (!_watchers.TryGetValue(side, out var watchers))
+        {
+            return [];
+        }
+
+        var seen = new List<int>();
+        for (var cell = 0; cell < _grid.CellCount; cell++)
+        {
+            if (Watched(watchers, cell))
+            {
+                seen.Add(cell);
+            }
+        }
+
+        return seen;
+    }
+
+    /// <summary>
+    /// The sides with a unit on the board, ascending: whose eyes there are to
+    /// look through.
+    /// </summary>
+    /// <remarks>
+    /// Read off the roster the movement events built, so a side arrives here the
+    /// tick its first unit is placed and never leaves -- a side wiped out still
+    /// had a war, and an instrument replaying it wants to be able to stand in
+    /// what is left of its shoes.
+    /// </remarks>
+    [Observes]
+    public IReadOnlyList<int> Sides => [.. new SortedSet<int>(_side.Values)];
+
     /// <summary>
     /// Every scripted threat and every other side's living unit, ascending:
     /// what a world without <see cref="Fog"/> tells everybody.
@@ -497,6 +566,11 @@ public sealed class DemoWorld : IPerception, IPerceptionView
             {
                 watchers.Add((pad, PadSight));
             }
+
+            // The eyes themselves, kept for a watcher to sweep with later. See
+            // _watchers: doctrine wants the contacts, an instrument wants the
+            // ground, and only one of the two is worth paying for in the tick.
+            _watchers[side] = watchers;
 
             var seen = new SortedSet<int>();
             var known = _memory.TryGetValue(side, out var memory) ? memory : _memory[side] = [];

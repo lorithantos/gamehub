@@ -28,6 +28,15 @@ namespace Nav.Viewer;
 /// four lines. A display need requiring a sixth verb would have been the seam's
 /// first genuine leak.
 /// </para>
+/// <para>
+/// <b>Fog did not force one either.</b> Drawing the board through one side's
+/// eyes is a second <see cref="TerrainImage"/> over the first -- one texel per
+/// cell, which is exactly the granularity fog has -- plus a circle per
+/// remembered enemy and a <c>continue</c> for the ones nobody found. What the
+/// app cannot do is ask a world what a side knows, because this project cannot
+/// name a world: it is handed an <see cref="IVisibilityView"/>, or it draws the
+/// true board as it always did.
+/// </para>
 /// </remarks>
 public sealed class ViewerApp : IViewerApp
 {
@@ -127,6 +136,80 @@ public sealed class ViewerApp : IViewerApp
 
     private int _pace;
 
+    /// <summary>
+    /// Nobody's eyes: the true board, which is what this viewer has always drawn
+    /// and what it draws until somebody asks for a side.
+    /// </summary>
+    /// <remarks>
+    /// Not a side number, because a side is an int and every int is a side
+    /// somebody could fight for. -1 is outside <see cref="IVisibilityView.Sides"/>
+    /// by construction, so "whose eyes" and "no eyes" never collide.
+    /// </remarks>
+    private const int Observer = -1;
+
+    /// <summary>
+    /// How dark ground a side cannot see is drawn, as a multiplier on every
+    /// colour channel.
+    /// </summary>
+    /// <remarks>
+    /// Dark enough that the seen ring reads as the shape it is at a glance, and
+    /// light enough that the walls are still walls -- a watcher has to be able to
+    /// see the map a side is moving over, or the fog view is only useful for
+    /// counting units.
+    /// </remarks>
+    private const float FogDim = 0.28f;
+
+    /// <summary>
+    /// How many ticks it takes a sighting to fade all the way into the fog.
+    /// </summary>
+    /// <remarks>
+    /// A DISPLAY constant and emphatically not a doctrine's forgetting time.
+    /// Nothing here decides when a side stops believing a ghost -- that is the
+    /// doctrine's call, and a patrol and a guard have every reason to answer
+    /// differently. This only says how long a ghost stays legible on screen, so
+    /// that "seen a moment ago" and "seen a minute ago" do not look alike.
+    /// </remarks>
+    private const int GhostFade = 120;
+
+    /// <summary>A pad a side can see, painted into the fog image.</summary>
+    private static readonly RgbaColor PadColour = RgbaColor.Rgb(60, 150, 90);
+
+    /// <summary>A sighting taken this tick.</summary>
+    private static readonly RgbaColor GhostFresh = RgbaColor.Rgb(190, 120, 200);
+
+    /// <summary>A sighting <see cref="GhostFade"/> ticks old or older: all but gone.</summary>
+    private static readonly RgbaColor GhostStale = RgbaColor.Rgb(60, 45, 65);
+
+    /// <summary>
+    /// Whose knowledge the board is drawn from, or null for a viewer nobody
+    /// wired one to -- which is every viewer that is not playing a fight.
+    /// </summary>
+    /// <remarks>
+    /// Held rather than merged into <see cref="_sources"/> because it answers a
+    /// different question. A source DESCRIBES; this one decides what is on
+    /// screen at all.
+    /// </remarks>
+    private readonly IVisibilityView? _eyes;
+
+    /// <summary>Whose eyes the board is drawn through, or <see cref="Observer"/>.</summary>
+    private int _viewpoint = Observer;
+
+    // The fog image and the exact answers it was built from. Both renderers
+    // cache their upload by REFERENCE identity, so handing back the same
+    // instance costs nothing and handing back a new one costs an upload -- which
+    // is why the visible set is compared rather than the tick.
+    private TerrainImage? _fog;
+    private int[] _fogVisible = [];
+    private int[] _fogPads = [];
+    private int _fogViewpoint = Observer;
+    private int _fogVersion = -1;
+
+    /// <summary>The current viewpoint's visible cells, for the per-unit test.</summary>
+    private HashSet<int> _visible = [];
+
+    /// <summary>What the current viewpoint remembers, as of the last update.</summary>
+    private IReadOnlyList<RememberedUnit> _remembered = [];
+
     /// <summary>How long one tick takes at the current pace.</summary>
     private double StepSeconds => Paces[_pace] ?? _session.TickSeconds;
 
@@ -162,7 +245,8 @@ public sealed class ViewerApp : IViewerApp
         int maxPixelWidth,
         int maxPixelHeight,
         Keymap? keys = null,
-        IReadOnlyList<IWorldDebugView>? sources = null)
+        IReadOnlyList<IWorldDebugView>? sources = null,
+        IVisibilityView? eyes = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(maxPixelWidth, 0);
@@ -172,6 +256,7 @@ public sealed class ViewerApp : IViewerApp
         _fitWidth = maxPixelWidth;
         _fitHeight = maxPixelHeight;
         _sources = Copy(sources);
+        _eyes = eyes;
         Keys = keys ?? Keymap.Default;
         AdoptContent();
         StatusText = BuildStatus();
@@ -190,8 +275,9 @@ public sealed class ViewerApp : IViewerApp
         int squad = ViewerSession.DefaultSquad,
         RecordedScenario? scenario = null,
         Keymap? keys = null,
-        IReadOnlyList<IWorldDebugView>? sources = null)
-        : this(BuildSession(grid, scenario, squad), layout.PixelWidth, layout.PixelHeight, keys, sources)
+        IReadOnlyList<IWorldDebugView>? sources = null,
+        IVisibilityView? eyes = null)
+        : this(BuildSession(grid, scenario, squad), layout.PixelWidth, layout.PixelHeight, keys, sources, eyes)
     {
     }
 
@@ -283,6 +369,16 @@ public sealed class ViewerApp : IViewerApp
     /// simulation's tick, not a frame count: many frames blend across one tick.
     /// </summary>
     public int CurrentTick => _session.CurrentTick;
+
+    /// <summary>
+    /// Whose knowledge the board is currently drawn from: a side number, or -1
+    /// for the observer, who sees the true board.
+    /// </summary>
+    /// <remarks>
+    /// -1 for every viewer that was not handed an <see cref="IVisibilityView"/>,
+    /// and for those the viewpoint key cannot move it.
+    /// </remarks>
+    public int Viewpoint => _viewpoint;
 
     /// <summary>
     /// A file from the host's chrome — a dialog, a drop. A refusal keeps the
@@ -398,6 +494,16 @@ public sealed class ViewerApp : IViewerApp
             _blend = 0f;
         }
 
+        if (input.IsPressed(ViewerKeys.Viewpoint))
+        {
+            // Whose knowledge the board is drawn from, and nothing else: the
+            // fight is not told anybody looked. The observer is both the start
+            // and the end of the cycle, so a watcher who has lost track of
+            // whose eyes they are on gets back to the truth by pressing on
+            // rather than by pressing back.
+            _viewpoint = NextViewpoint();
+        }
+
         if (input.IsPressed(ViewerKeys.R))
         {
             if (_session.CanRestart)
@@ -440,8 +546,160 @@ public sealed class ViewerApp : IViewerApp
             _blend = 0f;
         }
 
+        // Last, so it sees this frame's viewpoint press AND this frame's ticks.
+        // It lives here rather than in Render because rebuilding an image is a
+        // change, and Render is marked as an instrument.
+        RefreshFog();
+
         StatusText = BuildStatus();
         Inspector = BuildInspector();
+    }
+
+    /// <summary>
+    /// The next viewpoint in the cycle: the observer, then each side in
+    /// <see cref="IVisibilityView.Sides"/> in turn, then the observer again.
+    /// </summary>
+    /// <remarks>
+    /// Walks the side NUMBERS rather than counting them, so a board whose sides
+    /// are 0 and 7 cycles through both and a board with five cycles through
+    /// five. Two is what exists today and two is not written down anywhere here.
+    /// <para>
+    /// A viewer with no <see cref="_eyes"/> never leaves the observer, which is
+    /// what keeps the key honest: it is hinted only where it does something.
+    /// </para>
+    /// </remarks>
+    private int NextViewpoint()
+    {
+        if (_eyes is null)
+        {
+            return Observer;
+        }
+
+        foreach (var side in _eyes.Sides)
+        {
+            if (side > _viewpoint)
+            {
+                return side;
+            }
+        }
+
+        return Observer;
+    }
+
+    /// <summary>
+    /// Rebuilds the fog image, but only when the visible set it was built from
+    /// has actually changed.
+    /// </summary>
+    /// <remarks>
+    /// <b>The comparison is on the ANSWER, not on the tick.</b> Both renderers
+    /// key their upload cache on reference identity, so handing back the same
+    /// instance costs nothing and handing back a new one costs a texture upload
+    /// every frame. A fight spends most of its ticks with nobody crossing a
+    /// sight line, and on all of those this returns having compared two ascending
+    /// lists and touched nothing.
+    /// <para>
+    /// The viewpoint and the session's content version are compared with them,
+    /// because either one changing makes the same visible set a different
+    /// picture -- a load can even hand back the identical cells over a different
+    /// map.
+    /// </para>
+    /// <para>
+    /// <see cref="_remembered"/> is taken every time rather than cached: it is a
+    /// short list, it changes on ticks the visible set does not, and it costs a
+    /// read.
+    /// </para>
+    /// </remarks>
+    private void RefreshFog()
+    {
+        if (_viewpoint < 0 || _eyes is null)
+        {
+            _fog = null;
+            _fogVisible = [];
+            _fogPads = [];
+            _fogViewpoint = Observer;
+            _visible = [];
+            _remembered = [];
+            return;
+        }
+
+        var visible = _eyes.VisibleCells(_viewpoint);
+        var pads = _eyes.RepairPoints(_viewpoint);
+        _remembered = _eyes.Remembered(_viewpoint);
+
+        if (_fog is not null &&
+            _fogViewpoint == _viewpoint &&
+            _fogVersion == _sessionVersion &&
+            Same(_fogVisible, visible) &&
+            Same(_fogPads, pads))
+        {
+            return;
+        }
+
+        _fogVisible = [.. visible];
+        _fogPads = [.. pads];
+        _fogViewpoint = _viewpoint;
+        _fogVersion = _sessionVersion;
+        _visible = [.. visible];
+        _fog = TerrainImage.Fogged(
+            _grid, visible, pads, RgbaColor.RayWhite, RgbaColor.DarkGray, PadColour, FogDim);
+    }
+
+    /// <summary>Whether two cell answers hold the same cells in the same order.</summary>
+    private static bool Same(int[] built, IReadOnlyList<int> current)
+    {
+        if (built.Length != current.Count)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < built.Length; i++)
+        {
+            if (built[i] != current[i])
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Whether the current viewpoint cannot see <paramref name="agent"/>, and so
+    /// must not be shown it.
+    /// </summary>
+    /// <remarks>
+    /// A side always sees the cell each of its own units stands on, so the side
+    /// test is strictly redundant against the cell test -- and it is kept,
+    /// because it is the exclusion this code MEANS. What is hidden is the ENEMY
+    /// nobody has found, not whichever of my own units happens to have fallen
+    /// out of the visible set for a reason I would then have to go and look for.
+    /// <para>
+    /// Always false for the observer, which is what makes the observer's frame
+    /// byte-identical to a viewer that never heard of fog.
+    /// </para>
+    /// </remarks>
+    private bool Hidden(AgentState agent) =>
+        _fog is not null && agent.Side != _viewpoint && !_visible.Contains(agent.Cell);
+
+    /// <summary>
+    /// A sighting's colour, faded from <see cref="GhostFresh"/> toward
+    /// <see cref="GhostStale"/> by how many ticks old it is.
+    /// </summary>
+    /// <remarks>
+    /// Fading rather than hiding, because a stale sighting is the interesting
+    /// one: a doctrine that keeps shooting at where an enemy WAS is the exact
+    /// thing this view exists to catch, and it cannot be caught if the belief
+    /// disappears the moment it stops being true.
+    /// </remarks>
+    private static RgbaColor Ghost(int age)
+    {
+        var faded = Math.Clamp(age / (float)GhostFade, 0f, 1f);
+        static byte Mix(byte from, byte to, float t) => (byte)(from + ((to - from) * t));
+
+        return RgbaColor.Rgb(
+            Mix(GhostFresh.R, GhostStale.R, faded),
+            Mix(GhostFresh.G, GhostStale.G, faded),
+            Mix(GhostFresh.B, GhostStale.B, faded));
     }
 
     /// <summary>
@@ -474,9 +732,30 @@ public sealed class ViewerApp : IViewerApp
         // which they stopped being the same rectangle when zooming arrived. The
         // renderer already took a destination rect, so scrolling and scaling cost
         // it nothing: it is one textured quad either way.
-        renderer.DrawTerrain(
-            _terrain,
-            new RectF(Layout.OriginX, Layout.OriginY, Layout.MapWidth(_grid), Layout.MapHeight(_grid)));
+        var map = new RectF(Layout.OriginX, Layout.OriginY, Layout.MapWidth(_grid), Layout.MapHeight(_grid));
+        renderer.DrawTerrain(_terrain, map);
+
+        // The fog, as a SECOND terrain image over the first: one texel per cell,
+        // no sixth verb, and under every line and circle in both hosts -- the
+        // D3D11 renderer batches those and flushes them at EndFrame, so nothing
+        // drawn below can be made to sit under this whatever order it is called
+        // in. Null for the observer, which is what keeps the observer's frame
+        // identical to the one this viewer drew before fog existed.
+        var radius = Math.Max(2.0f, Layout.CellSize * 0.34f);
+        if (_fog is { } fog)
+        {
+            renderer.DrawTerrain(fog, map);
+
+            // What the side BELIEVES, under everything that is actually there:
+            // a ghost stands at the cell the enemy was last seen on, which is
+            // not where it is. One this side can currently see has its own unit
+            // drawn over the top of it a moment later.
+            foreach (var ghost in _remembered)
+            {
+                renderer.DrawCircle(
+                    CenterOfCell(ghost.Cell), radius, Ghost(_session.CurrentTick - ghost.Tick));
+            }
+        }
 
         // A route is drawn only when exactly one unit is selected. Drawing every
         // route at two dozen units is a ball of yarn, and at two hundred it is a
@@ -487,6 +766,15 @@ public sealed class ViewerApp : IViewerApp
         foreach (var (agent, plan) in plans)
         {
             if (agent != soleSelection || plan.Cells.Count < 2)
+            {
+                continue;
+            }
+
+            // A route belongs to the unit that walks it, so a unit this side
+            // cannot see must not leave one on screen. Selecting an enemy under
+            // the observer and then switching eyes is exactly how that would
+            // otherwise happen, and a route is the loudest thing on the map.
+            if (agent < _session.Agents.Count && Hidden(_session.Agents[agent]))
             {
                 continue;
             }
@@ -578,10 +866,17 @@ public sealed class ViewerApp : IViewerApp
             routed.Add(agent);
         }
 
-        var radius = Math.Max(2.0f, Layout.CellSize * 0.34f);
         var leaders = _session.Leaders;
         foreach (var agent in _session.Agents)
         {
+            if (Hidden(agent))
+            {
+                // Not dimmed and not ghosted: NOT DRAWN. A side that has not
+                // found a unit has no picture of it at all, and half a unit on
+                // screen would be the viewer inventing knowledge nobody has.
+                continue;
+            }
+
             var from = CenterOfCell(_previousCells[agent.Id]);
             var to = CenterOfCell(agent.Cell);
             var at = Vector2.Lerp(from, to, _blend);
@@ -1085,16 +1380,39 @@ public sealed class ViewerApp : IViewerApp
     /// and the whole point of the keymap is that something can be. A status line
     /// that is confidently wrong about a key is worse than one that omits it.
     /// <para>
-    /// Only the four actions that DO something appear. The viewpoint and overlay
-    /// keys are bound and carried and do nothing yet; hinting them would be the
-    /// same lie one step earlier.
+    /// Only actions that DO something appear. The two overlay keys are bound and
+    /// carried and do nothing yet; hinting them would be the same lie one step
+    /// earlier. The viewpoint key is hinted only where a viewer was actually
+    /// wired to somebody's knowledge, which is the same rule and not an
+    /// exception to it.
     /// </para>
     /// </remarks>
     private string Hints() =>
         $"{Keys.KeycapFor(ViewerKeys.Space)} pause  " +
         $"{Keys.KeycapFor(ViewerKeys.Step)} step  " +
         $"{Keys.KeycapFor(ViewerKeys.Pace)} pace  " +
-        $"{Keys.KeycapFor(ViewerKeys.R)} {(_session.CanRestart ? "restart" : "regroup")}";
+        $"{Keys.KeycapFor(ViewerKeys.R)} {(_session.CanRestart ? "restart" : "regroup")}" +
+        Eyes();
+
+    /// <summary>
+    /// Whose eyes the board is currently drawn through, or nothing at all where
+    /// there are no eyes to borrow.
+    /// </summary>
+    /// <remarks>
+    /// Padded to a constant width, like every counter in the line: "observer"
+    /// and "side 0" are different lengths, and a status line that changes length
+    /// shakes a window sized to its content.
+    /// </remarks>
+    private string Eyes()
+    {
+        if (_eyes is null)
+        {
+            return string.Empty;
+        }
+
+        var whose = _viewpoint < 0 ? "observer" : $"side {Number(_viewpoint)}";
+        return $"  {Keys.KeycapFor(ViewerKeys.Viewpoint)} view {whose,-8}";
+    }
 
     /// <summary>
     /// The watched unit spelled out: what the movement layer says about it, what

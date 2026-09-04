@@ -27,6 +27,7 @@
     <Using Include="Nav.Tactics.Interfaces" />
     <Using Include="Nav.Tactics.Models" />
     <Using Include="Nav.Viewer.Interfaces" />
+    <Using Include="Nav.Viewer.Models" />
   </ItemGroup>
 
 </Project>

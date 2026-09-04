@@ -94,9 +94,14 @@ public enum ViewerKeys
     /// acting on knowledge it should not have gets caught.
     /// </summary>
     /// <remarks>
-    /// This and the two overlays below are bound and carried but do nothing yet.
+    /// It does nothing in a viewer nobody handed an
+    /// <see cref="Interfaces.IVisibilityView"/> to -- a replay has no sides with
+    /// knowledge of their own -- and in that case it is not hinted either.
+    /// <para>
+    /// The two overlays below are still bound and carried and still do nothing.
     /// They are here so the keymap and both hosts are already complete when the
-    /// fog and LOS work lands, rather than being touched again for a key.
+    /// LOS work lands, rather than being touched again for a key.
+    /// </para>
     /// </remarks>
     Viewpoint = 2048,
 

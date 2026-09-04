@@ -45,6 +45,7 @@ public sealed class InstrumentMutationTests
     [InlineData(nameof(IPerceptionView.PeekHostiles))]
     [InlineData(nameof(IPerceptionView.PeekSightings))]
     [InlineData(nameof(IPerceptionView.PeekRepairPoints))]
+    [InlineData(nameof(IPerceptionView.PeekVisibleCells))]
     public void TheViewCausesNothing(string member) =>
         Clean(typeof(IPerceptionView).GetMethod(member) ??
               typeof(IPerceptionView).GetProperty(member)!.GetGetMethod()!);

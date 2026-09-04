@@ -1,7 +1,7 @@
 namespace Nav.Tactics.Interfaces;
 
 /// <summary>
-/// What an instrument may ASK about a side's perception: three questions, the
+/// What an instrument may ASK about a side's perception: four questions, the
 /// tick they are all answered as of, and no verb anywhere on the type.
 /// </summary>
 /// <remarks>
@@ -10,7 +10,7 @@ namespace Nav.Tactics.Interfaces;
 /// where <see cref="DemoWorld.Settle"/> has already had every side look at what
 /// the shots and the deaths left. So there is nothing here to resolve and no
 /// value caught mid-transition -- <see cref="AsOf"/> names the edge, and the
-/// three answers below are that one edge read three ways.
+/// four answers below are that one edge read four ways.
 /// <para>
 /// <b>A type rather than a convention, because a convention is what failed.</b>
 /// <see cref="Core.Interfaces.IDistanceFieldView"/> exists for the same reason
@@ -105,4 +105,33 @@ public interface IPerceptionView
     /// </remarks>
     [Observes]
     IReadOnlyList<int> PeekRepairPoints(int side);
+
+    /// <summary>
+    /// Every cell <paramref name="side"/> could see as of <see cref="AsOf"/>,
+    /// ascending, whether or not anything was standing in it. Empty for a side
+    /// no edge has covered.
+    /// </summary>
+    /// <remarks>
+    /// <b>GROUND, where the other three are CONTACTS.</b>
+    /// <see cref="PeekHostiles"/> answers "what did I find"; this answers "where
+    /// was I looking". The difference is the whole of fog: a side that found
+    /// nothing has either swept the map and found it empty or is standing in the
+    /// dark, and no contact list can tell those apart.
+    /// <para>
+    /// <b>Nothing in the tick asks this, which is why it is here and not on the
+    /// doctrine side.</b> Doctrine acts on what it found; only a watcher needs
+    /// the shape of what was looked at. So it is computed when it is asked for
+    /// and costs nothing on the runs nobody is watching -- and it is computed
+    /// from the watchers the last edge left, not from where anything stands
+    /// now, so it is as of <see cref="AsOf"/> like everything else here.
+    /// </para>
+    /// <para>
+    /// A side always sees the cell each of its own units stands on, so its own
+    /// roster is never fogged out from under it. Without
+    /// <see cref="DemoWorld.Fog"/> every cell is in here, because a world that
+    /// tells every side everything hides no ground either.
+    /// </para>
+    /// </remarks>
+    [Observes]
+    IReadOnlyList<int> PeekVisibleCells(int side);
 }

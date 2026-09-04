@@ -3,7 +3,8 @@ namespace Nav.Worlds;
 /// <summary>
 /// The guard that does not die beside the cannon, built and left standing:
 /// the map, the two sides, the kits, the pads, the station, the doctrines, and
-/// a world with fog on -- with no tick played and nothing written down.
+/// a world with fog on -- playing its own tick when asked, and writing nothing
+/// down.
 /// </summary>
 /// <remarks>
 /// The C&amp;C behaviour this project was started over, as a WORLD rather than as
@@ -30,13 +31,15 @@ namespace Nav.Worlds;
 /// it carried, and what chose to shoot it.
 /// </para>
 /// <para>
-/// <b>The waves are the one thing left to the caller.</b> <see cref="SendWave"/>
-/// takes a tick and answers whether anything arrives on it, because a wave is
-/// timed against a clock and this type does not own one. Everything else is
-/// standing before the constructor returns.
+/// <b>The clock is the caller's; the tick is not.</b> Somebody outside counts,
+/// and calls <see cref="Step"/> with the number it has reached -- how many ticks
+/// to play and when to stop is nothing this type has an opinion about. What
+/// HAPPENS in one is entirely here, in the order it is written, so a demo
+/// narrating a trace and a viewer drawing the same fight are one run played
+/// twice rather than two runs that agree until they do not.
 /// </para>
 /// </remarks>
-public sealed class GuardRetreatWorld
+public sealed class GuardRetreatWorld : IWorld
 {
     /// <summary>
     /// Big enough that sight is a constraint. A guard on the station cannot see
@@ -205,13 +208,87 @@ public sealed class GuardRetreatWorld
     public IReadOnlyList<Squad> Waves => _waves;
 
     /// <summary>
+    /// The wave that came onto the board during the last <see cref="Step"/>, or
+    /// null if none was due on that tick. Null before the first step.
+    /// </summary>
+    /// <remarks>
+    /// A per-tick fact read after the fact, the way
+    /// <see cref="DemoWorld.Fallen"/> is: <see cref="Step"/> returns nothing, so
+    /// a caller with something to say about an arrival -- a line of narration, a
+    /// banner -- asks here once the tick is played, and gets null again on the
+    /// next tick because nothing arrived on it.
+    /// <para>
+    /// It is on this class and not on <see cref="IWorld"/>. A wave is this
+    /// world's idea; a holder of the interface drives the tick without needing
+    /// to know this world has waves at all.
+    /// </para>
+    /// </remarks>
+    public Squad? Entered { get; private set; }
+
+    /// <summary>
+    /// Plays one tick: the wave due on <paramref name="tick"/> if one is, then
+    /// both sides' doctrine, then the board, then the world settled against
+    /// where everything ended up, then the fallen taken off the board.
+    /// </summary>
+    /// <remarks>
+    /// <b>The ORDER is what this method exists to hold.</b> Doctrine first, so
+    /// every unit decides against the board as the last tick left it, and each
+    /// side is handed the world as ITS side perceives it -- under fog the two
+    /// passes are reading different maps. Then the board moves everybody. Then
+    /// the world settles against where they now stand, which is where shots land
+    /// and health changes.
+    /// <para>
+    /// <b>The fallen come off AFTER the settle, not during it, and that is a
+    /// decision rather than an oversight.</b> A unit that dies while the world
+    /// settles is still standing for the remainder of that tick: it is on the
+    /// board every other unit was resolved against, and it leaves at the tick's
+    /// edge instead of vanishing halfway through one. Removing it inside the
+    /// settle would make the board a unit was shot at on depend on the order the
+    /// shots happened to resolve in.
+    /// </para>
+    /// <para>
+    /// Nothing is written down and nothing is returned. What happened is read
+    /// afterwards: <see cref="Entered"/> for an arrival, and
+    /// <see cref="DemoWorld.Fallen"/> on <see cref="World"/> for the casualties,
+    /// which stands until the next settle clears it -- so a caller can still
+    /// name everyone who died on the tick it has just played.
+    /// </para>
+    /// </remarks>
+    /// <param name="tick">Which tick this is, from zero. The wave schedule is read against it.</param>
+    public void Step(int tick)
+    {
+        Entered = SendWave(tick);
+
+        Guard.Advance(Board, World.ViewFor(0));
+        foreach (var squad in _waves)
+        {
+            squad.Advance(Board, World.ViewFor(1));
+        }
+
+        Board.Tick();
+        World.Settle();
+
+        foreach (var (victim, _) in World.Fallen)
+        {
+            Board.Remove(victim);
+        }
+    }
+
+    /// <summary>
     /// Puts the wave due on <paramref name="tick"/> on the board, or answers null
     /// on a tick no wave is due.
     /// </summary>
     /// <remarks>
-    /// The caller owns the clock, so it asks every tick rather than being told.
-    /// The wave is a squad like the line is, with its own station and no pad to
-    /// fall back to; what happens to it afterwards is doctrine, not script.
+    /// <see cref="Step"/> asks this every tick rather than the schedule being
+    /// told when to fire, so a tick nothing is due on costs an index lookup and
+    /// nothing else. The wave is a squad like the line is, with its own station
+    /// and no pad to fall back to; what happens to it afterwards is doctrine,
+    /// not script.
+    /// <para>
+    /// Public because a test can put a wave on the board without playing a tick
+    /// around it. A caller playing the fight calls <see cref="Step"/> and reads
+    /// <see cref="Entered"/>.
+    /// </para>
     /// </remarks>
     /// <returns>
     /// The wave, standing on the board and under no orders yet. What either side

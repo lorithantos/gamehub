@@ -13,8 +13,15 @@
     a host would have depended on a tool to get at a map: the arrow the wrong
     way up. The world lives here, where a demo writing a trace and a viewer
     running it live are both consumers and neither is the other's dependency.
-    Nothing in this project writes output or advances a clock: a caller that
-    wants those brings its own loop.
+
+    A world here owns its own tick. The order inside one (doctrine, then the
+    board, then the settle, then the fallen taken off) is a design decision that
+    belongs with the map and the doctrines rather than with whoever is counting,
+    so a caller brings a clock and not a loop. Two loops would be two
+    simulations: the live run and the recorded trace would agree right up until
+    somebody changed one of them, and after that a finding read off a trace
+    would no longer be a finding about the fight anybody is watching. Nothing
+    here writes output.
   -->
   <ItemGroup>
     <ProjectReference Include="..\Nav.Tactics\Nav.Tactics.csproj" />
@@ -22,6 +29,7 @@
 
   <ItemGroup>
     <Using Include="Nav.Core" />
+    <Using Include="Nav.Core.Interfaces" />
     <Using Include="Nav.Core.Models" />
     <Using Include="Nav.Tactics" />
     <Using Include="Nav.Tactics.Models" />

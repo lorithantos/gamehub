@@ -18,6 +18,7 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <Using Include="Nav.Core" />
+    <Using Include="Nav.Core.Interfaces" />
     <Using Include="Nav.Core.Models" />
     <Using Include="Nav.Worlds" />
     <Using Include="Nav.Tactics" />

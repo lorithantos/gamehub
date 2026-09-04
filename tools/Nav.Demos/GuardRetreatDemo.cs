@@ -86,24 +86,22 @@ internal sealed class GuardRetreatDemo : Demo
         {
             events.Clear();
 
-            if (guardWorld.SendWave(tick) is { } wave)
+            // The tick, whole, in one call: the wave, both sides' doctrine, the
+            // board, the settle and the removals, in the order the world says
+            // they go in. Everything below reads what that left behind.
+            guardWorld.Step(tick);
+
+            if (guardWorld.Entered is { } wave)
             {
                 attackersSent += wave.Members.Count;
                 events.Add($"{wave.Name} enters from the north: two rocket bikes, three riflemen, a buggy");
             }
 
-            guard.Advance(system, world.ViewFor(0));
-            foreach (var squad in guardWorld.Waves)
-            {
-                squad.Advance(system, world.ViewFor(1));
-            }
-
-            system.Tick();
-            world.Settle();
-
+            // Still readable after the step took them off the board: the list
+            // stands until the next settle clears it, and a unit's kit and side
+            // outlive its removal.
             foreach (var (victim, killer) in world.Fallen)
             {
-                system.Remove(victim);
                 var kit = world.KitOf(victim)!.Name;
                 if (world.SideOf(victim) == 0)
                 {

@@ -10,8 +10,10 @@ namespace Nav.Worlds.Tests;
 /// the only way to check any of it was to run five hundred and twenty ticks
 /// and read a trace.
 /// <para>
-/// Nothing here plays the fight. The tick loop belongs to whoever is running
-/// it, and the demo's byte-identical trace is what pins the playing.
+/// Nothing here plays the fight: these are the facts standing before the first
+/// tick. What a tick DOES, and in what order, is
+/// <see cref="GuardRetreatWorldStepTests"/>; how five hundred and twenty of
+/// them come out is the demo's byte-identical trace.
 /// </para>
 /// </remarks>
 public sealed class GuardRetreatWorldTests

@@ -12,6 +12,12 @@ namespace Nav.Tactics.Tests;
 /// including the movement of the WATCHER. So there is no clock in this filter
 /// and no sweep on a quiet tick: a unit standing still for a hundred ticks is
 /// discovered by somebody walking up to it, and the walking is the event.
+/// <para>
+/// WHEN the looking happens is the clock's business, and there is one answer:
+/// the end of <see cref="DemoWorld.Settle"/>. That is why the loops here settle
+/// as well as tick. A run that only stepped the system would never finish a
+/// tick, and every side would still be answering for the last edge it had.
+/// </para>
 /// </remarks>
 public sealed class FogTests
 {
@@ -41,15 +47,27 @@ public sealed class FogTests
         .............................
         """;
 
-    /// <summary>A room, a world with fog, and one enlisted unit per entry.</summary>
+    /// <summary>A room, a world with fog, its pads, and one enlisted unit per entry.</summary>
+    /// <remarks>
+    /// Pads go in before <see cref="DemoWorld.Listen"/>, because Listen is the
+    /// run's opening edge and a pad written to the list afterwards has no event
+    /// behind it to say so -- the same hole <see cref="DemoWorld.HostileCells"/>
+    /// has, and the reason a fog world re-looks whenever it holds one.
+    /// </remarks>
     private static (MovementSystem System, Grid Grid, DemoWorld World) Scene(
         ISight? sight = null,
         bool fog = true,
+        IEnumerable<(int X, int Y)>? pads = null,
         params (int X, int Y, int Side, string Kit)[] at)
     {
         var grid = Grid.FromMapText(Room);
         var system = new MovementSystem(grid);
         var world = new DemoWorld(grid, combat: Shipped(), fog: fog, sight: sight);
+        foreach (var (x, y) in pads ?? [])
+        {
+            world.RepairCells.Add(grid.Index(x, y));
+        }
+
         foreach (var (x, y, side, kit) in at)
         {
             world.Enlist(system.AddAgent(grid.Index(x, y), side), kit);
@@ -57,6 +75,25 @@ public sealed class FogTests
 
         world.Listen(system);
         return (system, grid, world);
+    }
+
+    /// <summary>
+    /// Whole ticks, up to <paramref name="limit"/> of them, stopping as soon as
+    /// <paramref name="until"/> is true.
+    /// </summary>
+    /// <remarks>
+    /// A tick is the system's step AND the world settling, and the settle is
+    /// what ends it: perception resolves at that edge and nowhere else. A loop
+    /// that only stepped the system would leave every side answering for the
+    /// last tick anybody finished, which is a place no observer can stand.
+    /// </remarks>
+    private static void Play(MovementSystem system, DemoWorld world, int limit, Func<bool> until)
+    {
+        for (var tick = 0; tick < limit && !until(); tick++)
+        {
+            system.Tick();
+            world.Settle();
+        }
     }
 
     [Fact]
@@ -76,10 +113,7 @@ public sealed class FogTests
         // A rifleman sees 6 and shoots 4, so it halts one sight-radius out and
         // the discovery is not muddled by anybody opening fire.
         system.Order([0], grid.Index(18, 6));
-        for (var tick = 0; tick < 60 && system.Agents[0].Cell != grid.Index(18, 6); tick++)
-        {
-            system.Tick();
-        }
+        Play(system, world, 60, () => system.Agents[0].Cell == grid.Index(18, 6));
 
         Assert.Equal(grid.Index(18, 6), system.Agents[0].Cell);
         Assert.Equal(enemy, system.Agents[1].Cell);
@@ -103,13 +137,15 @@ public sealed class FogTests
         var enemy = grid.Index(24, 6);
 
         Assert.Equal([enemy], world.ViewFor(0).Hostiles);
-        var seenAt = system.CurrentTick;
 
-        system.Order([0], grid.Index(1, 6));
-        for (var tick = 0; tick < 60 && system.Agents[0].Cell != grid.Index(1, 6); tick++)
-        {
-            system.Tick();
-        }
+        // The tick the enemy was actually seen on, taken from the sighting the
+        // opening edge left rather than off the clock. One step west puts the
+        // watcher out of range, so no later edge can refresh it.
+        var seenAt = Assert.Single(world.ViewFor(0).Sightings).Tick;
+        var home = grid.Index(1, 6);
+        system.Order([0], home);
+        Play(system, world, 60, () => system.Agents[0].Cell == home);
+        Assert.Equal(home, system.Agents[0].Cell);
 
         // Out of sight, so out of Hostiles at once -- a doctrine reading only
         // Hostiles behaves exactly as it did before fog existed.
@@ -139,10 +175,7 @@ public sealed class FogTests
         Assert.Single(world.ViewFor(0).Hostiles);
 
         system.Order([1], grid.Index(28, 12));
-        for (var tick = 0; tick < 60 && system.Agents[1].Cell != grid.Index(28, 12); tick++)
-        {
-            system.Tick();
-        }
+        Play(system, world, 60, () => system.Agents[1].Cell == grid.Index(28, 12));
 
         Assert.Empty(world.ViewFor(0).Hostiles);
         Assert.Empty(world.ViewFor(0).Sightings);
@@ -254,11 +287,9 @@ public sealed class FogTests
         // from 4 rotations through repair to ZERO, with the headline otherwise
         // unchanged, which is the silent degradation this project keeps
         // meeting. A pad watches the ground it stands on, so it is never lost.
-        var (_, grid, world) = Scene(at: [(1, 1, 0, "rifleman")]);
-        var far = grid.Index(27, 11);
-        world.RepairCells.Add(far);
+        var (_, grid, world) = Scene(pads: [(27, 11)], at: [(1, 1, 0, "rifleman")]);
 
-        Assert.Equal([far], world.ViewFor(0).RepairPoints);
+        Assert.Equal([grid.Index(27, 11)], world.ViewFor(0).RepairPoints);
     }
 
     [Theory]

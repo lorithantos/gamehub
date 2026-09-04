@@ -61,6 +61,7 @@ public sealed class DemoWorld : IPerception, IPerceptionView
     private readonly double _secondsPerTick;
     private MovementSystem? _system;
     private bool _stale = true;
+    private int _asOf = -1;
 
     /// <param name="grid">The map the cells are indices into. Needed to measure exposure.</param>
     /// <param name="repairPerTick">How much health one tick on a repair cell restores.</param>
@@ -307,36 +308,30 @@ public sealed class DemoWorld : IPerception, IPerceptionView
     /// Cells hostile to <paramref name="side"/>: every scripted threat, and every
     /// living unit on another side. Ascending, without repeats.
     /// </summary>
-    public IReadOnlyList<int> HostilesFor(int side)
-    {
-        if (!Fog)
-        {
-            return Everything(side);
-        }
-
-        Look();
-        return _visible.TryGetValue(side, out var seen) ? [.. seen] : [];
-    }
+    /// <remarks>
+    /// What the last edge left, as of <see cref="AsOf"/>. Asking resolves
+    /// nothing: the sides looked when the tick ended, and there is no other
+    /// moment at which anybody can be looking.
+    /// </remarks>
+    [Observes]
+    public IReadOnlyList<int> HostilesFor(int side) =>
+        Fog
+            ? _visible.TryGetValue(side, out var seen) ? [.. seen] : []
+            : Everything(side);
 
     /// <summary>
     /// What <paramref name="side"/> knows about enemy units it has seen, by
     /// agent, ascending. Empty without <see cref="Fog"/>, which knows nothing
     /// because it sees everything.
     /// </summary>
-    public IReadOnlyList<Sighting> SightingsFor(int side)
-    {
-        if (!Fog)
-        {
-            return [];
-        }
-
-        Look();
-        return _memory.TryGetValue(side, out var known) ? ByAgent(known) : [];
-    }
+    [Observes]
+    public IReadOnlyList<Sighting> SightingsFor(int side) =>
+        Fog && _memory.TryGetValue(side, out var known) ? ByAgent(known) : [];
 
     /// <summary>
-    /// What a panel or a report holds instead of this world: the three
-    /// perception questions with no way to resolve perception.
+    /// What a panel or a report holds instead of this world: the perception
+    /// questions and the tick they are answered as of, with no verb anywhere on
+    /// the type.
     /// </summary>
     /// <remarks>
     /// Itself, the way <c>FieldCache</c> is its own
@@ -347,20 +342,21 @@ public sealed class DemoWorld : IPerception, IPerceptionView
     public IPerceptionView View => this;
 
     /// <inheritdoc/>
-    public IReadOnlyList<int> PeekHostiles(int side) =>
-        Fog
-            ? _visible.TryGetValue(side, out var seen) ? [.. seen] : []
-            : Everything(side);
+    public int AsOf => _asOf;
 
     /// <inheritdoc/>
-    public IReadOnlyList<Sighting> PeekSightings(int side) =>
-        Fog && _memory.TryGetValue(side, out var known) ? ByAgent(known) : [];
+    public IReadOnlyList<int> PeekHostiles(int side) => HostilesFor(side);
 
     /// <inheritdoc/>
-    public IReadOnlyList<int> PeekRepairPoints(int side) =>
-        Fog
-            ? _pads.TryGetValue(side, out var pads) ? pads : []
-            : RepairCells;
+    public IReadOnlyList<Sighting> PeekSightings(int side) => SightingsFor(side);
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Copied, where <see cref="RepairPointsFor"/> hands back the list it holds.
+    /// An answer that changes after it was given is not a stale answer, it is an
+    /// answer to a question nobody asked, and the other two peeks already copy.
+    /// </remarks>
+    public IReadOnlyList<int> PeekRepairPoints(int side) => [.. RepairPointsFor(side)];
 
     /// <summary>
     /// Every scripted threat and every other side's living unit, ascending:
@@ -389,15 +385,23 @@ public sealed class DemoWorld : IPerception, IPerceptionView
     }
 
     /// <summary>
-    /// Brings every side's view of the board up to date, if anything has
-    /// happened since the last one.
+    /// The tick edge: every side's view of the board brought up to date, and the
+    /// whole view stamped with the tick it is now as of.
     /// </summary>
     /// <remarks>
+    /// <b>The only state anybody can see is the state at an edge.</b> This runs
+    /// at the end of <see cref="Settle"/>, after the shots and the health
+    /// arithmetic, because combat and death change what is on the board; and
+    /// once from <see cref="Listen"/>, which is the edge the run opens on. A
+    /// reader that stops between those has nothing mid-transition to catch,
+    /// because there is nothing between them.
+    /// <para>
     /// <b>What a side can see changes only when the board changes, and every
     /// board change is broadcast</b> — including the movement of the WATCHER,
     /// which is what discovers a unit that has been standing still all along. So
-    /// there is nothing to do on a tick where nothing happened, and this is
-    /// driven by <see cref="Hear"/> rather than by the clock.
+    /// there is nothing to look at on a tick where nothing happened, and
+    /// <see cref="Hear"/> rather than the clock decides whether there is work.
+    /// </para>
     /// <para>
     /// The exception is <see cref="HostileCells"/>: a scripted threat is a
     /// position a demo writes directly, with no event behind it, so a world
@@ -405,9 +409,14 @@ public sealed class DemoWorld : IPerception, IPerceptionView
     /// units alone does no work on a quiet tick.
     /// </para>
     /// <para>
-    /// Deferred to the first read rather than done as the events arrive. A tick
-    /// raises every step it took at once, and looking after each of them would
-    /// be the same answer computed once per moving unit.
+    /// <see cref="AsOf"/> is stamped either way. A tick that moved nothing still
+    /// ended, and the last look is still the current answer at that edge —
+    /// unchanged is not out of date.
+    /// </para>
+    /// <para>
+    /// A world without <see cref="Fog"/> has no per-side view to bring up to
+    /// date: every side is told about every unit, read straight off the board.
+    /// So it takes the stamp and nothing else.
     /// </para>
     /// <para>
     /// Each side is computed from the same board and writes only its own
@@ -417,13 +426,23 @@ public sealed class DemoWorld : IPerception, IPerceptionView
     /// </remarks>
     private void Look()
     {
-        if (!_stale || _system is null)
+        if (_system is null)
+        {
+            return;
+        }
+
+        // Before the guards, because the stamp is about the tick ENDING and not
+        // about the looking finding anything. A quiet tick and a world with no
+        // fog both end, and a view stuck at the last tick something happened
+        // would be claiming otherwise.
+        _asOf = _system.CurrentTick;
+        if (!_stale || !Fog)
         {
             return;
         }
 
         _stale = false;
-        var tick = _system.CurrentTick;
+        var tick = _asOf;
 
         var sides = new SortedSet<int>(_side.Values);
         foreach (var side in sides)
@@ -584,6 +603,14 @@ public sealed class DemoWorld : IPerception, IPerceptionView
                 _cell[agent.Id] = agent.Cell;
             }
         }
+
+        // THE OPENING EDGE, and the reason this has to be here rather than in
+        // the first Settle. Every other look happens at the END of a tick, so
+        // the first doctrine pass -- which runs before any tick has ended --
+        // would read a view nothing had ever resolved and every side would open
+        // the run blind. Catching up on who is standing and looking at them is
+        // one act.
+        Look();
     }
 
     private void Hear(MovementEvent e)
@@ -621,16 +648,11 @@ public sealed class DemoWorld : IPerception, IPerceptionView
     /// Pads <paramref name="side"/> can see, and so can plan to reach. Every pad
     /// without <see cref="Fog"/>.
     /// </summary>
-    public IReadOnlyList<int> RepairPointsFor(int side)
-    {
-        if (!Fog)
-        {
-            return RepairCells;
-        }
-
-        Look();
-        return _pads.TryGetValue(side, out var pads) ? pads : [];
-    }
+    [Observes]
+    public IReadOnlyList<int> RepairPointsFor(int side) =>
+        Fog
+            ? _pads.TryGetValue(side, out var pads) ? pads : []
+            : RepairCells;
 
     /// <inheritdoc/>
     /// <remarks>
@@ -766,13 +788,22 @@ public sealed class DemoWorld : IPerception, IPerceptionView
     /// One tick of the world happening to the units: every armed unit's shot
     /// resolved, exposure credited, then every rate that touches health
     /// applied together, for every unit the system has placed and not
-    /// removed. Call it once per tick, after the system has ticked.
+    /// removed, and last of all every side looking at what that left. Call it
+    /// once per tick, after the system has ticked.
     /// </summary>
     /// <remarks>
+    /// <b>This is the tick edge.</b> When it returns, perception has settled:
+    /// <see cref="HostilesFor"/>, <see cref="SightingsFor"/> and
+    /// <see cref="RepairPointsFor"/> answer for the board as it stands now,
+    /// stamped <see cref="AsOf"/>, and none of them resolves anything when
+    /// asked. A run that ticks the system without settling has not finished a
+    /// tick, and perception stays where the last edge left it.
+    /// <para>
     /// <b>Shots are decided before any lands.</b> Every shooter picks its
     /// target from where things stood at the start of the pass, then the shots
     /// resolve in shooter order. Two units that would kill each other both die;
     /// nobody is spared by having a lower id.
+    /// </para>
     /// <para>
     /// A shooter takes the highest THREAT in range: the enemy that can hurt it
     /// fastest right now, by the table, not the one with the most to lose.
@@ -863,6 +894,12 @@ public sealed class DemoWorld : IPerception, IPerceptionView
                 SetHealth(agent, HealthOf(agent) + delta);
             }
         }
+
+        // Last of all, because the shots and the deaths above changed what is
+        // on the board. When this returns the tick is over and every side's
+        // view is current, so a reader that stops here is reading an edge
+        // rather than provoking one.
+        Look();
     }
 
     /// <summary>Every armed unit shoots once: targets chosen from the start of the pass, shots landed in id order.</summary>

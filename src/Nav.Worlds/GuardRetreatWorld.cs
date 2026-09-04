@@ -1,4 +1,4 @@
-namespace Nav.Scenarios;
+namespace Nav.Worlds;
 
 /// <summary>
 /// The guard that does not die beside the cannon, built and left standing:
@@ -36,7 +36,7 @@ namespace Nav.Scenarios;
 /// standing before the constructor returns.
 /// </para>
 /// </remarks>
-public sealed class GuardRetreatScenario
+public sealed class GuardRetreatWorld
 {
     /// <summary>
     /// Big enough that sight is a constraint. A guard on the station cannot see
@@ -104,7 +104,7 @@ public sealed class GuardRetreatScenario
     private readonly int _attackStation;
 
     /// <exception cref="FileNotFoundException">No <c>config/</c> holding the combat or scale table above the binary.</exception>
-    public GuardRetreatScenario()
+    public GuardRetreatWorld()
     {
         Grid = Grid.FromMapText(Map);
         Board = new MovementSystem(Grid);
@@ -242,7 +242,7 @@ public sealed class GuardRetreatScenario
 
     /// <summary>
     /// A file under the repository's <c>config/</c>, found by walking up from
-    /// the binary, so a scenario run from the root and one run from bin read the
+    /// the binary, so a world run from the root and one run from bin read the
     /// same numbers. Throws rather than falling back: a world built on numbers
     /// nobody chose is the failure the config files exist to prevent.
     /// </summary>

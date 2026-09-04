@@ -10,19 +10,19 @@
   </PropertyGroup>
 
   <!--
-    The worlds the demos play come from Nav.Scenarios, so that a viewer can run
-    the same guard scenario without referencing a tools project to get at it.
+    The worlds the demos play come from Nav.Worlds, so that a viewer can run
+    the same guard world without referencing a tools project to get at it.
     What is left here is the playing: the tick loop, the trace and the replay.
   -->
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Nav.Scenarios\Nav.Scenarios.csproj" />
+    <ProjectReference Include="..\..\src\Nav.Worlds\Nav.Worlds.csproj" />
     <ProjectReference Include="..\..\src\Nav.Tactics\Nav.Tactics.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <Using Include="Nav.Core" />
     <Using Include="Nav.Core.Models" />
-    <Using Include="Nav.Scenarios" />
+    <Using Include="Nav.Worlds" />
     <Using Include="Nav.Tactics" />
     <Using Include="Nav.Tactics.Interfaces" />
     <Using Include="Nav.Tactics.Models" />

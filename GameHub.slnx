@@ -1,7 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Nav.Core/Nav.Core.csproj" />
-    <Project Path="src/Nav.Scenarios/Nav.Scenarios.csproj" />
+    <Project Path="src/Nav.Worlds/Nav.Worlds.csproj" />
     <Project Path="src/Nav.Tactics/Nav.Tactics.csproj" />
     <Project Path="src/Nav.Viewer.Raylib/Nav.Viewer.Raylib.csproj" />
     <Project Path="src/Nav.Viewer.Shared/Nav.Viewer.Shared.csproj" />
@@ -14,7 +14,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Nav.Benchmark/Nav.Benchmark.csproj" />
     <Project Path="tests/Nav.Core.Tests/Nav.Core.Tests.csproj" />
-    <Project Path="tests/Nav.Scenarios.Tests/Nav.Scenarios.Tests.csproj" />
+    <Project Path="tests/Nav.Worlds.Tests/Nav.Worlds.Tests.csproj" />
     <Project Path="tests/Nav.Tactics.Tests/Nav.Tactics.Tests.csproj" />
     <Project Path="tests/Nav.Viewer.Tactics.Tests/Nav.Viewer.Tactics.Tests.csproj" />
     <Project Path="tests/Nav.Viewer.Tests/Nav.Viewer.Tests.csproj" />

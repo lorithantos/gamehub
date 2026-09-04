@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <RootNamespace>Nav.Scenarios.Tests</RootNamespace>
+    <RootNamespace>Nav.Worlds.Tests</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
@@ -19,7 +19,7 @@
     <Using Include="Xunit" />
     <Using Include="Nav.Core" />
     <Using Include="Nav.Core.Models" />
-    <Using Include="Nav.Scenarios" />
+    <Using Include="Nav.Worlds" />
     <Using Include="Nav.Tactics" />
     <Using Include="Nav.Tactics.Models" />
   </ItemGroup>
@@ -31,7 +31,7 @@
     split exists to straighten would have bent again in the test tree.
   -->
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Nav.Scenarios\Nav.Scenarios.csproj" />
+    <ProjectReference Include="..\..\src\Nav.Worlds\Nav.Worlds.csproj" />
   </ItemGroup>
 
 </Project>

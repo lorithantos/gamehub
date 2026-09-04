@@ -1,4 +1,4 @@
-namespace Nav.Scenarios.Tests;
+namespace Nav.Worlds.Tests;
 
 /// <summary>
 /// What the constructor leaves standing: eight guards on side 0 carrying the
@@ -6,7 +6,7 @@ namespace Nav.Scenarios.Tests;
 /// </summary>
 /// <remarks>
 /// These are the facts a host would be wiring a window to, and every one of
-/// them was invisible while the scenario lived inside a demo's <c>Play</c> --
+/// them was invisible while the world lived inside a demo's <c>Play</c> --
 /// the only way to check any of it was to run five hundred and twenty ticks
 /// and read a trace.
 /// <para>
@@ -14,31 +14,31 @@ namespace Nav.Scenarios.Tests;
 /// it, and the demo's byte-identical trace is what pins the playing.
 /// </para>
 /// </remarks>
-public sealed class GuardRetreatScenarioTests
+public sealed class GuardRetreatWorldTests
 {
     [Fact]
     public void TheLineIsEightLivingUnitsOnSideZero()
     {
-        var scenario = new GuardRetreatScenario();
+        var guardWorld = new GuardRetreatWorld();
 
-        var agents = scenario.Board.Agents;
-        Assert.Equal(GuardRetreatScenario.Guards, agents.Count);
+        var agents = guardWorld.Board.Agents;
+        Assert.Equal(GuardRetreatWorld.Guards, agents.Count);
         Assert.All(agents, agent => Assert.True(agent.Alive));
-        Assert.All(agents, agent => Assert.Equal(0, scenario.World.SideOf(agent.Id)));
-        Assert.Equal(agents.Select(a => a.Id).Order(), scenario.Guard.Members.Order());
+        Assert.All(agents, agent => Assert.Equal(0, guardWorld.World.SideOf(agent.Id)));
+        Assert.Equal(agents.Select(a => a.Id).Order(), guardWorld.Guard.Members.Order());
     }
 
     /// <summary>
     /// Kits by id, not by count: which unit carries what decides where the line
-    /// can see and what it can hurt, so a reshuffle is a different scenario even
+    /// can see and what it can hurt, so a reshuffle is a different world even
     /// with the same six tanks and two buggies.
     /// </summary>
     [Fact]
     public void EveryGuardCarriesTheKitItsPositionInTheLineCallsFor()
     {
-        var scenario = new GuardRetreatScenario();
+        var guardWorld = new GuardRetreatWorld();
 
-        var kits = scenario.Board.Agents.Select(a => scenario.World.KitOf(a.Id)!.Name);
+        var kits = guardWorld.Board.Agents.Select(a => guardWorld.World.KitOf(a.Id)!.Name);
         Assert.Equal(
             ["tank", "buggy", "tank", "tank", "buggy", "tank", "tank", "buggy"],
             kits);
@@ -56,10 +56,10 @@ public sealed class GuardRetreatScenarioTests
     [Fact]
     public void TwoPadsStandAndBothAreKnownToTheLineWithoutBeingSeenByIt()
     {
-        var scenario = new GuardRetreatScenario();
+        var guardWorld = new GuardRetreatWorld();
 
-        Assert.Equal(2, scenario.World.RepairCells.Count);
-        Assert.Equal(scenario.World.RepairCells.Order(), scenario.World.RepairPointsFor(0).Order());
+        Assert.Equal(2, guardWorld.World.RepairCells.Count);
+        Assert.Equal(guardWorld.World.RepairCells.Order(), guardWorld.World.RepairPointsFor(0).Order());
     }
 
     /// <summary>
@@ -69,27 +69,27 @@ public sealed class GuardRetreatScenarioTests
     [Fact]
     public void FogIsOnAndTheLineHasSeenNobodyBeforeTheFirstWave()
     {
-        var scenario = new GuardRetreatScenario();
+        var guardWorld = new GuardRetreatWorld();
 
-        Assert.True(scenario.World.Fog);
-        Assert.Empty(scenario.World.HostilesFor(0));
-        Assert.Empty(scenario.World.SightingsFor(0));
+        Assert.True(guardWorld.World.Fog);
+        Assert.Empty(guardWorld.World.HostilesFor(0));
+        Assert.Empty(guardWorld.World.SightingsFor(0));
     }
 
     [Fact]
     public void AWaveArrivesOnItsOwnTickAndNothingArrivesBetween()
     {
-        var scenario = new GuardRetreatScenario();
+        var guardWorld = new GuardRetreatWorld();
 
-        Assert.Empty(scenario.Waves);
-        Assert.Null(scenario.SendWave(1));
+        Assert.Empty(guardWorld.Waves);
+        Assert.Null(guardWorld.SendWave(1));
 
-        var wave = scenario.SendWave(GuardRetreatScenario.WaveTicks[0]);
+        var wave = guardWorld.SendWave(GuardRetreatWorld.WaveTicks[0]);
 
         Assert.NotNull(wave);
         Assert.Equal(6, wave.Members.Count);
-        Assert.All(wave.Members, id => Assert.Equal(1, scenario.World.SideOf(id)));
-        Assert.All(wave.Members, id => Assert.NotNull(scenario.World.KitOf(id)));
-        Assert.Equal([wave], scenario.Waves);
+        Assert.All(wave.Members, id => Assert.Equal(1, guardWorld.World.SideOf(id)));
+        Assert.All(wave.Members, id => Assert.NotNull(guardWorld.World.KitOf(id)));
+        Assert.Equal([wave], guardWorld.Waves);
     }
 }

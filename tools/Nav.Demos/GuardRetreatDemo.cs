@@ -9,7 +9,7 @@ namespace Nav.Demos;
 /// <remarks>
 /// The C&amp;C behaviour this project was started over.
 /// <para>
-/// The world is <see cref="GuardRetreatScenario"/> and lives in the library,
+/// The world is <see cref="GuardRetreatWorld"/> and lives in the library,
 /// so the same fight can be watched live in a viewer. What is left here is the
 /// watching: the clock, the narration, and what the run amounted to.
 /// </para>
@@ -46,13 +46,13 @@ internal sealed class GuardRetreatDemo : Demo
 
     public override Run Play(TextWriter trace)
     {
-        var scenario = new GuardRetreatScenario();
-        var grid = scenario.Grid;
-        var system = scenario.Board;
-        var world = scenario.World;
-        var guard = scenario.Guard;
-        const int guards = GuardRetreatScenario.Guards;
-        var retreatByRank = GuardRetreatScenario.RetreatByRank;
+        var guardWorld = new GuardRetreatWorld();
+        var grid = guardWorld.Grid;
+        var system = guardWorld.Board;
+        var world = guardWorld.World;
+        var guard = guardWorld.Guard;
+        const int guards = GuardRetreatWorld.Guards;
+        var retreatByRank = GuardRetreatWorld.RetreatByRank;
 
         // RepairCells, not RepairPoints: the header describes the MAP, and the
         // replay draws what is there rather than what a side has noticed. Under
@@ -86,14 +86,14 @@ internal sealed class GuardRetreatDemo : Demo
         {
             events.Clear();
 
-            if (scenario.SendWave(tick) is { } wave)
+            if (guardWorld.SendWave(tick) is { } wave)
             {
                 attackersSent += wave.Members.Count;
                 events.Add($"{wave.Name} enters from the north: two rocket bikes, three riflemen, a buggy");
             }
 
             guard.Advance(system, world.ViewFor(0));
-            foreach (var squad in scenario.Waves)
+            foreach (var squad in guardWorld.Waves)
             {
                 squad.Advance(system, world.ViewFor(1));
             }
@@ -189,6 +189,6 @@ internal sealed class GuardRetreatDemo : Demo
             Ticks, final, world,
             $"{standing}/{guards} guards standing, {guardsLost} lost; {attackersDestroyed}/{attackersSent} attackers destroyed; "
                 + $"{veterans} veterans; {everLeft} rotated through repair, never more than {mostAwayAtOnce} away "
-                + $"against a reserve of {GuardRetreatScenario.Reserve}; worst overrun {worstOverrun:F2}");
+                + $"against a reserve of {GuardRetreatWorld.Reserve}; worst overrun {worstOverrun:F2}");
     }
 }

@@ -7,7 +7,8 @@
   </PropertyGroup>
 
   <!--
-    A scenario is what world this is; a demo is what is done with it. They were
+    A world here is a board standing ready to be played: the map, the sides,
+    their kits and their doctrine, composed and left alone. World and demo were
     one file, and that made the world reachable only by referencing tools\, so
     a host would have depended on a tool to get at a map: the arrow the wrong
     way up. The world lives here, where a demo writing a trace and a viewer

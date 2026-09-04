@@ -60,6 +60,36 @@ public sealed record ViewerOptions(
         """;
 
     /// <summary>
+    /// What a host that cannot build worlds prints when it is handed a valid
+    /// <c>--world</c>: the world asked for, that this host will not run it, and
+    /// the exact line that will.
+    /// </summary>
+    /// <remarks>
+    /// <b>The text is here; the decision is not.</b> Which host can run a world
+    /// is that host's own fact and stays in its <c>Main</c> -- there is no
+    /// capability flag here and parsing is unchanged, because a parser that
+    /// refused would refuse for the WPF host too. What lives here is the same
+    /// thing <see cref="KnownWorlds"/> already does: naming something this
+    /// project cannot build. Keeping the sentence beside the world list and the
+    /// usage text is what stops the three drifting apart, and it is what lets
+    /// the wording be tested from a project that references neither host.
+    /// <para>
+    /// Naming the alternative is the whole point. A refusal that stopped at "not
+    /// here" leaves somebody guessing which of two hosts to try and how to spell
+    /// the invocation, which is barely better than the silent fallback it
+    /// replaced.
+    /// </para>
+    /// </remarks>
+    public static string WorldNeedsTheWpfHost(string world)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(world);
+
+        return $"--world {world}: this host cannot run worlds, only maps and scenarios." +
+            Environment.NewLine +
+            $"Run it on the WPF host: dotnet run --project src/Nav.Viewer.Wpf -- --world {world}";
+    }
+
+    /// <summary>
     /// Where a scenario's map lives: beside the scenario file, or one directory
     /// up — the fixture layout, where scenarios/ sits inside the map folder.
     /// </summary>

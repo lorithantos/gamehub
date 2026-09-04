@@ -39,6 +39,22 @@ internal static class Program
             return 0;
         }
 
+        // This host builds no worlds -- it is deliberately behind the WPF one --
+        // and the option is shared, so the line parses here and would otherwise
+        // open the default fixture map instead. Silently. Refusing at the same
+        // exit code as any other usage error, and naming the host that does run
+        // it, is the difference between being told no and being handed an
+        // unrelated map with no explanation.
+        //
+        // The usage text is NOT printed beneath this one. It advertises --world
+        // as something that works, which is true of the pair of hosts and false
+        // of this one; the message already carries the command that works.
+        if (options.World is { } world)
+        {
+            Console.Error.WriteLine(ViewerOptions.WorldNeedsTheWpfHost(world));
+            return 2;
+        }
+
         // The session owns loading and every refusal in it: unreadable files,
         // malformed maps and scenarios, all-wall maps, agents placed on walls.
         // The message names the problem; printing it beats a stack trace, and

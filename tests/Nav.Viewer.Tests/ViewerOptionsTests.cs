@@ -200,6 +200,34 @@ public sealed class ViewerOptionsTests
     }
 
     [Fact]
+    public void AHostThatCannotRunWorldsRefusesWithTheCommandThatCan()
+    {
+        // The raylib host parses --world happily -- the option is shared -- and
+        // builds no worlds. What it must NOT do is open the fixture map instead
+        // and say nothing. The message is asserted here because the host that
+        // prints it cannot be referenced from this project.
+        var message = ViewerOptions.WorldNeedsTheWpfHost("guard-retreat");
+
+        // What was asked for, that it will not happen here, and the exact line
+        // that makes it happen. Drop any one and the refusal strands somebody.
+        Assert.Contains("guard-retreat", message, StringComparison.Ordinal);
+        Assert.Contains("cannot run worlds", message, StringComparison.Ordinal);
+        Assert.Contains(
+            "dotnet run --project src/Nav.Viewer.Wpf -- --world guard-retreat",
+            message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheWorldRefusalNamesTheWorldItWasGiven()
+    {
+        // Not a fixed sentence with one world baked into it: whatever name got
+        // this far is the name the reader sees and the name in the command.
+        Assert.Contains("guard-retreat", ViewerOptions.WorldNeedsTheWpfHost("guard-retreat"), StringComparison.Ordinal);
+        Assert.Contains("skirmish", ViewerOptions.WorldNeedsTheWpfHost("skirmish"), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void UsageTextNamesEveryOption()
     {
         var usage = ViewerOptions.UsageText;

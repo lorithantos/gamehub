@@ -1,6 +1,7 @@
 using System.IO;
 
 using Nav.Core;
+using Nav.Core.Interfaces;
 using Nav.Viewer.Tactics;
 using Nav.Worlds;
 
@@ -35,30 +36,48 @@ internal static class Program
     internal const int StatusHeight = 26;
 
     /// <summary>
-    /// THE PANEL, DECLARED: sections in the order they are shown, each with the
-    /// groups it holds in the order they are shown.
+    /// Groups this host wants somewhere other than where their view put them:
+    /// per section, the headings to show first, in the order to show them.
     /// </summary>
     /// <remarks>
-    /// <b>THIS IS THE GOD CLASS, IN THE GOOD WAY, AND THAT IS WHY THE TABLE IS
-    /// HERE.</b> Laying the movement layer's headings out next to a tactics
-    /// source's is a statement about BOTH, and this host is the only place in the
-    /// viewer entitled to hold both: Nav.Viewer.Shared references Nav.Core alone
-    /// so that it cannot name a Kit or a Squad, and the table used to walk around
-    /// that with quoted strings -- the seam breached in the one form the compiler
-    /// cannot see. There was nowhere legal to put these names as a type, and that
-    /// absence was the proof the table was in the wrong project.
+    /// <b>EMPTY, and that is the finding.</b> Every heading on the panel today is
+    /// where the view that emits it declared it, so there is nothing here to
+    /// disagree with a producer about. An entry is how a disagreement is
+    /// expressed -- <c>(InspectorLayout.TacticsSection, [DemoWorldGroups.World])</c>
+    /// would put the board's block above the unit's without the view being
+    /// touched, and without restating the seven names under it.
     /// <para>
-    /// <b>Every name is a CONSTANT, so a rename fails to compile.</b> Quoted, a
-    /// heading that drifted did not break: it stopped matching, dropped to
-    /// unknown-order and sank to the bottom of its section, silently, in a window
-    /// nobody had open. <see cref="MovementGroups"/> and
-    /// <see cref="DemoWorldGroups"/> are the producers' own vocabulary, and this
-    /// is the one list that says what order to read them in.
+    /// <b>The extension point, unchanged in shape.</b> A loader that reads a file
+    /// builds this list instead of the empty one, exactly as <c>Keymap</c> would.
+    /// Derived by default is not the same as fixed.
+    /// </para>
+    /// </remarks>
+    internal static readonly IReadOnlyList<(string Section, IReadOnlyList<string> First)> Preferences = [];
+
+    /// <summary>
+    /// THE PANEL, DERIVED: each view asked what it can produce, under the caption
+    /// this host files it under, in the order this host reads them in.
+    /// </summary>
+    /// <remarks>
+    /// <b>THIS IS THE GOD CLASS, IN THE GOOD WAY, AND WHAT THAT ENTITLES IT TO IS
+    /// THE ORDER.</b> Filing the movement layer's answers under one caption and a
+    /// tactics source's under another is a statement about BOTH, and this host is
+    /// the only place in the viewer entitled to make it: Nav.Viewer.Shared
+    /// references Nav.Core alone so that it cannot name a Kit or a Squad.
+    /// <para>
+    /// <b>What it is no longer entitled to is the VOCABULARY.</b> It used to
+    /// restate every heading as a constant -- better than quoting them, and still
+    /// a second copy of a list the producers own, kept honest by a test whose
+    /// whole job was to catch the two drifting. A copy that cannot exist cannot
+    /// drift, so the names come off <see cref="IDebugView.Groups"/> now and the
+    /// test that guarded the copy has become the invariant the asking creates:
+    /// no view emits a group it did not declare.
     /// </para>
     /// <para>
-    /// No file format and no settings type: it is a static table today, and the
-    /// extension point is that a loader would build this object instead. That is
-    /// the same shape <c>Keymap</c> uses, and for the same reason.
+    /// <b>The movement layer is asked through a per-agent view like the panel
+    /// asks it.</b> A vocabulary is a fact about the view and not about the unit,
+    /// so any id answers -- see <see cref="IDebugView.Groups"/> -- and
+    /// <see cref="AnyUnit"/> is that "any" written down.
     /// </para>
     /// <para>
     /// Reachable from the test project so the panel can be asserted against the
@@ -66,34 +85,45 @@ internal static class Program
     /// would be measuring its own composition.
     /// </para>
     /// </remarks>
-    internal static readonly InspectorArrangement Arrangement = new(
-    [
-        (InspectorLayout.MovementSection, new[]
+    /// <param name="session">The movement layer, asked for its vocabulary.</param>
+    /// <param name="sources">Everything else describing itself into the panel.</param>
+    /// <param name="preferences">
+    /// What to hoist, or null for <see cref="Preferences"/> -- which is what the
+    /// window opens with.
+    /// </param>
+    internal static InspectorArrangement ArrangementFor(
+        ViewerSession session,
+        IReadOnlyList<IWorldDebugView> sources,
+        IReadOnlyList<(string Section, IReadOnlyList<string> First)>? preferences = null)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(sources);
+
+        var declared = new List<(string Section, IReadOnlyList<string> Declared)>
         {
-            MovementGroups.Agent,
-            MovementGroups.Progress,
-            MovementGroups.Plan,
-            MovementGroups.Formation,
-            MovementGroups.Field,
-            MovementGroups.Planning,
-        }),
-        (InspectorLayout.TacticsSection, new[]
+            (InspectorLayout.MovementSection, session.DebugFor(AnyUnit).Groups),
+        };
+
+        // Every source under the one caption, in the order they were handed over
+        // -- which is the order the panel merges their rows in, so a second
+        // source lands after the first here as well.
+        foreach (var source in sources)
         {
-            DemoWorldGroups.Squad,
-            DemoWorldGroups.Condition,
-            DemoWorldGroups.Kit,
-            DemoWorldGroups.Fight,
-            DemoWorldGroups.Perception,
-            DemoWorldGroups.World,
-            DemoWorldGroups.Rates,
-            DemoWorldGroups.Rank,
-        }),
-        (InspectorLayout.ViewerSection, new[]
-        {
-            InspectorLayout.SourcesGroup,
-            InspectorLayout.ControlsGroup,
-        }),
-    ]);
+            declared.Add((InspectorLayout.TacticsSection, source.Groups));
+        }
+
+        // The viewer's own words, from the viewer's own project. This host does
+        // not own them either.
+        declared.Add((InspectorLayout.ViewerSection, InspectorLayout.ViewerGroups));
+
+        return InspectorArrangement.Derived(declared, preferences ?? Preferences);
+    }
+
+    /// <summary>
+    /// The id the movement layer's vocabulary is asked through. Any would do;
+    /// <see cref="IDebugView.Groups"/> is a fact about the view.
+    /// </summary>
+    private const int AnyUnit = 0;
 
     [STAThread]
     private static int Main(string[] args)
@@ -139,11 +169,17 @@ internal static class Program
 
         // The same budget the raylib host uses, so the two windows are the
         // same size for the same map by construction rather than by agreement.
-        // The arrangement is handed over as DATA, from the one place that can see
-        // both halves of the seam. The app orders blocks by it and never learns
-        // what any of the names mean.
+        // The arrangement is handed over as DATA, derived here from what the
+        // composed views say they can produce. The app orders blocks by it and
+        // never learns what any of the names mean.
         var app = new ViewerApp(
-            session, MaxMapPixels, MaxMapPixels - StatusHeight, keys: null, sources, eyes, Arrangement);
+            session,
+            MaxMapPixels,
+            MaxMapPixels - StatusHeight,
+            keys: null,
+            sources,
+            eyes,
+            ArrangementFor(session, sources));
         using var host = new WpfHost(app.Layout, options.MaxFrames);
         host.Run(app);
 

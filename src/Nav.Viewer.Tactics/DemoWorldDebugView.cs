@@ -75,6 +75,23 @@ public sealed class DemoWorldDebugView : IWorldDebugView
 
     /// <inheritdoc/>
     /// <remarks>
+    /// <b>EVERYTHING THIS SOURCE PUTS ON A PANEL, including the rows it answers
+    /// through <see cref="DebugFor"/>.</b> A composer holds the source and lays
+    /// out one section for it; the per-unit view is this source answering about a
+    /// unit rather than a second party, and a list that named only the three
+    /// headings below would leave the five a reader spends most of their time
+    /// looking at unordered.
+    /// <para>
+    /// So <see cref="Describe"/> reaches three of these and the per-unit view
+    /// reaches the other five. Both are subsets, which is what
+    /// <see cref="IDebugView.Groups"/> promises.
+    /// </para>
+    /// </remarks>
+    [Observes]
+    public IReadOnlyList<string> Groups => DemoWorldGroups.All;
+
+    /// <inheritdoc/>
+    /// <remarks>
     /// The setup rather than the state: the rates a tick applies, the rank table
     /// a unit is measured against, and how much of the board there is to fight
     /// over. All of it is config the world was built with, so none of it moves
@@ -222,6 +239,20 @@ public sealed class DemoWorldDebugView : IWorldDebugView
         private const string Loadout = DemoWorldGroups.Kit;
         private const string Fight = DemoWorldGroups.Fight;
         private const string Perception = DemoWorldGroups.Perception;
+
+        /// <inheritdoc/>
+        /// <remarks>
+        /// The five a UNIT is described under, and not the three the world is:
+        /// this view answers for one unit and never writes a row about the board.
+        /// A negative id reaches one of these and a unit in no squad reaches four,
+        /// which is a subset and not a missing heading.
+        /// </remarks>
+        [Observes]
+        public IReadOnlyList<string> Groups => Vocabulary;
+
+        /// <summary>The five, shared: a vocabulary is not per unit.</summary>
+        private static readonly IReadOnlyList<string> Vocabulary =
+            [Squad, Condition, Loadout, Fight, Perception];
 
         [Observes]
         public IReadOnlyList<DebugRow> Describe()

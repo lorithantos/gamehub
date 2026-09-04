@@ -1,4 +1,6 @@
+using Nav.Core.Interfaces;
 using Nav.Viewer;
+using Nav.Viewer.Interfaces;
 using Nav.Viewer.Models;
 using Nav.Viewer.Tactics;
 
@@ -22,17 +24,27 @@ namespace Nav.Viewer.Wpf.Tests;
 /// </remarks>
 public sealed class InspectorHeadingTests
 {
-    private static ViewerApp GuardWorld()
+    private static ViewerApp GuardWorld() => GuardWorld(preferences: null).App;
+
+    /// <summary>
+    /// The window's own composition, with the panel arranged the way the host
+    /// arranges it -- optionally with something hoisted, the way configuration
+    /// would.
+    /// </summary>
+    private static (ViewerApp App, ViewerSession Session, IReadOnlyList<IWorldDebugView> Sources) GuardWorld(
+        IReadOnlyList<(string Section, IReadOnlyList<string> First)>? preferences)
     {
         var (session, sources, eyes) = Program.Compose("guard-retreat");
-        return new ViewerApp(
+        var app = new ViewerApp(
             session,
             Program.MaxMapPixels,
             Program.MaxMapPixels - Program.StatusHeight,
             keys: null,
             sources,
             eyes,
-            Program.Arrangement);
+            Program.ArrangementFor(session, sources, preferences));
+
+        return (app, session, sources);
     }
 
     /// <summary>The headings a host would print, in the order it would print them.</summary>
@@ -157,60 +169,147 @@ public sealed class InspectorHeadingTests
     }
 
     [Fact]
-    public void TheHostsArrangementAndTheProducersCannotDriftApart()
+    public void NoViewEmitsAGroupItNeverDeclared()
     {
-        // THE TEST THAT MAKES LIFTING THE CONSTANTS WORTH ANYTHING. The host
-        // orders the panel by naming groups; a name that stops matching does not
-        // throw and does not go missing -- the block drops to unknown-order and
-        // sinks to the bottom of its section, silently, in a window nobody has
-        // open. That was the failure mode while the names were quoted.
+        // WHAT THE ASKING BUYS, AS AN ASSERTION. The panel's order is derived
+        // from IDebugView.Groups, so a view that emits a heading it did not
+        // declare is a block nothing ranks: it drops to unknown-order and sinks
+        // to the bottom of its section, silently, in a window nobody has open.
+        // That was the failure mode a drift test used to guard against by
+        // comparing two hand-kept lists; there is only one list now, and this is
+        // the contract having one creates.
         //
-        // Both directions are checked. A group the arrangement names that nobody
-        // produces is a dead entry; a group produced that the arrangement does
-        // not name is an unordered block. Naming them through MovementGroups and
-        // DemoWorldGroups is what turns either into a build error instead, and
-        // this is the assertion that says so out loud.
-        var arrangement = Program.Arrangement;
+        // THE VIEWS ARE ASKED DIRECTLY, not read off the panel. De-collision
+        // rewrites a heading to "Agent (2)" as it merges, and a declaration is
+        // about what a view emitted rather than about what the panel did with it.
+        var (_, session, sources) = GuardWorld(preferences: null);
 
-        Assert.Equal(
-            [InspectorLayout.MovementSection, InspectorLayout.TacticsSection, InspectorLayout.ViewerSection],
-            arrangement.Sections.Select(s => s.Section));
-
-        // Every heading each producer can emit, and no invented extras.
-        Assert.Equal(MovementGroups.All.Order(), GroupsNamed(arrangement, InspectorLayout.MovementSection).Order());
-        Assert.Equal(DemoWorldGroups.All.Order(), GroupsNamed(arrangement, InspectorLayout.TacticsSection).Order());
-        Assert.Equal(
-            new[] { InspectorLayout.SourcesGroup, InspectorLayout.ControlsGroup }.Order(),
-            GroupsNamed(arrangement, InspectorLayout.ViewerSection).Order());
-
-        // And the constants are the strings the producers actually emit, read
-        // off the real composition rather than off the holders. A producer that
-        // stopped saying "Squad" while the constant still said so would pass the
-        // three assertions above and fail this one.
-        var emitted = GuardWorld().Inspector
-            .Select(r => (r.Section, r.Group))
-            .Distinct()
-            .ToList();
-
-        Assert.True(emitted.Count > 12, $"the panel only produced {emitted.Count} headings");
-
-        foreach (var (section, group) in emitted)
+        // Run the fight. Half the rows on this panel are conditional -- a
+        // casualty, a squad with somebody away, a unit with a target, a side that
+        // remembers a sighting -- and a fixture at tick zero reaches none of
+        // them. The waves land at 160.
+        for (var tick = 0; tick < 220; tick++)
         {
-            Assert.Contains(group, GroupsNamed(arrangement, section));
+            session.Tick();
         }
-    }
 
-    /// <summary>The groups the arrangement names under one section.</summary>
-    private static IReadOnlyList<string> GroupsNamed(InspectorArrangement arrangement, string section)
-    {
-        foreach (var (named, groups) in arrangement.Sections)
+        // Live ids, plus the two answers every view promises for an id it has
+        // never issued and one that cannot exist.
+        var ids = new List<int> { -1, 9999 };
+        for (var id = 0; id < session.Agents.Count; id++)
         {
-            if (string.Equals(named, section, StringComparison.Ordinal))
+            ids.Add(id);
+        }
+
+        var emitted = new HashSet<string>(StringComparer.Ordinal);
+        var read = 0;
+
+        foreach (var source in sources)
+        {
+            Undeclared(source, emitted, ref read);
+        }
+
+        foreach (var id in ids)
+        {
+            Undeclared(session.DebugFor(id), emitted, ref read);
+            foreach (var source in sources)
             {
-                return groups;
+                Undeclared(source.DebugFor(id), emitted, ref read);
             }
         }
 
-        return [];
+        // A GREEN SWEEP THAT READ NOTHING IS NOT A GREEN SWEEP. The fight has to
+        // have been played far enough for the conditional blocks to have turned
+        // up, or every view above answered with four rows about a corpse and
+        // agreed with itself.
+        Assert.True(read > 30, $"only {read} views were read");
+
+        // A FLOOR, DELIBERATELY UNDER THE TOTAL. All fourteen turn up in this
+        // world today, and asserting fourteen would be asserting the reverse
+        // direction by the back door: a group that becomes conditional -- emitted
+        // only for a unit carrying a kit, only for a side that has seen
+        // something -- is a legitimate declaration and not a fault, and this test
+        // is about the direction that IS one.
+        Assert.True(
+            emitted.Count >= 12,
+            $"only {emitted.Count} distinct groups were ever emitted: {string.Join(", ", emitted.Order())}");
+    }
+
+    /// <summary>
+    /// Every row one view emitted, checked against what that view says it can
+    /// produce, and the groups it reached added to <paramref name="emitted"/>.
+    /// </summary>
+    private static void Undeclared(IDebugView view, HashSet<string> emitted, ref int read)
+    {
+        var declared = view.Groups;
+        read++;
+
+        foreach (var row in view.Describe())
+        {
+            emitted.Add(row.Group);
+            Assert.True(
+                declared.Contains(row.Group, StringComparer.Ordinal),
+                $"{view.GetType().Name} emitted '{row.Group}/{row.Key}' and declares only " +
+                string.Join(", ", declared));
+        }
+    }
+
+    [Fact]
+    public void ThePanelIsOrderedByWhatTheViewsDeclaredAndNotByAListInTheHost()
+    {
+        // DERIVED, AND THE DERIVATION IS WHAT IS ASSERTED. Every heading under a
+        // section comes out in the order the view that emits it declared, with
+        // nothing the host wrote down: change MovementGroups.All and this panel
+        // changes with no edit to Program.cs.
+        Assert.Empty(Program.Preferences);
+
+        var app = GuardWorld();
+        var rows = app.Inspector;
+
+        // Filtered to what turned up, because a declaration is what a view CAN
+        // produce: agent 0 is unhurt and on station at tick zero, so the movement
+        // layer's Field block is not on this panel and is not expected to be.
+        Assert.Equal(
+            MovementGroups.All.Where(g => GroupsUnder(rows, InspectorLayout.MovementSection).Contains(g)),
+            GroupsUnder(rows, InspectorLayout.MovementSection));
+
+        Assert.Equal(
+            DemoWorldGroups.All.Where(g => GroupsUnder(rows, InspectorLayout.TacticsSection).Contains(g)),
+            GroupsUnder(rows, InspectorLayout.TacticsSection));
+
+        Assert.Equal(
+            InspectorLayout.ViewerGroups.Where(g => GroupsUnder(rows, InspectorLayout.ViewerSection).Contains(g)),
+            GroupsUnder(rows, InspectorLayout.ViewerSection));
+
+        // Not vacuous: each section actually printed several blocks, so the three
+        // assertions above compared sequences rather than empties.
+        Assert.True(GroupsUnder(rows, InspectorLayout.MovementSection).Count > 3);
+        Assert.True(GroupsUnder(rows, InspectorLayout.TacticsSection).Count > 3);
+    }
+
+    [Fact]
+    public void APreferenceMovesABlockTheViewDeclaredElsewhere()
+    {
+        // DERIVED BY DEFAULT IS NOT FIXED. The tactics view declares the unit's
+        // blocks before the board's; a host told to read the board first says so
+        // in one line, and the seven groups it did not mention keep the order
+        // their view gave them.
+        var hoisted = GuardWorld(
+        [
+            (InspectorLayout.TacticsSection, new[] { DemoWorldGroups.World }),
+        ]).App;
+
+        var groups = GroupsUnder(hoisted.Inspector, InspectorLayout.TacticsSection);
+
+        Assert.Equal(DemoWorldGroups.World, groups[0]);
+        Assert.Equal(
+            DemoWorldGroups.All.Where(g => g != DemoWorldGroups.World && groups.Contains(g)),
+            groups.Skip(1));
+
+        // And it is the preference doing it: the same composition without one
+        // puts the same block where its view declared it, sixth.
+        Assert.NotEqual(
+            DemoWorldGroups.World,
+            GroupsUnder(GuardWorld().Inspector, InspectorLayout.TacticsSection)[0]);
     }
 }

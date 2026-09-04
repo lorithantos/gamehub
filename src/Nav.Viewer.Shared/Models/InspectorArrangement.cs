@@ -35,6 +35,114 @@ public sealed class InspectorArrangement
     /// </summary>
     public static InspectorArrangement ArrivalOrder { get; } = new([]);
 
+    /// <summary>
+    /// An arrangement built out of what the VIEWS said they can produce, with
+    /// whatever the composer wants moved moved.
+    /// </summary>
+    /// <remarks>
+    /// <b>THE NAMES COME FROM THE PRODUCERS AND THE ORDER COMES FROM HERE.</b>
+    /// A composition root holding several views can read
+    /// <see cref="IDebugView.Groups"/> off each of them, so the one thing it has
+    /// to supply is what it alone knows: which section each view answers under,
+    /// what order the sections go in, and any group it wants somewhere other than
+    /// where its view put it. Nothing is written down twice, so nothing can
+    /// drift.
+    /// <para>
+    /// <b>Derived by default is not fixed.</b> A section named in
+    /// <paramref name="preferences"/> gets those groups FIRST, in that order, and
+    /// the rest of what was declared follows in declared order -- so hoisting one
+    /// heading costs one name rather than a restatement of the section. A
+    /// preference for a group nobody declared is kept and ranks above the
+    /// declared ones, which is what a composer expecting a view that has not
+    /// shipped yet asked for.
+    /// </para>
+    /// <para>
+    /// A section named twice in <paramref name="sections"/> -- two sources under
+    /// one caption -- is ONE section, holding the first view's groups and then
+    /// whatever the next one adds. It keeps the position of its first mention,
+    /// because a caption does not move because a second view was handed over.
+    /// </para>
+    /// <para>
+    /// This is where a loader would land: a file that says what to hoist becomes
+    /// <paramref name="preferences"/>, and the vocabulary still comes from the
+    /// code that emits it.
+    /// </para>
+    /// </remarks>
+    /// <param name="sections">
+    /// What each section holds, in section order: a caption, and the groups a
+    /// view under it declared.
+    /// </param>
+    /// <param name="preferences">
+    /// Groups to place first inside a section, in the order wanted. Null or empty
+    /// takes every view's own order as it stands.
+    /// </param>
+    public static InspectorArrangement Derived(
+        IReadOnlyList<(string Section, IReadOnlyList<string> Declared)> sections,
+        IReadOnlyList<(string Section, IReadOnlyList<string> First)>? preferences = null)
+    {
+        ArgumentNullException.ThrowIfNull(sections);
+
+        // Ordered, because the caption order is the composer's answer and a
+        // dictionary alone would lose it.
+        var order = new List<string>();
+        var groups = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        var seen = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+
+        void Add(string section, IReadOnlyList<string> names)
+        {
+            ArgumentNullException.ThrowIfNull(section);
+            ArgumentNullException.ThrowIfNull(names);
+
+            if (!groups.TryGetValue(section, out var into))
+            {
+                order.Add(section);
+                into = [];
+                groups[section] = into;
+                seen[section] = new HashSet<string>(StringComparer.Ordinal);
+            }
+
+            foreach (var name in names)
+            {
+                ArgumentNullException.ThrowIfNull(name);
+                if (seen[section].Add(name))
+                {
+                    into.Add(name);
+                }
+            }
+        }
+
+        foreach (var (section, declared) in sections)
+        {
+            ArgumentNullException.ThrowIfNull(section);
+
+            // A section's preferences are applied once, at its first mention, so
+            // a hoisted group outranks the declaration it was hoisted out of --
+            // and a second view under the same caption cannot re-hoist anything.
+            var first = !groups.ContainsKey(section);
+            Add(section, []);
+            if (first && preferences is not null)
+            {
+                foreach (var (named, hoisted) in preferences)
+                {
+                    if (string.Equals(named, section, StringComparison.Ordinal))
+                    {
+                        Add(section, hoisted);
+                    }
+                }
+            }
+
+            Add(section, declared);
+        }
+
+        var built = new List<(string Section, IReadOnlyList<string> Groups)>(order.Count);
+        foreach (var section in order)
+        {
+            built.Add((section, groups[section]));
+        }
+
+        return new InspectorArrangement(built);
+    }
+
     /// <summary>Where each section sits, by name.</summary>
     private readonly Dictionary<string, int> _sectionRanks;
 

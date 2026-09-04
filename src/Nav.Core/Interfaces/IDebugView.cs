@@ -40,4 +40,39 @@ public interface IDebugView
     /// </remarks>
     [Observes]
     IReadOnlyList<DebugRow> Describe();
+
+    /// <summary>
+    /// Every group name a row out of this view can carry, in a fixed order.
+    /// </summary>
+    /// <remarks>
+    /// <b>What it CAN put a row under, not what it did.</b>
+    /// <see cref="Describe"/> legitimately says less -- a corpse gets four rows
+    /// and no more, a unit in nobody's squad gets one, an id that was never
+    /// issued gets one -- and a panel wants the same headings in the same places
+    /// whatever a given tick happens to contain. So the rows are a SUBSET of
+    /// this, always, and a group named here that today's rows never reach is a
+    /// conditional block rather than a fault.
+    /// <para>
+    /// <b>A SET, in a fixed order, and every implementation answers for
+    /// itself.</b> That is what lets whoever composed an application lay a panel
+    /// out by ASKING the views it is holding, rather than by writing the same
+    /// names down a second time in a table that can only ever drift from them.
+    /// What order to read one view's blocks against another's is still the
+    /// composer's call -- taking this sequence as it stands is a decision it
+    /// makes, not a claim made here.
+    /// </para>
+    /// <para>
+    /// <b>The name before anybody renames it.</b> A panel holding two views that
+    /// both say <c>Agent</c> shows the second as <c>Agent (2)</c>; what a view
+    /// declares is what it emits, and what the panel finally printed is the
+    /// panel's business.
+    /// </para>
+    /// <para>
+    /// Answered without reading anything: a vocabulary is a fact about the code,
+    /// so this costs nothing and cannot be wrong about a unit the way a cached
+    /// row could.
+    /// </para>
+    /// </remarks>
+    [Observes]
+    IReadOnlyList<string> Groups { get; }
 }

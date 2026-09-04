@@ -45,4 +45,15 @@ internal sealed class LiveWorldSource(Func<IWorldDebugView> current) : IWorldDeb
     /// <inheritdoc/>
     [Observes]
     public IDebugView DebugFor(int agent) => _current().DebugFor(agent);
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Asked of the current view like everything else. A world rebuilt by R is
+    /// the same kind of world with the same vocabulary, so this answer does not
+    /// move -- but a source that answered off a world it was wrapped around once
+    /// is the fault this whole class exists to avoid, and there is no reason for
+    /// one member of it to be the exception.
+    /// </remarks>
+    [Observes]
+    public IReadOnlyList<string> Groups => _current().Groups;
 }

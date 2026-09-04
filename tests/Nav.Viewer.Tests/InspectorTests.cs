@@ -703,6 +703,99 @@ public sealed class InspectorTests
     }
 
     [Fact]
+    public void TheOrderComesOffTheVIEWSRatherThanOffAListSomebodyWroteTwice()
+    {
+        // ASK, DO NOT RESTATE. A composer builds its arrangement out of what the
+        // views say they can produce, so changing what a view DECLARES changes
+        // the panel with nothing else touched -- which is the whole of what
+        // putting the vocabulary on the interface buys.
+        var grid = Fixture();
+        var layout = LayoutFor(grid);
+
+        // Both sources emit the unit block first and the world block second.
+        // This one says so; the next one says the opposite. Nothing else differs,
+        // and the arrival order is identical, so a derivation that fell back on
+        // arrival order gives the same answer twice and fails here.
+        var asWritten = new Source("Fight", 0);
+        var reversed = new Source("Fight", 0) { Declares = ["Fight world", "Fight"] };
+
+        var first = new ViewerApp(
+            grid,
+            layout,
+            Squad,
+            sources: [asWritten],
+            arrangement: InspectorArrangement.Derived([(Tactics, asWritten.Groups)]));
+
+        var second = new ViewerApp(
+            grid,
+            layout,
+            Squad,
+            sources: [reversed],
+            arrangement: InspectorArrangement.Derived([(Tactics, reversed.Groups)]));
+
+        Assert.Equal(
+            [(Tactics, "Fight"), (Tactics, "Fight world")],
+            HeadingRuns(first.Inspector).Where(r => string.Equals(r.Section, Tactics, StringComparison.Ordinal)));
+
+        Assert.Equal(
+            [(Tactics, "Fight world"), (Tactics, "Fight")],
+            HeadingRuns(second.Inspector).Where(r => string.Equals(r.Section, Tactics, StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void APreferenceBeatsWhatTheViewDeclared()
+    {
+        // DERIVED BY DEFAULT IS NOT FIXED. A composer that disagrees with a
+        // producer about where a block goes says so in one line and keeps
+        // everything it did not mention -- so this is the same source as above,
+        // declaring the same order, laid out the other way round by preference
+        // alone.
+        var grid = Fixture();
+        var layout = LayoutFor(grid);
+        var source = new Source("Fight", 0);
+
+        var app = new ViewerApp(
+            grid,
+            layout,
+            Squad,
+            sources: [source],
+            arrangement: InspectorArrangement.Derived(
+                [(Tactics, source.Groups)],
+                [(Tactics, new[] { "Fight world" })]));
+
+        Assert.Equal(
+            [(Tactics, "Fight world"), (Tactics, "Fight")],
+            HeadingRuns(app.Inspector).Where(r => string.Equals(r.Section, Tactics, StringComparison.Ordinal)));
+
+        // The hoist moved one block and invented nothing: the group it did not
+        // mention is still there, and still under the caption its view answers
+        // under.
+        Assert.Equal(
+            new[] { "Fight world", "Fight" },
+            InspectorArrangement.Derived(
+                [(Tactics, source.Groups)],
+                [(Tactics, new[] { "Fight world" })]).Sections.Single().Groups);
+    }
+
+    [Fact]
+    public void ASectionKeepsItsPlaceWhenASecondViewAnswersUnderIt()
+    {
+        // Two sources under one caption is one section, not two, and the second
+        // one's headings land after the first one's. The captions are also in the
+        // order they were handed over, which is the composer's own decision and
+        // the one thing a derivation must not reshuffle.
+        var derived = InspectorArrangement.Derived(
+        [
+            (Tactics, new[] { "Fight", "Fight world" }),
+            (Movement, new[] { MovementGroups.Agent }),
+            (Tactics, new[] { "Supply", "Fight" }),
+        ]);
+
+        Assert.Equal([Tactics, Movement], derived.Sections.Select(s => s.Section));
+        Assert.Equal(["Fight", "Fight world", "Supply"], derived.Sections[0].Groups);
+    }
+
+    [Fact]
     public void AViewerHandedNoArrangementLaysItsBlocksOutInTheOrderTheyArrived()
     {
         // THE CONTRACT DebugRow ALREADY STATES, restored rather than fallen back
@@ -1194,6 +1287,20 @@ public sealed class InspectorTests
 
         public Fault Fails { get; init; }
 
+        /// <summary>
+        /// What this source says it can produce, or null for the two groups it
+        /// actually writes, in the order it writes them.
+        /// </summary>
+        /// <remarks>
+        /// Settable so a test can hand over a source whose DECLARED order is not
+        /// its arrival order. A derived arrangement that quietly kept arrival
+        /// order would pass every assertion made against a source that declares
+        /// what it emits in the order it emits it.
+        /// </remarks>
+        public IReadOnlyList<string>? Declares { get; init; }
+
+        public IReadOnlyList<string> Groups => Declares ?? [UnitGroup, WorldGroup];
+
         public IReadOnlyList<DebugRow> Describe()
         {
             if (Fails == Fault.OnWorldRows)
@@ -1216,6 +1323,8 @@ public sealed class InspectorTests
 
         private sealed class UnitRows(Source source, int agent) : IDebugView
         {
+            public IReadOnlyList<string> Groups => [source.UnitGroup];
+
             public IReadOnlyList<DebugRow> Describe()
             {
                 if (source.Fails == Fault.OnUnitRows)

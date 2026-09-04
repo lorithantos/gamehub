@@ -1937,6 +1937,36 @@ public sealed class MovementSystem : IDebugView
         ? "-"
         : string.Create(CultureInfo.InvariantCulture, $"{_grid.ColumnOf(cell)},{_grid.RowOf(cell)} (#{cell})");
 
+    /// <summary>
+    /// The headings the SYSTEM's own rows go under, as opposed to one agent's.
+    /// </summary>
+    /// <remarks>
+    /// Not in <see cref="MovementGroups"/>, which is the per-agent view's
+    /// vocabulary and is handed out by <see cref="AgentDebugView"/>. These three
+    /// are about the board and the budget rather than about a unit, nobody
+    /// composing a panel has ever laid them out, and merging the two lists would
+    /// tell a composer that a view emitting one of these can emit
+    /// <see cref="MovementGroups.Formation"/> as well.
+    /// </remarks>
+    private static class SystemGroups
+    {
+        internal const string World = "World";
+        internal const string Spend = "Last tick";
+        internal const string Limits = "Limits";
+
+        /// <summary>The three of them, in the order <c>Describe</c> writes them.</summary>
+        internal static readonly IReadOnlyList<string> All = [World, Spend, Limits];
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// EXPLICIT for the same reason <c>Describe</c> is, and beside it: this is
+    /// half of one debug surface, and neither half belongs in the surface
+    /// <see cref="Tick"/> sits in.
+    /// </remarks>
+    [Observes]
+    IReadOnlyList<string> IDebugView.Groups => SystemGroups.All;
+
     /// <inheritdoc/>
     /// <remarks>
     /// EXPLICIT, so <c>Describe</c> does not sit in this class's own surface
@@ -1951,9 +1981,9 @@ public sealed class MovementSystem : IDebugView
     /// </remarks>
     IReadOnlyList<DebugRow> IDebugView.Describe()
     {
-        const string World = "World";
-        const string Spend = "Last tick";
-        const string Limits = "Limits";
+        const string World = SystemGroups.World;
+        const string Spend = SystemGroups.Spend;
+        const string Limits = SystemGroups.Limits;
 
         var alive = 0;
         foreach (var agent in _agents)
@@ -2019,6 +2049,15 @@ public sealed class MovementSystem : IDebugView
     /// </remarks>
     private sealed class AgentDebugView(MovementSystem system, IDistanceFieldView fields, int id) : IDebugView
     {
+        /// <inheritdoc/>
+        /// <remarks>
+        /// The layer's own vocabulary, whole: a corpse reaches four of these and
+        /// an id nobody issued reaches one, and neither is a panel losing a
+        /// heading it was promised -- see <see cref="IDebugView.Groups"/>.
+        /// </remarks>
+        [Observes]
+        public IReadOnlyList<string> Groups => MovementGroups.All;
+
         public IReadOnlyList<DebugRow> Describe()
         {
             // The layer's own vocabulary, named once in MovementGroups so that a

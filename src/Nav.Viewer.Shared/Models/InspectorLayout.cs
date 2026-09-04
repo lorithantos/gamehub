@@ -49,6 +49,25 @@ public static class InspectorLayout
     public const string ControlsGroup = "Controls";
 
     /// <summary>
+    /// Every group the VIEWER itself answers under, in the order
+    /// <see cref="ViewerApp"/> writes them.
+    /// </summary>
+    /// <remarks>
+    /// <b>The viewer's own answer to the question every other view is asked.</b>
+    /// A source declares its vocabulary on <see cref="IDebugView.Groups"/> and a
+    /// composer lays a panel out by asking; the viewer describes itself without
+    /// being one of the sources it was handed, so the same answer is a list here.
+    /// It is the viewer's own words either way, and a composer that wrote them
+    /// out again would be restating a vocabulary it does not own.
+    /// <para>
+    /// A set in a fixed order, exactly as <see cref="IDebugView.Groups"/> is:
+    /// a viewer with nothing selected shows the controls and no sources block at
+    /// all.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<string> ViewerGroups { get; } = [SourcesGroup, ControlsGroup];
+
+    /// <summary>
     /// The same rows, laid out: sections in the arrangement's order, groups in
     /// its order inside them, and the rows of a group untouched.
     /// </summary>

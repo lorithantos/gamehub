@@ -33,4 +33,9 @@
     <ProjectReference Include="..\..\src\Nav.Viewer.Shared\Nav.Viewer.Shared.csproj" />
   </ItemGroup>
 
+  <!-- The same walk Nav.Core.Tests runs, pointed at this layer instead. -->
+  <ItemGroup>
+    <Compile Include="..\Shared\InstrumentAudit\*.cs" Link="InstrumentAudit\%(Filename)%(Extension)" />
+  </ItemGroup>
+
 </Project>

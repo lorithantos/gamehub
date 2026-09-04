@@ -903,6 +903,15 @@ public sealed class ViewerApp : IViewerApp
         return best;
     }
 
+    /// <summary>
+    /// The status line's text, read off the session each time it is called.
+    /// </summary>
+    /// <remarks>
+    /// Marked as well as <see cref="IViewerApp.StatusText"/>, because the
+    /// property is an auto-getter and the question is asked HERE: this is what
+    /// reaches the tick report, the field cache and every agent.
+    /// </remarks>
+    [Observes]
     private string BuildStatus()
     {
         if (_loadError is { } refusal)
@@ -976,7 +985,13 @@ public sealed class ViewerApp : IViewerApp
     /// that can go on describing a unit after it moved, and this is a page of
     /// strings for ONE unit, built only while somebody is watching it.
     /// </para>
+    /// <para>
+    /// Marked as well as <see cref="IViewerApp.Inspector"/>, for the same reason
+    /// <see cref="BuildStatus"/> is: the property hands back a field, and this is
+    /// where the movement layer is actually asked.
+    /// </para>
     /// </remarks>
+    [Observes]
     private IReadOnlyList<DebugRow> BuildInspector()
     {
         const string Viewer = "Viewer";

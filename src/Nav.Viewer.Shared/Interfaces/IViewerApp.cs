@@ -1,3 +1,5 @@
+using Nav.Core;
+
 namespace Nav.Viewer.Interfaces;
 
 /// <summary>
@@ -22,6 +24,7 @@ public interface IViewerApp
     /// The status line. A <em>string</em>, deliberately — the app decides what it
     /// says, the host decides how it looks.
     /// </summary>
+    [Observes]
     string StatusText { get; }
 
     /// <summary>
@@ -50,6 +53,7 @@ public interface IViewerApp
     /// out and nothing branches on them or parses a value back into a number.
     /// </para>
     /// </remarks>
+    [Observes]
     IReadOnlyList<DebugRow> Inspector { get; }
 
     /// <summary>

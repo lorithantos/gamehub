@@ -121,6 +121,7 @@ public sealed class ViewerSession
     /// started, finished and abandoned, and how many agents ended it still
     /// queued for a planning slot. Replaced by every tick, not accumulated.
     /// </summary>
+    [Observes]
     public TickReport LastTick => _system.LastTick;
 
     /// <summary>The units orders go to, in id order.</summary>
@@ -131,9 +132,11 @@ public sealed class ViewerSession
     /// so this is usually shorter than <see cref="Agents"/> and is keyed by id
     /// rather than indexed by it.
     /// </summary>
+    [Observes]
     public IReadOnlyList<AgentPlan> CurrentPlans() => _system.CurrentPlans();
 
     /// <summary>Each live group's leader, for the viewer's mark.</summary>
+    [Observes]
     public IReadOnlyList<int> Leaders => _system.Leaders;
 
     /// <summary>
@@ -147,9 +150,11 @@ public sealed class ViewerSession
     /// with. Nothing may branch on what comes back -- see
     /// <see cref="IDebugView"/>.
     /// </remarks>
+    [Observes]
     public IDebugView DebugFor(int agent) => _system.DebugFor(agent);
 
     /// <summary>Distance fields cached, of <see cref="MovementSystem.FieldCapacity"/>.</summary>
+    [Observes]
     public int LiveFields => _system.LiveFields;
 
     /// <summary>

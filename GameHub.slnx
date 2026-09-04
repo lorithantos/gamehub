@@ -18,5 +18,6 @@
     <Project Path="tests/Nav.Tactics.Tests/Nav.Tactics.Tests.csproj" />
     <Project Path="tests/Nav.Viewer.Tactics.Tests/Nav.Viewer.Tactics.Tests.csproj" />
     <Project Path="tests/Nav.Viewer.Tests/Nav.Viewer.Tests.csproj" />
+    <Project Path="tests/Nav.Viewer.Wpf.Tests/Nav.Viewer.Wpf.Tests.csproj" />
   </Folder>
 </Solution>

@@ -102,6 +102,19 @@ public sealed class DebugViewTests
         return rows[0].Value;
     }
 
+    /// <summary>
+    /// The row's explanatory half. Asserted separately from <see cref="Value"/>
+    /// because they are separate members: a gloss that leaked back into the
+    /// value would fail the value's own assertion rather than passing here.
+    /// </summary>
+    private static string Note(IDebugView view, string group, string key)
+    {
+        var rows = view.Describe().Where(r => r.Group == group && r.Key == key).ToArray();
+        Assert.True(rows.Length == 1, $"expected one '{group}/{key}' row, got {rows.Length}");
+        Assert.NotNull(rows[0].Note);
+        return rows[0].Note!;
+    }
+
     private static bool Has(IDebugView view, string group) =>
         view.Describe().Any(r => r.Group == group);
 
@@ -246,8 +259,9 @@ public sealed class DebugViewTests
         var first = LeadingNumber(blocked);
         Assert.True(first > 0, $"the follower reported '{blocked}' after eight ticks against a wall");
 
-        // The threshold is what makes the count mean anything, so it is in the row.
-        Assert.Contains("of 12", blocked, StringComparison.Ordinal);
+        // The threshold is what makes the count mean anything, so it is in the
+        // row -- in its note, now that the count itself is the value.
+        Assert.Contains("of 12", Note(system.DebugFor(2), "Progress", "blocked"), StringComparison.Ordinal);
 
         // It is a COUNTER, not a flag: five more ticks of standing is five more.
         for (var tick = 0; tick < 5; tick++)
@@ -278,7 +292,8 @@ public sealed class DebugViewTests
 
         var gate = Value(system.DebugFor(0), "Progress", "retry gate");
         Assert.Equal(19, LeadingNumber(gate));
-        Assert.Contains("backstop 64", gate, StringComparison.Ordinal);
+        Assert.Contains(
+            "backstop 64", Note(system.DebugFor(0), "Progress", "retry gate"), StringComparison.Ordinal);
 
         // The doctrine re-holds every pass, so it stays nineteen out rather than
         // counting down -- which is the gate moving, and exactly what the row
@@ -300,8 +315,9 @@ public sealed class DebugViewTests
             var rows = system.DebugFor(unknown).Describe();
             var only = Assert.Single(rows);
             Assert.Equal("id", only.Key);
-            Assert.Contains("no such agent", only.Value, StringComparison.Ordinal);
-            Assert.Contains("this system has 2", only.Value, StringComparison.Ordinal);
+            Assert.Equal(unknown.ToString(CultureInfo.InvariantCulture), only.Value);
+            Assert.Contains("no such agent", only.Note, StringComparison.Ordinal);
+            Assert.Contains("this system has 2", only.Note, StringComparison.Ordinal);
         }
     }
 
@@ -316,8 +332,8 @@ public sealed class DebugViewTests
         system.Remove(0);
 
         var view = system.DebugFor(0);
-        Assert.StartsWith("no", Value(view, "Unit", "alive"), StringComparison.Ordinal);
-        Assert.Contains("removed from the world", Value(view, "Unit", "alive"), StringComparison.Ordinal);
+        Assert.Equal("no", Value(view, "Unit", "alive"));
+        Assert.Contains("removed from the world", Note(view, "Unit", "alive"), StringComparison.Ordinal);
         Assert.Contains($"#{where}", Value(view, "Unit", "cell"), StringComparison.Ordinal);
 
         // A corpse holds no plan, no slot and no formation, so it gets no rows
@@ -467,7 +483,7 @@ public sealed class DebugViewTests
 
         Assert.Contains(
             "to the destination",
-            Value(system.DebugFor(held), "Field", "from here"),
+            Note(system.DebugFor(held), "Field", "from here"),
             StringComparison.Ordinal);
         Assert.StartsWith(
             "not cached",
@@ -510,7 +526,7 @@ public sealed class DebugViewTests
             .First(id => source.TryPeek(destinations[id], out _));
         Assert.Contains(
             "to the destination",
-            Value(system.DebugFor(held), "Field", "from here"),
+            Note(system.DebugFor(held), "Field", "from here"),
             StringComparison.Ordinal);
     }
 
@@ -567,9 +583,9 @@ public sealed class DebugViewTests
         system.Tick();
 
         var view = system.DebugFor(far);
-        Assert.StartsWith("no", Value(view, "Plan", "found"), StringComparison.Ordinal);
-        Assert.StartsWith("yes", Value(view, "Plan", "partial"), StringComparison.Ordinal);
-        Assert.Contains("as far as the window allows", Value(view, "Plan", "partial"), StringComparison.Ordinal);
+        Assert.Equal("no", Value(view, "Plan", "found"));
+        Assert.Equal("yes", Value(view, "Plan", "partial"));
+        Assert.Contains("as far as the window allows", Note(view, "Plan", "partial"), StringComparison.Ordinal);
 
         // NOT STUCK, which is the third state the old row folded in with these
         // two and which now has to answer for itself.
@@ -607,22 +623,27 @@ public sealed class DebugViewTests
         }
 
         var view = system.DebugFor(0);
+
+        // HOW MANY IS THE VALUE, THE WALK ITSELF IS THE NOTE. The route is the
+        // longest string this view produces and the count is one of its
+        // shortest, and a panel column can only be sized for one of the two.
         var remaining = Value(view, "Plan", "remaining");
+        var route = Note(view, "Plan", "remaining");
         var next = Value(view, "Plan", "next");
 
         // The next cell is in there, and so is a good deal more: a preview that
         // stops at the next cell answers a question the "next" row already does.
         Assert.Contains('#', next);
-        Assert.Contains(next, remaining, StringComparison.Ordinal);
-        var steps = remaining[(remaining.IndexOf(": ", StringComparison.Ordinal) + 2)..].Split(" -> ");
-        Assert.True(steps.Length > 2, $"the whole remaining route read '{remaining}'");
+        Assert.Contains(next, route, StringComparison.Ordinal);
+        var steps = route[(route.IndexOf(": ", StringComparison.Ordinal) + 2)..].Split(" -> ");
+        Assert.True(steps.Length > 2, $"the whole remaining route read '{route}'");
         Assert.Equal(LeadingNumber(remaining), steps.Length);
 
         // It ends where the plan ends, which is the goal for a route that reaches.
         Assert.Contains($"#{grid.Index(8, 4)}", steps[^1], StringComparison.Ordinal);
 
         // Short enough to print whole, so nothing is hidden and nothing claims to be.
-        Assert.DoesNotContain("not shown", remaining, StringComparison.Ordinal);
+        Assert.DoesNotContain("not shown", route, StringComparison.Ordinal);
 
         // The count and the two tick bounds are three rows now, not one packed
         // string. The plan is longer than what is left of it, because the unit
@@ -647,17 +668,17 @@ public sealed class DebugViewTests
         system.Order([far], grid.Index(59, 2));
         system.Tick();
 
-        var remaining = Value(system.DebugFor(far), "Plan", "remaining");
-        var total = LeadingNumber(remaining);
-        Assert.Contains("cells not shown", remaining, StringComparison.Ordinal);
+        var total = LeadingNumber(Value(system.DebugFor(far), "Plan", "remaining"));
+        var route = Note(system.DebugFor(far), "Plan", "remaining");
+        Assert.Contains("cells not shown", route, StringComparison.Ordinal);
 
-        var marker = remaining.IndexOf("... ", StringComparison.Ordinal);
-        var hidden = LeadingNumber(remaining[(marker + 4)..]);
-        var steps = remaining[(remaining.IndexOf(": ", StringComparison.Ordinal) + 2)..].Split(" -> ");
+        var marker = route.IndexOf("... ", StringComparison.Ordinal);
+        var hidden = LeadingNumber(route[(marker + 4)..]);
+        var steps = route[(route.IndexOf(": ", StringComparison.Ordinal) + 2)..].Split(" -> ");
 
         // Every cell is accounted for: the ones printed, plus the ones the row
         // admits to hiding, is the whole walk.
-        Assert.True(hidden > 0, $"nothing was actually elided in '{remaining}'");
+        Assert.True(hidden > 0, $"nothing was actually elided in '{route}'");
         Assert.Equal(total, hidden + steps.Length - 1);
 
         // And the ends are real cells, so the elision is a middle rather than a
@@ -728,5 +749,98 @@ public sealed class DebugViewTests
         var runs = groups.Where((g, i) => i == 0 || groups[i - 1] != g).ToArray();
         Assert.Equal(runs.Length, runs.Distinct().Count());
         Assert.Equal(new[] { "World", "Last tick", "Limits" }, runs);
+    }
+
+    [Fact]
+    public void NoValueWeldsItsOwnGlossOntoTheEndOfItself()
+    {
+        // A ROW IS A FACT AND A SENTENCE ABOUT THE FACT, and they are two members.
+        // While they were one string, joined with " -- ", a panel had to size one
+        // column for both and clipped the sentence mid-word with nothing on
+        // screen saying it had. This sweeps every branch of the view rather than
+        // a chosen row, because the branch that regresses is the one nobody
+        // opened.
+        //
+        // Notes are deliberately NOT swept: a note is prose, and the route note
+        // is a list of cells with arrows in it.
+        var seen = 0;
+        var noted = 0;
+
+        foreach (var (state, rows) in EveryBranch())
+        {
+            foreach (var row in rows)
+            {
+                seen++;
+                if (row.Note is not null)
+                {
+                    noted++;
+                }
+
+                Assert.DoesNotContain(" -- ", row.Value, StringComparison.Ordinal);
+                Assert.False(
+                    string.IsNullOrWhiteSpace(row.Value),
+                    $"'{row.Group}/{row.Key}' had no value at all under '{state}'");
+            }
+        }
+
+        Assert.True(seen > 100, $"the sweep only saw {seen} rows");
+        Assert.True(noted > 20, $"only {noted} of {seen} rows carried a note");
+    }
+
+    /// <summary>Every arrangement this file knows how to put the view into.</summary>
+    /// <remarks>
+    /// The branches that are easy to forget are the ones here for their own sake:
+    /// an id nobody issued, a corpse, a walk longer than the planning window, a
+    /// route long enough to elide, a follower walled in behind its gate, and a
+    /// formation whose field the cache has dropped.
+    /// </remarks>
+    private static IEnumerable<(string State, IReadOnlyList<DebugRow> Rows)> EveryBranch()
+    {
+        var (plain, room) = Scene(Room, (0, 4), (0, 5), (1, 4));
+        yield return ("standing, never ordered", plain.DebugFor(0).Describe());
+        yield return ("an id nobody issued", plain.DebugFor(99).Describe());
+        yield return ("the world itself", ((IDebugView)plain).Describe());
+
+        plain.Order([0, 1, 2], room.Index(8, 4));
+        yield return ("ordered, not yet planned", plain.DebugFor(0).Describe());
+
+        for (var tick = 0; tick < 6; tick++)
+        {
+            plain.Tick();
+        }
+
+        yield return ("walking in a formation", plain.DebugFor(0).Describe());
+        yield return ("a follower in that formation", plain.DebugFor(1).Describe());
+
+        plain.Remove(0);
+        yield return ("a corpse", plain.DebugFor(0).Describe());
+
+        // Longer than the planning window, so the plan comes back partial and its
+        // route is long enough for the middle to be elided.
+        var far = Grid.FromMapText(Open(60, 5));
+        var long_ = new MovementSystem(far);
+        var traveller = long_.AddAgent(far.Index(0, 2));
+        long_.Order([traveller], far.Index(59, 2));
+        long_.Tick();
+        yield return ("a partial plan with an elided route", long_.DebugFor(traveller).Describe());
+
+        // A walled-in follower counting blocked ticks behind its gate.
+        var (corridor, lane) = Scene(Corridor, (1, 1), (2, 1), (3, 1));
+        corridor.Order([0, 1, 2], lane.Index(7, 1), new HoldOne(member: 2, ticks: 20));
+        for (var tick = 0; tick < 8; tick++)
+        {
+            corridor.Tick();
+        }
+
+        yield return ("a gated, blocked follower", corridor.DebugFor(2).Describe());
+
+        // More live destinations than the cache holds, so one formation's field
+        // is present and another's has been dropped.
+        var (crowd, source, destinations) = Crowd();
+        crowd.Tick();
+        var held = Enumerable.Range(0, LiveDestinations).First(id => source.TryPeek(destinations[id], out _));
+        var dropped = Enumerable.Range(0, LiveDestinations).First(id => !source.TryPeek(destinations[id], out _));
+        yield return ("a formation whose field is cached", crowd.DebugFor(held).Describe());
+        yield return ("a formation whose field was evicted", crowd.DebugFor(dropped).Describe());
     }
 }

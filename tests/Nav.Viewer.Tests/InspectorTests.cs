@@ -41,6 +41,17 @@ public sealed class InspectorTests
             string.Equals(r.Group, group, StringComparison.Ordinal) &&
             string.Equals(r.Key, key, StringComparison.Ordinal)).Value;
 
+    private static DebugRow Row(IReadOnlyList<DebugRow> rows, string group, string key) =>
+        rows.Single(r =>
+            string.Equals(r.Group, group, StringComparison.Ordinal) &&
+            string.Equals(r.Key, key, StringComparison.Ordinal));
+
+    private static string Note(IReadOnlyList<DebugRow> rows, string group, string key) =>
+        rows.Single(r =>
+            string.Equals(r.Group, group, StringComparison.Ordinal) &&
+            string.Equals(r.Key, key, StringComparison.Ordinal)).Note
+        ?? throw new InvalidOperationException($"the '{group}/{key}' row carries no note");
+
     private static bool HasKey(IReadOnlyList<DebugRow> rows, string group, string key) =>
         rows.Any(r =>
             string.Equals(r.Group, group, StringComparison.Ordinal) &&
@@ -202,9 +213,11 @@ public sealed class InspectorTests
         var plan = app.Session.CurrentPlans().First(p => p.Agent == 0).Plan;
         var rows = app.Inspector;
 
-        Assert.Equal($"{plan.Cells.Count}, one per tick", Value(rows, "Plan", "cells"));
-        Assert.Equal($"{plan.StartTick}, where the booked route begins", Value(rows, "Plan", "start tick"));
-        Assert.StartsWith($"{plan.LastTick},", Value(rows, "Plan", "last tick"), StringComparison.Ordinal);
+        Assert.Equal($"{plan.Cells.Count}", Value(rows, "Plan", "cells"));
+        Assert.Equal("one per tick", Note(rows, "Plan", "cells"));
+        Assert.Equal($"{plan.StartTick}", Value(rows, "Plan", "start tick"));
+        Assert.Equal("where the booked route begins", Note(rows, "Plan", "start tick"));
+        Assert.Equal($"{plan.LastTick}", Value(rows, "Plan", "last tick"));
         Assert.Equal($"{plan.Expanded} nodes", Value(rows, "Plan", "expanded"));
         Assert.StartsWith(
             plan.Found ? "yes" : "no", Value(rows, "Plan", "found"), StringComparison.Ordinal);
@@ -438,15 +451,15 @@ public sealed class InspectorTests
             app.Inspector.Where(r => string.Equals(r.Group, "Viewer", StringComparison.Ordinal))
                          .Select(r => r.Key));
 
-        Assert.Equal(
-            "threw InvalidOperationException -- Early will not answer for unit 0",
-            Value(app.Inspector, "Viewer", "source 1"));
-        Assert.Equal(
-            "threw InvalidOperationException -- Late cannot read unit 0",
-            Value(app.Inspector, "Viewer", "source 2"));
-        Assert.Equal(
-            "threw InvalidOperationException -- Own cannot read itself",
-            Value(app.Inspector, "Viewer", "source 3"));
+        // The type is the value and the message is the note: an exception message
+        // is somebody else's arbitrary-length string, and the panel column cannot
+        // be sized for one.
+        Assert.Equal("threw InvalidOperationException", Value(app.Inspector, "Viewer", "source 1"));
+        Assert.Equal("Early will not answer for unit 0", Note(app.Inspector, "Viewer", "source 1"));
+        Assert.Equal("threw InvalidOperationException", Value(app.Inspector, "Viewer", "source 2"));
+        Assert.Equal("Late cannot read unit 0", Note(app.Inspector, "Viewer", "source 2"));
+        Assert.Equal("threw InvalidOperationException", Value(app.Inspector, "Viewer", "source 3"));
+        Assert.Equal("Own cannot read itself", Note(app.Inspector, "Viewer", "source 3"));
     }
 
     [Fact]
@@ -481,6 +494,136 @@ public sealed class InspectorTests
 
         Assert.Equal("sources", refused.ParamName);
         Assert.StartsWith("source 2 of 2 is null", refused.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheFactIsTheValueAndTheSentenceAboutItIsTheNote()
+    {
+        // WHAT THE SPLIT IS FOR. These rows used to read "yes -- in the world and
+        // holding its cell" in a 260px column with no wrapping and no trimming,
+        // so what a reader actually saw was "yes -- in the wo". The fact is now
+        // short enough to line up and the sentence is somewhere a panel can put
+        // it on demand.
+        var grid = Fixture();
+        var layout = LayoutFor(grid);
+        var app = new ViewerApp(grid, layout, Squad);
+
+        Assert.Equal("yes", Value(app.Inspector, "Unit", "alive"));
+        Assert.Equal("in the world and holding its cell", Note(app.Inspector, "Unit", "alive"));
+
+        Assert.Equal("no", Value(app.Inspector, "Progress", "follows"));
+        Assert.Equal("it plans its own route", Note(app.Inspector, "Progress", "follows"));
+
+        Assert.Equal("open", Value(app.Inspector, "Progress", "retry gate"));
+        Assert.Equal("it may start a search this tick", Note(app.Inspector, "Progress", "retry gate"));
+
+        Assert.Equal("none", Value(app.Inspector, "Plan", "plan"));
+        Assert.Equal("it is standing where it is", Note(app.Inspector, "Plan", "plan"));
+
+        Assert.Equal("none", Value(app.Inspector, "Formation", "formation"));
+        Assert.Equal("it has never been ordered", Note(app.Inspector, "Formation", "formation"));
+
+        // A FACT THAT SPEAKS FOR ITSELF CARRIES NO NOTE. Repeating the value into
+        // the note would give every row a tooltip, most of them saying nothing.
+        Assert.Null(Row(app.Inspector, "Unit", "id").Note);
+        Assert.Null(Row(app.Inspector, "Unit", "cell").Note);
+        Assert.Null(Row(app.Inspector, "Unit", "arrived").Note);
+        Assert.Null(Row(app.Inspector, "Progress", "stalled").Note);
+
+        // The route is the longest string the panel carries and the count is one
+        // of its shortest, so the count is the value and the walk is the note.
+        using var walking = new ScriptedHost(
+            [new ScriptedFrame(Mouse: layout.CenterOf(10, 5), ButtonsDown: MouseButtons.Right),
+             .. ScriptedHost.Idle(4, (float)WorldScale.Default.SecondsPerTick)],
+            new RecordingRenderer());
+        walking.Run(app);
+
+        var remaining = Value(app.Inspector, "Plan", "remaining");
+        Assert.EndsWith(" cells", remaining, StringComparison.Ordinal);
+        Assert.StartsWith(
+            "from this tick on: ", Note(app.Inspector, "Plan", "remaining"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NoValueTheAppCanProduceStillCarriesItsGlossWeldedOn()
+    {
+        // THE INVARIANT THAT KEEPS THIS FROM COMING BACK. A producer that goes on
+        // writing "yes -- because" into Value is a row the panel clips again, and
+        // the failure is invisible until somebody looks at a running window. So
+        // every row the app can produce is swept rather than a chosen few.
+        //
+        // Notes are NOT swept for the dash: a note is prose and a route note is
+        // full of arrows and dashes of its own.
+        var seen = 0;
+        var noted = 0;
+
+        foreach (var (state, rows) in EveryPanel())
+        {
+            foreach (var row in rows)
+            {
+                seen++;
+                if (row.Note is not null)
+                {
+                    noted++;
+                }
+
+                Assert.DoesNotContain(" -- ", row.Value, StringComparison.Ordinal);
+            }
+        }
+
+        // The sweep has to have swept something, and the split has to have moved
+        // something -- otherwise this passes on an empty panel.
+        Assert.True(seen > 100, $"the sweep only saw {seen} rows");
+        Assert.True(noted > 20, $"only {noted} of {seen} rows carried a note");
+    }
+
+    /// <summary>The panel in every state this project can arrange for it.</summary>
+    /// <remarks>
+    /// Not exhaustive over the movement layer's own branches -- those are swept
+    /// where they are written, in <c>DebugViewTests</c>. What is here is every
+    /// shape the VIEWER puts a panel into: nobody watched, one watched, a squad
+    /// boxed, a unit walking a booked route inside a formation, sources that work
+    /// and a source that throws.
+    /// </remarks>
+    private static IEnumerable<(string State, IReadOnlyList<DebugRow> Rows)> EveryPanel()
+    {
+        var grid = Fixture();
+        var layout = LayoutFor(grid);
+
+        var idle = new ViewerApp(grid, layout, Squad);
+        yield return ("idle", idle.Inspector);
+
+        var ordered = new ViewerApp(grid, layout, Squad);
+        ordered.Session.Select([0, 1, 2, 3]);
+        ordered.Session.OrderSelection(grid.Index(10, 5));
+        yield return ("just ordered", ordered.Inspector);
+
+        using (var walking = new ScriptedHost(
+            ScriptedHost.Idle(6, (float)WorldScale.Default.SecondsPerTick), new RecordingRenderer()))
+        {
+            walking.Run(ordered);
+        }
+
+        yield return ("walking as a squad", ordered.Inspector);
+
+        ordered.Session.Select([2]);
+        yield return ("one member of a walking squad", ordered.Inspector);
+
+        var sourced = new ViewerApp(
+            grid, layout, Squad, sources: [new Source("Fight", 0), new Source("Supply", 0)]);
+        yield return ("two sources", sourced.Inspector);
+
+        var broken = new ViewerApp(
+            grid,
+            layout,
+            Squad,
+            sources:
+            [
+                new Source("Early", 0) { Fails = Fault.OnDebugFor },
+                new Source("Late", 0) { Fails = Fault.OnUnitRows },
+                new Source("Own", 0) { Fails = Fault.OnWorldRows },
+            ]);
+        yield return ("three broken sources", broken.Inspector);
     }
 
     /// <summary>Where a broken source breaks.</summary>

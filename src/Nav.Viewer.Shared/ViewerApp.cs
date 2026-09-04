@@ -1507,7 +1507,8 @@ public sealed class ViewerApp : IViewerApp
                 broke.Add(new DebugRow(
                     Viewer,
                     $"source {Number(i + 1)}",
-                    $"threw {e.GetType().Name} -- {e.Message.ReplaceLineEndings(" ")}"));
+                    $"threw {e.GetType().Name}",
+                    e.Message.ReplaceLineEndings(" ")));
                 continue;
             }
 
@@ -1542,9 +1543,9 @@ public sealed class ViewerApp : IViewerApp
         // the panel is the only place a watcher can read WHY the unit is crossed
         // out, so both go through the one predicate rather than agreeing by hand.
         var agent = _session.Agents[watched];
-        rows.Add(new DebugRow(Viewer, "no route", HasNoRoute(agent, route is not null)
-            ? "yes -- crossed out on the map"
-            : "no"));
+        rows.Add(HasNoRoute(agent, route is not null)
+            ? new DebugRow(Viewer, "no route", "yes", "crossed out on the map")
+            : new DebugRow(Viewer, "no route", "no"));
 
         rows.AddRange(broke);
 

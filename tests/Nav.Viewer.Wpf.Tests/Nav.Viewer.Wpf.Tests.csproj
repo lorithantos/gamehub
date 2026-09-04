@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>Nav.Viewer.Wpf.Tests</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="Nav.Core.Models" />
+  </ItemGroup>
+
+  <!--
+    THE ONE TEST PROJECT THAT IS ALLOWED TO SEE WPF, and the reason it exists
+    rather than these tests going in Nav.Viewer.Tests: that project references
+    Nav.Viewer.Shared and nothing else, and its csproj says the absence IS the
+    seam. The inspector's ROWS are data and are asserted there. What is asserted
+    here is the panel's element tree - that it is not rebuilt when only values
+    change, and that a folded group stays folded across a frame - which cannot
+    be reached without PresentationFramework in the process.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Nav.Viewer.Wpf\Nav.Viewer.Wpf.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -28,6 +28,16 @@
     <ProjectReference Include="..\Nav.Worlds\Nav.Worlds.csproj" />
   </ItemGroup>
 
+  <!--
+    The only assembly let in, and only to reach InspectorView. Nothing in this
+    project is public: it is a WinExe whose types are the host's business, and
+    the panel's element tree is the one part of it that has to be asserted from
+    outside a running window.
+  -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Nav.Viewer.Wpf.Tests" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
     <PackageReference Include="Vortice.Direct3D9" Version="3.8.3" />

@@ -55,6 +55,18 @@
             map alone decides how tall the window is. The scroll viewer is what
             makes that safe on a small map: it takes the overflow instead of the
             window taking it.
+
+            EMPTY IN THE XAML. What goes in this StackPanel is one heading per
+            group and one row per fact, and InspectorView builds them - from
+            rows nobody here has seen, whose groups and keys a source picks.
+            There is nothing for a designer to lay out, and the folding and the
+            tooltips both need the elements to be reachable by hand.
+
+            IsSharedSizeScope is what keeps the key column lined up ACROSS the
+            groups. Each row is its own two-column Grid so it can carry its own
+            tooltip; without a shared scope those grids would each size their
+            key column to their own longest key and the panel would step in and
+            out down the page.
         -->
         <Border x:Name="InspectorPanel"
                 Grid.Row="0"
@@ -66,12 +78,11 @@
             <ScrollViewer VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled"
                           Focusable="False">
-                <TextBlock x:Name="Inspector"
-                           Foreground="#F5F5F5"
-                           FontFamily="Consolas"
-                           FontSize="12"
-                           TextWrapping="NoWrap"
-                           Text="" />
+                <StackPanel x:Name="Inspector"
+                            Grid.IsSharedSizeScope="True"
+                            TextElement.Foreground="#F5F5F5"
+                            TextElement.FontFamily="Consolas"
+                            TextElement.FontSize="12" />
             </ScrollViewer>
         </Border>
     </Grid>

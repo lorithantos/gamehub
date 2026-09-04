@@ -66,48 +66,79 @@ public sealed class DemoWorldDebugView : IWorldDebugView
     public IReadOnlyList<DebugRow> Describe()
     {
         var view = _world.View;
+        var (ranks, ranksNote) = RankTable();
 
         return new List<DebugRow>
         {
-            new(World, "as of", view.AsOf < 0
-                ? "no edge yet -- nothing has settled, so there is nothing to be as of"
-                : $"tick {Number(view.AsOf)}, the edge every answer here is taken at"),
+            view.AsOf < 0
+                ? new(World, "as of", "no edge yet", "nothing has settled, so there is nothing to be as of")
+                : new(World, "as of", $"tick {Number(view.AsOf)}", "the edge every answer here is taken at"),
 
-            new(World, "fog", _world.Fog
-                ? "on -- a side is limited to what its own units and pads can see"
-                : "off -- every side is told about every unit, and so remembers none"),
+            _world.Fog
+                ? new(World, "fog", "on", "a side is limited to what its own units and pads can see")
+                : new(World, "fog", "off", "every side is told about every unit, and so remembers none"),
 
-            new(World, "threats", _world.HostileCells.Count == 0
-                ? "none -- no scripted threat is on the board"
-                : $"{Number(_world.HostileCells.Count)} scripted cells, hostile to every side"),
+            _world.HostileCells.Count == 0
+                ? new(World, "threats", "none", "no scripted threat is on the board")
+                : new(
+                    World,
+                    "threats",
+                    $"{Number(_world.HostileCells.Count)} cells",
+                    "scripted, and hostile to every side"),
 
-            new(World, "pads", _world.RepairCells.Count == 0
-                ? "none -- there is nowhere to be repaired"
-                : $"{Number(_world.RepairCells.Count)} repair cells, each lighting " +
-                  $"{Amount(_world.PadSight)} steps of map around itself"),
+            _world.RepairCells.Count == 0
+                ? new(World, "pads", "none", "there is nowhere to be repaired")
+                : new(
+                    World,
+                    "pads",
+                    $"{Number(_world.RepairCells.Count)} cells",
+                    $"repair cells, each lighting {Amount(_world.PadSight)} steps of map around itself"),
 
-            new(World, "fallen", _world.Fallen.Count == 0
-                ? "nobody reached zero health on the last edge"
-                : $"{Number(_world.Fallen.Count)} reached zero health on the last edge"),
+            _world.Fallen.Count == 0
+                ? new(World, "fallen", "none", "nobody reached zero health on the last edge")
+                : new(
+                    World,
+                    "fallen",
+                    Number(_world.Fallen.Count),
+                    "reached zero health on the last edge"),
 
-            new(Rates, "repair", $"{Amount(_world.RepairPerTick)} health a tick standing on a pad"),
+            new(Rates, "repair", Amount(_world.RepairPerTick), "health a tick standing on a pad"),
 
-            new(Rates, "damage", _world.DamagePerTick == 0.0
-                ? "0 -- standing exposed costs nothing; damage comes from fire alone"
-                : $"{Amount(_world.DamagePerTick)} health a tick standing exposed to a threat"),
+            _world.DamagePerTick == 0.0
+                ? new(Rates, "damage", "0", "standing exposed costs nothing; damage comes from fire alone")
+                : new(
+                    Rates,
+                    "damage",
+                    Amount(_world.DamagePerTick),
+                    "health a tick standing exposed to a threat"),
 
-            new(Rates, "self-heal", _world.SelfHealPerTick == 0.0
-                ? "0 -- nobody heals except on a pad"
-                : $"{Amount(_world.SelfHealPerTick)} health a tick at the top of the rank table, wherever it stands"),
+            _world.SelfHealPerTick == 0.0
+                ? new(Rates, "self-heal", "0", "nobody heals except on a pad")
+                : new(
+                    Rates,
+                    "self-heal",
+                    Amount(_world.SelfHealPerTick),
+                    "health a tick at the top of the rank table, wherever it stands"),
 
-            new(Rates, "exposure radius", $"{Amount(_world.ExposureRadius)} steps to a threat counts as exposed"),
+            new(
+                Rates,
+                "exposure radius",
+                $"{Amount(_world.ExposureRadius)} steps",
+                "to a threat counts as exposed"),
 
-            new(Ranks, "table", RankTable()),
+            new(Ranks, "table", ranks, ranksNote),
 
-            new(Ranks, "per damage", $"{Amount(_world.RankPerDamage)} contribution for a unit's worth of damage dealt"),
+            new(
+                Ranks,
+                "per damage",
+                Amount(_world.RankPerDamage),
+                "contribution for a unit's worth of damage dealt"),
 
-            new(Ranks, "per kill", $"{Amount(_world.RankPerKill)} contribution for the killing blow, " +
-                                   "up 30% for each rank the victim had"),
+            new(
+                Ranks,
+                "per kill",
+                Amount(_world.RankPerKill),
+                "contribution for the killing blow, up 30% for each rank the victim had"),
         };
     }
 
@@ -120,12 +151,17 @@ public sealed class DemoWorldDebugView : IWorldDebugView
     private static string Amount(double value) => string.Create(CultureInfo.InvariantCulture, $"{value:0.##}");
 
     /// <summary>The thresholds as one line, because they only mean anything in order.</summary>
-    private string RankTable()
+    /// <remarks>
+    /// How many ranks there are is the value; where they sit is the note. The
+    /// list grows with the table and the count does not, and a column has to be
+    /// sized for one of the two.
+    /// </remarks>
+    private (string Value, string Note) RankTable()
     {
         var table = _world.RankAt;
         if (table.Count == 0)
         {
-            return "empty -- rank never rises, and so nobody is ever a veteran";
+            return ("empty", "rank never rises, and so nobody is ever a veteran");
         }
 
         var text = new StringBuilder();
@@ -139,7 +175,7 @@ public sealed class DemoWorldDebugView : IWorldDebugView
             text.Append(Amount(table[rank]));
         }
 
-        return $"{Number(table.Count)} ranks above rookie, at {text} contribution";
+        return ($"{Number(table.Count)} ranks", $"above rookie, at {text} contribution");
     }
 
     /// <summary>
@@ -171,34 +207,44 @@ public sealed class DemoWorldDebugView : IWorldDebugView
         {
             if (id < 0)
             {
-                return [new DebugRow(Unit, "id", $"{Number(id)} -- no such unit; ids start at 0")];
+                return [new DebugRow(Unit, "id", Number(id), "no such unit; ids start at 0")];
             }
 
             var side = world.SideOf(id);
             var kit = world.KitOf(id);
             var health = world.HealthOf(id);
             var hitPoints = world.HitPointsOf(id);
+            var (rank, rankNote) = Rank();
+            var (points, pointsNote) = Contribution();
 
             var rows = new List<DebugRow>
             {
                 new(Unit, "id", Number(id)),
 
-                new(Unit, "side", $"{Number(side)} -- whose eyes the perception rows below are read through"),
+                new(Unit, "side", Number(side), "whose eyes the perception rows below are read through"),
 
-                new(Unit, "health", health <= 0.0
-                    ? $"0 of {Amount(hitPoints)} hit points -- it is down"
-                    : $"{Percent(health)} of full, {Amount(health * hitPoints)} of {Amount(hitPoints)} hit points"),
+                health <= 0.0
+                    ? new(Unit, "health", "0", $"none of its {Amount(hitPoints)} hit points left; it is down")
+                    : new(
+                        Unit,
+                        "health",
+                        Percent(health),
+                        $"of full: {Amount(health * hitPoints)} of {Amount(hitPoints)} hit points"),
 
-                new(Unit, "armour", $"{world.ArmourOf(id)} -- the class a shot at it is judged against"),
+                new(Unit, "armour", world.ArmourOf(id), "the class a shot at it is judged against"),
 
-                new(Unit, "rank", Rank()),
+                new(Unit, "rank", rank, rankNote),
 
-                new(Unit, "contribution", Contribution()),
+                new(Unit, "contribution", points, pointsNote),
 
-                new(Unit, "exposed", world.ExposureTicksOf(id) == 0
-                    ? "0 ticks -- it has never stood within reach of a scripted threat"
-                    : $"{Number(world.ExposureTicksOf(id))} ticks spent within " +
-                      $"{Amount(world.ExposureRadius)} steps of a scripted threat, and it never falls"),
+                world.ExposureTicksOf(id) == 0
+                    ? new(Unit, "exposed", "0 ticks", "it has never stood within reach of a scripted threat")
+                    : new(
+                        Unit,
+                        "exposed",
+                        $"{Number(world.ExposureTicksOf(id))} ticks",
+                        $"spent within {Amount(world.ExposureRadius)} steps of a scripted threat, " +
+                        "and it never falls"),
             };
 
             if (kit is null)
@@ -206,37 +252,56 @@ public sealed class DemoWorldDebugView : IWorldDebugView
                 rows.Add(new DebugRow(
                     Loadout,
                     "kit",
-                    "none -- nobody enlisted it; it can be shot, as unarmoured, and never shoots"));
+                    "none",
+                    "nobody enlisted it; it can be shot, as unarmoured, and never shoots"));
             }
             else
             {
+                var (gun, gunNote) = Gun(kit.Weapon);
+                var (sight, sightNote) = Eyes(kit);
+
                 rows.Add(new DebugRow(Loadout, "name", kit.Name));
-                rows.Add(new DebugRow(Loadout, "weapon", Gun(kit.Weapon)));
+                rows.Add(new DebugRow(Loadout, "weapon", gun, gunNote));
                 rows.Add(new DebugRow(Loadout, "armour", kit.Armour));
-                rows.Add(new DebugRow(Loadout, "range", $"{Amount(kit.Range)} steps it can shoot"));
-                rows.Add(new DebugRow(Loadout, "sight", Eyes(kit)));
-                rows.Add(new DebugRow(Loadout, "rate of fire", kit.ShotsPerSecond == 0.0
-                    ? "0 -- it cannot shoot"
-                    : $"{Amount(kit.ShotsPerSecond)} shots a second"));
-                rows.Add(new DebugRow(Loadout, "hit points", $"{Amount(kit.HitPoints)} to lose at full health"));
+                rows.Add(new DebugRow(Loadout, "range", $"{Amount(kit.Range)} steps", "how far it can shoot"));
+                rows.Add(new DebugRow(Loadout, "sight", sight, sightNote));
+                rows.Add(kit.ShotsPerSecond == 0.0
+                    ? new DebugRow(Loadout, "rate of fire", "0", "it cannot shoot")
+                    : new DebugRow(
+                        Loadout, "rate of fire", Amount(kit.ShotsPerSecond), "shots a second"));
+                rows.Add(new DebugRow(
+                    Loadout, "hit points", Amount(kit.HitPoints), "to lose at full health"));
             }
 
-            rows.Add(new DebugRow(Fight, "target", Target()));
+            var (target, targetNote) = Target();
+            rows.Add(new DebugRow(Fight, "target", target, targetNote));
 
             var view = world.View;
-            rows.Add(new DebugRow(Perception, "as of", view.AsOf < 0
-                ? "no edge yet -- this side has not looked"
-                : $"tick {Number(view.AsOf)}, when side {Number(side)} last looked"));
+            rows.Add(view.AsOf < 0
+                ? new DebugRow(Perception, "as of", "no edge yet", "this side has not looked")
+                : new DebugRow(
+                    Perception, "as of", $"tick {Number(view.AsOf)}", $"when side {Number(side)} last looked"));
 
-            rows.Add(new DebugRow(Perception, "can see", view.PeekHostiles(side).Count == 0
-                ? $"nothing hostile to side {Number(side)} is in view"
-                : $"{Number(view.PeekHostiles(side).Count)} cells hostile to side {Number(side)}"));
+            rows.Add(view.PeekHostiles(side).Count == 0
+                ? new DebugRow(
+                    Perception, "can see", "none", $"nothing hostile to side {Number(side)} is in view")
+                : new DebugRow(
+                    Perception,
+                    "can see",
+                    $"{Number(view.PeekHostiles(side).Count)} cells",
+                    $"hostile to side {Number(side)}"));
 
-            rows.Add(new DebugRow(Perception, "remembers", Memory(view, side)));
+            var (memory, memoryNote) = Memory(view, side);
+            rows.Add(new DebugRow(Perception, "remembers", memory, memoryNote));
 
-            rows.Add(new DebugRow(Perception, "pads in view", view.PeekRepairPoints(side).Count == 0
-                ? $"none -- side {Number(side)} cannot plan a retreat to one"
-                : $"{Number(view.PeekRepairPoints(side).Count)} it can plan to reach"));
+            rows.Add(view.PeekRepairPoints(side).Count == 0
+                ? new DebugRow(
+                    Perception, "pads in view", "none", $"side {Number(side)} cannot plan a retreat to one")
+                : new DebugRow(
+                    Perception,
+                    "pads in view",
+                    Number(view.PeekRepairPoints(side).Count),
+                    "it can plan to reach"));
 
             return rows;
         }
@@ -244,11 +309,12 @@ public sealed class DemoWorldDebugView : IWorldDebugView
         private static string Percent(double fraction) =>
             string.Create(CultureInfo.InvariantCulture, $"{fraction * 100.0:0.#}%");
 
-        private static string Gun(Weapon weapon) =>
+        private static (string Value, string Note) Gun(Weapon weapon) =>
             weapon.BlastCells == 0
-                ? $"{weapon.Name}, {Amount(weapon.BaseDamage)} hit points a shot, single target"
-                : $"{weapon.Name}, {Amount(weapon.BaseDamage)} hit points a shot, " +
-                  $"{Number(weapon.BlastCells)} cells of blast with falloff";
+                ? (weapon.Name, $"{Amount(weapon.BaseDamage)} hit points a shot, single target")
+                : (weapon.Name,
+                   $"{Amount(weapon.BaseDamage)} hit points a shot, " +
+                   $"{Number(weapon.BlastCells)} cells of blast with falloff");
 
         /// <summary>
         /// Sight against reach, because the gap between them is the only thing
@@ -259,55 +325,57 @@ public sealed class DemoWorldDebugView : IWorldDebugView
         /// every unit does so it can bring the gun to bear at full reach; seeing
         /// less far than you shoot is the one that needs somebody else.
         /// </remarks>
-        private static string Eyes(Kit kit) => kit.Sight > kit.Range
-            ? $"{Amount(kit.Sight)} steps it can see, {Amount(kit.Sight - kit.Range)} past its own reach"
+        private static (string Value, string Note) Eyes(Kit kit) => kit.Sight > kit.Range
+            ? ($"{Amount(kit.Sight)} steps",
+               $"it can see {Amount(kit.Sight - kit.Range)} past its own reach")
             : kit.Sight < kit.Range
-                ? $"{Amount(kit.Sight)} steps it can see, {Amount(kit.Range - kit.Sight)} short of its reach -- " +
-                  "it needs somebody to spot for it"
-                : $"{Amount(kit.Sight)} steps it can see, exactly its reach";
+                ? ($"{Amount(kit.Sight)} steps",
+                   $"{Amount(kit.Range - kit.Sight)} short of its reach; it needs somebody to spot for it")
+                : ($"{Amount(kit.Sight)} steps", "exactly its reach");
 
-        private string Rank()
+        private (string Value, string? Note) Rank()
         {
             var rank = world.RankOf(id);
             var top = world.RankAt.Count;
             return world.IsFullRank(id)
-                ? $"{Number(rank)} of {Number(top)} -- top of the table, so it heals itself wherever it stands"
-                : $"{Number(rank)} of {Number(top)}";
+                ? ($"{Number(rank)} of {Number(top)}", "top of the table, so it heals itself wherever it stands")
+                : ($"{Number(rank)} of {Number(top)}", null);
         }
 
-        private string Contribution()
+        private (string Value, string Note) Contribution()
         {
             var points = world.ContributionOf(id);
             var rank = world.RankOf(id);
             var table = world.RankAt;
             return rank < table.Count
-                ? $"{Amount(points)} points banked, {Amount(table[rank] - points)} short of rank {Number(rank + 1)}"
-                : $"{Amount(points)} points banked, with nothing above the rank it holds";
+                ? ($"{Amount(points)} points",
+                   $"banked, {Amount(table[rank] - points)} short of rank {Number(rank + 1)}")
+                : ($"{Amount(points)} points", "banked, with nothing above the rank it holds");
         }
 
         /// <summary>
         /// Who it was shooting at when the last edge ended, which is a per-tick
         /// fact and never a standing order.
         /// </summary>
-        private string Target()
+        private (string Value, string Note) Target()
         {
             var target = world.TargetOf(id);
             return target < 0
-                ? "none -- it was shooting at nobody when the last edge ended"
-                : $"unit {Number(target)} on side {Number(world.SideOf(target))}, " +
-                  $"at {Percent(world.HealthOf(target))} health";
+                ? ("none", "it was shooting at nobody when the last edge ended")
+                : ($"unit {Number(target)}",
+                   $"on side {Number(world.SideOf(target))}, at {Percent(world.HealthOf(target))} health");
         }
 
         /// <summary>
         /// What the side knows rather than what it can see, aged against the edge
         /// it is being read at -- the gap doctrine decides forgetting on.
         /// </summary>
-        private static string Memory(IPerceptionView view, int side)
+        private static (string Value, string Note) Memory(IPerceptionView view, int side)
         {
             var known = view.PeekSightings(side);
             if (known.Count == 0)
             {
-                return $"nothing -- side {Number(side)} has no memory of an enemy it cannot currently see";
+                return ("nothing", $"side {Number(side)} has no memory of an enemy it cannot currently see");
             }
 
             var stalest = view.AsOf;
@@ -321,8 +389,8 @@ public sealed class DemoWorldDebugView : IWorldDebugView
 
             var age = view.AsOf - stalest;
             return age == 0
-                ? $"{Number(known.Count)} enemy units, every one of them in sight this edge"
-                : $"{Number(known.Count)} enemy units, the stalest last seen {Number(age)} ticks ago";
+                ? ($"{Number(known.Count)} enemy units", "every one of them in sight this edge")
+                : ($"{Number(known.Count)} enemy units", $"the stalest last seen {Number(age)} ticks ago");
         }
     }
 }

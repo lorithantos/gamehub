@@ -2035,7 +2035,8 @@ public sealed class MovementSystem : IDebugView
                     new DebugRow(
                         Unit,
                         "id",
-                        $"{Number(id)} -- no such agent; this system has {Number(system._agents.Count)}"),
+                        Number(id),
+                        $"no such agent; this system has {Number(system._agents.Count)}"),
                 ];
             }
 
@@ -2050,16 +2051,16 @@ public sealed class MovementSystem : IDebugView
                 return
                 [
                     new DebugRow(Unit, "id", Number(agent.Id)),
-                    new DebugRow(Unit, "alive", "no -- removed from the world; it holds no ground"),
+                    new DebugRow(Unit, "alive", "no", "removed from the world; it holds no ground"),
                     new DebugRow(Unit, "side", Number(agent.Side)),
-                    new DebugRow(Unit, "cell", $"{system.CellText(agent.Cell)}, where it fell"),
+                    new DebugRow(Unit, "cell", system.CellText(agent.Cell), "where it fell"),
                 ];
             }
 
             var rows = new List<DebugRow>
             {
                 new(Unit, "id", Number(agent.Id)),
-                new(Unit, "alive", "yes -- in the world and holding its cell"),
+                new(Unit, "alive", "yes", "in the world and holding its cell"),
                 new(Unit, "side", Number(agent.Side)),
                 new(Unit, "cell", system.CellText(agent.Cell)),
                 new(Unit, "goal", system.CellText(agent.Goal)),
@@ -2071,61 +2072,79 @@ public sealed class MovementSystem : IDebugView
                 rows.Add(new DebugRow(
                     Unit,
                     "errand",
-                    $"{system.CellText(agent.Errand)} -- away, and its formation is keeping its place"));
+                    system.CellText(agent.Errand),
+                    "away, and its formation is keeping its place"));
             }
 
-            rows.Add(new DebugRow(Progress, "follows", IsFollower(agent)
-                ? "yes -- one step down the group's field per tick, no search"
-                : "no -- it plans its own route"));
+            rows.Add(IsFollower(agent)
+                ? new DebugRow(Progress, "follows", "yes", "one step down the group's field per tick, no search")
+                : new DebugRow(Progress, "follows", "no", "it plans its own route"));
 
             // THE ROW THIS VIEW WAS BUILT FOR. A group member starts without a
             // slot and claims one on approach, so "no" is the whole answer to
             // why a unit is still walking with the formation already settled.
-            rows.Add(new DebugRow(Progress, "slot", agent.HasSlot
-                ? $"held: {system.CellText(agent.Goal)}"
-                : "none -- walking to the shared destination; it claims one on approach"));
+            rows.Add(agent.HasSlot
+                ? new DebugRow(Progress, "slot", $"held: {system.CellText(agent.Goal)}", "the parking slot it claimed")
+                : new DebugRow(
+                    Progress,
+                    "slot",
+                    "none",
+                    "walking to the shared destination; it claims one on approach"));
 
-            rows.Add(new DebugRow(Progress, "blocked", agent.BlockedTicks == 0
-                ? "0 ticks -- it had a free step"
-                : $"{Number(agent.BlockedTicks)} ticks with no free step, of " +
-                  $"{Number(FollowBlockedTicks)} before it may search instead"));
+            rows.Add(agent.BlockedTicks == 0
+                ? new DebugRow(Progress, "blocked", "0 ticks", "it had a free step")
+                : new DebugRow(
+                    Progress,
+                    "blocked",
+                    $"{Number(agent.BlockedTicks)} ticks",
+                    $"with no free step, of {Number(FollowBlockedTicks)} before it may search instead"));
 
             // TICKS REMAINING, NOT THE RAW TICK. RetryAfterTick means nothing
             // without the clock beside it, and the bool the seam exposes today
             // says only that there is a gate, never how long is left of it.
             var gate = agent.RetryAfterTick - system.CurrentTick;
-            rows.Add(new DebugRow(Progress, "retry gate", gate <= 0
-                ? "open -- it may start a search this tick"
-                : $"{Number(gate)} ticks until it lifts (backstop {Number(StallBackstopTicks)})"));
+            rows.Add(gate <= 0
+                ? new DebugRow(Progress, "retry gate", "open", "it may start a search this tick")
+                : new DebugRow(
+                    Progress,
+                    "retry gate",
+                    $"{Number(gate)} ticks",
+                    $"until it lifts (backstop {Number(StallBackstopTicks)})"));
 
-            rows.Add(new DebugRow(Progress, "stalled", agent.StalledTicks == 0
-                ? "no"
-                : $"{Number(agent.StalledTicks)} replans that got it no closer"));
+            rows.Add(agent.StalledTicks == 0
+                ? new DebugRow(Progress, "stalled", "no")
+                : new DebugRow(
+                    Progress, "stalled", $"{Number(agent.StalledTicks)} replans", "that got it no closer"));
 
-            rows.Add(new DebugRow(Progress, "searching", agent.Search is null
-                ? "no"
-                : $"yes -- in flight; its plan will start at tick {Number(agent.AnchorTick)}"));
+            rows.Add(agent.Search is null
+                ? new DebugRow(Progress, "searching", "no")
+                : new DebugRow(
+                    Progress,
+                    "searching",
+                    "yes",
+                    $"in flight; its plan will start at tick {Number(agent.AnchorTick)}"));
 
             rows.Add(new DebugRow(Progress, "wants plan", YesNo(agent.WantsPlan)));
 
             if (agent.Plan is not { } plan)
             {
-                rows.Add(new DebugRow(Route, "plan", "none -- it is standing where it is"));
+                rows.Add(new DebugRow(Route, "plan", "none", "it is standing where it is"));
             }
             else
             {
-                rows.Add(new DebugRow(Route, "cells", $"{Number(plan.Cells.Count)}, one per tick"));
+                rows.Add(new DebugRow(Route, "cells", Number(plan.Cells.Count), "one per tick"));
                 rows.Add(new DebugRow(
                     Route,
                     "start tick",
-                    $"{Number(plan.StartTick)}, where the booked route begins"));
-                rows.Add(new DebugRow(Route, "last tick", (plan.LastTick - system.CurrentTick) switch
-                {
-                    > 0 and var left =>
-                        $"{Number(plan.LastTick)}, {Number(left)} ticks of booked future left",
-                    0 => $"{Number(plan.LastTick)}, and this tick is the last of it",
-                    _ => $"{Number(plan.LastTick)} -- the plan ran out; it stands on its last cell",
-                }));
+                    Number(plan.StartTick),
+                    "where the booked route begins"));
+                rows.Add(new DebugRow(Route, "last tick", Number(plan.LastTick),
+                    (plan.LastTick - system.CurrentTick) switch
+                    {
+                        > 0 and var left => $"{Number(left)} ticks of booked future left",
+                        0 => "this tick is the last of it",
+                        _ => "the plan ran out; it stands on its last cell",
+                    }));
                 rows.Add(new DebugRow(Route, "cost", string.Create(CultureInfo.InvariantCulture, $"{plan.Cost:0.##}")));
                 rows.Add(new DebugRow(Route, "expanded", $"{Number(plan.Expanded)} nodes"));
 
@@ -2134,15 +2153,15 @@ public sealed class MovementSystem : IDebugView
                 // ranked first: a reader watching for a partial plan had to know
                 // that "reaches the goal" also means not partial. Each fact now
                 // says yes or no on its own line, and none of them is inferred.
-                rows.Add(new DebugRow(Route, "found", plan.Found
-                    ? "yes -- it reaches the goal"
-                    : "no -- it stops short of the goal"));
-                rows.Add(new DebugRow(Route, "partial", plan.IsPartial
-                    ? "yes -- as far as the window allows, which is progress"
-                    : "no -- it is not a route that stopped short"));
-                rows.Add(new DebugRow(Route, "stuck", plan.IsStuck
-                    ? "yes -- no plan at all, not even a tick of waiting"
-                    : "no -- it has cells to walk"));
+                rows.Add(plan.Found
+                    ? new DebugRow(Route, "found", "yes", "it reaches the goal")
+                    : new DebugRow(Route, "found", "no", "it stops short of the goal"));
+                rows.Add(plan.IsPartial
+                    ? new DebugRow(Route, "partial", "yes", "as far as the window allows, which is progress")
+                    : new DebugRow(Route, "partial", "no", "it is not a route that stopped short"));
+                rows.Add(plan.IsStuck
+                    ? new DebugRow(Route, "stuck", "yes", "no plan at all, not even a tick of waiting")
+                    : new DebugRow(Route, "stuck", "no", "it has cells to walk"));
 
                 // WHERE THE PLAN PUTS IT THIS TICK, beside where it actually is.
                 // Only one place in this system writes a cell, and it writes what
@@ -2150,40 +2169,48 @@ public sealed class MovementSystem : IDebugView
                 // rather than a coincidence -- which is exactly why a reader
                 // should be able to see it hold.
                 var atNow = plan.CellAt(system.CurrentTick);
-                rows.Add(new DebugRow(Route, "at now", atNow < 0
-                    ? $"nowhere yet -- the plan does not begin until tick {Number(plan.StartTick)}"
+                rows.Add(atNow < 0
+                    ? new DebugRow(
+                        Route,
+                        "at now",
+                        "nowhere yet",
+                        $"the plan does not begin until tick {Number(plan.StartTick)}")
                     : atNow == agent.Cell
-                        ? $"{system.CellText(atNow)}, which is where it stands"
-                        : $"{system.CellText(atNow)} -- but it stands on " +
-                          $"{system.CellText(agent.Cell)}, so the two disagree"));
+                        ? new DebugRow(Route, "at now", system.CellText(atNow), "which is where it stands")
+                        : new DebugRow(
+                            Route,
+                            "at now",
+                            system.CellText(atNow),
+                            $"but it stands on {system.CellText(agent.Cell)}, so the two disagree"));
 
                 var next = plan.CellAt(system.CurrentTick + 1);
                 rows.Add(new DebugRow(Route, "next", next < 0 || next == agent.Cell
                     ? "stands"
                     : system.CellText(next)));
 
-                rows.Add(new DebugRow(Route, "remaining", RemainingText(system, plan, system.CurrentTick)));
+                var (remaining, route) = RemainingText(system, plan, system.CurrentTick);
+                rows.Add(new DebugRow(Route, "remaining", remaining, route));
             }
 
             if (agent.Group is not { } group)
             {
-                rows.Add(new DebugRow(Formation, "formation", "none -- it has never been ordered"));
+                rows.Add(new DebugRow(Formation, "formation", "none", "it has never been ordered"));
 
                 // A UNIT WITH NO FORMATION STILL GETS THE LEADER ROW. Reading
                 // "who leads this one" off the absence of a line asks the reader
                 // to know which branch of this method they are looking at.
-                rows.Add(new DebugRow(Formation, "leader", "none -- no formation, so nobody leads it"));
+                rows.Add(new DebugRow(Formation, "leader", "none", "no formation, so nobody leads it"));
             }
             else
             {
                 rows.Add(new DebugRow(Formation, "destination", system.CellText(group.Destination)));
                 rows.Add(new DebugRow(Formation, "members", Number(group.Members.Count)));
-                rows.Add(new DebugRow(Formation, "leader", group.Leader switch
+                rows.Add(group.Leader switch
                 {
-                    < 0 => "none -- the formation has elected nobody",
-                    var leader when leader == agent.Id => "this unit",
-                    var leader => $"agent {Number(leader)}",
-                }));
+                    < 0 => new DebugRow(Formation, "leader", "none", "the formation has elected nobody"),
+                    var leader when leader == agent.Id => new DebugRow(Formation, "leader", "this unit"),
+                    var leader => new DebugRow(Formation, "leader", $"agent {Number(leader)}"),
+                });
                 rows.Add(new DebugRow(Formation, "ring", $"{Number(group.Slots.Count)} parking slots"));
 
                 // HOW FAR IT REALLY IS. Follow and ElectLeader both compute this
@@ -2204,8 +2231,10 @@ public sealed class MovementSystem : IDebugView
                 // that is a compile error here rather than a habit.
                 if (fields.TryPeek(group.Destination, out var field))
                 {
-                    rows.Add(new DebugRow(Field, "from here", FieldText(field, agent.Cell)));
-                    rows.Add(new DebugRow(Field, "from goal", FieldText(field, agent.Goal)));
+                    var (here, hereNote) = FieldText(field, agent.Cell);
+                    var (goal, goalNote) = FieldText(field, agent.Goal);
+                    rows.Add(new DebugRow(Field, "from here", here, hereNote));
+                    rows.Add(new DebugRow(Field, "from goal", goal, goalNote));
                 }
                 else
                 {
@@ -2217,25 +2246,27 @@ public sealed class MovementSystem : IDebugView
                     rows.Add(new DebugRow(
                         Field,
                         "field",
-                        "not cached, so no distance is shown -- building one to fill in this row " +
-                        "would change which fields survive"));
+                        "not cached",
+                        "no distance is shown; building one to fill in this row would change " +
+                        "which fields survive"));
                 }
             }
 
             rows.Add(new DebugRow(
                 Planning,
                 "latency",
-                $"{Number(agent.Latency)} ticks of slack for its next search " +
-                $"(starts at {Number(InitialPlanningLatency)}, doubles on a discard)"));
+                $"{Number(agent.Latency)} ticks",
+                $"of slack for its next search (starts at {Number(InitialPlanningLatency)}, " +
+                "doubles on a discard)"));
             rows.Add(new DebugRow(Planning, "anchor", agent.Search is null
                 ? "-"
                 : $"tick {Number(agent.AnchorTick)}"));
-            rows.Add(new DebugRow(Planning, "last attempt", agent.LastPlanAttemptTick < 0
-                ? "never given a planning slot"
-                : $"tick {Number(agent.LastPlanAttemptTick)}"));
-            rows.Add(new DebugRow(Planning, "vacancy wake", agent.LastVacancyWakeTick < 0
-                ? "never woken by a nearby vacancy"
-                : $"tick {Number(agent.LastVacancyWakeTick)}"));
+            rows.Add(agent.LastPlanAttemptTick < 0
+                ? new DebugRow(Planning, "last attempt", "never", "it has never been given a planning slot")
+                : new DebugRow(Planning, "last attempt", $"tick {Number(agent.LastPlanAttemptTick)}"));
+            rows.Add(agent.LastVacancyWakeTick < 0
+                ? new DebugRow(Planning, "vacancy wake", "never", "it has never been woken by a nearby vacancy")
+                : new DebugRow(Planning, "vacancy wake", $"tick {Number(agent.LastVacancyWakeTick)}"));
             rows.Add(new DebugRow(Planning, "field key", agent.FieldKey < 0
                 ? "none"
                 : system.CellText(agent.FieldKey)));
@@ -2252,8 +2283,15 @@ public sealed class MovementSystem : IDebugView
         /// the reader: a route shown as head, "42 cells not shown", tail still
         /// answers how long the walk is and where it ends, while a bare ellipsis
         /// turns a fifty-cell plan and a nine-cell plan into the same picture.
+        /// <para>
+        /// The count is the VALUE and the route itself is the note, because the
+        /// route is the longest string this view produces and the count is one of
+        /// its shortest. A panel that had to fit both in one column fitted
+        /// neither.
+        /// </para>
         /// </remarks>
-        private static string RemainingText(MovementSystem system, PlanResult plan, int fromTick)
+        private static (string Value, string Note) RemainingText(
+            MovementSystem system, PlanResult plan, int fromTick)
         {
             const int Ends = 8;
 
@@ -2261,7 +2299,7 @@ public sealed class MovementSystem : IDebugView
             var count = plan.Cells.Count == 0 ? 0 : plan.LastTick - from + 1;
             if (count <= 0)
             {
-                return "nothing -- the plan does not cover this tick or any after it";
+                return ("nothing", "the plan does not cover this tick or any after it");
             }
 
             var steps = new List<string>(Math.Min(count, (Ends * 2) + 1));
@@ -2287,12 +2325,14 @@ public sealed class MovementSystem : IDebugView
                 }
             }
 
-            return $"{Number(count)} cells from this tick on: {string.Join(" -> ", steps)}";
+            return ($"{Number(count)} cells", $"from this tick on: {string.Join(" -> ", steps)}");
         }
 
-        private static string FieldText(DistanceField field, int cell) => field.Reaches(cell)
-            ? string.Create(CultureInfo.InvariantCulture, $"{field.CostFrom(cell):0.##} to the destination")
-            : "unreachable from there";
+        private static (string Value, string Note) FieldText(DistanceField field, int cell) =>
+            field.Reaches(cell)
+                ? (string.Create(CultureInfo.InvariantCulture, $"{field.CostFrom(cell):0.##}"),
+                   "field cost from that cell to the destination")
+                : ("unreachable", "the field does not reach that cell");
     }
 
     /// <summary>

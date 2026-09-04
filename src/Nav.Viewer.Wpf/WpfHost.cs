@@ -1,5 +1,4 @@
 using System.Numerics;
-using System.Text;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -39,6 +38,7 @@ internal sealed class WpfHost(GridLayout layout, int? maxFrames) : IViewerHost
     private SharedSurface? _surface;
     private D3D11Renderer? _renderer;
     private IViewerApp? _app;
+    private InspectorView? _inspector;
     private double _dpiScale = 1.0;
     private int _frames;
     private bool _disposed;
@@ -52,6 +52,7 @@ internal sealed class WpfHost(GridLayout layout, int? maxFrames) : IViewerHost
 
         _window = new MainWindow { Title = app.WindowTitle };
         _window.Surface.Source = _image;
+        _inspector = new InspectorView(_window.Inspector);
 
         _window.SourceInitialized += OnSourceInitialized;
         _window.KeyDown += (_, e) => SetKey(e.Key, down: true);
@@ -238,67 +239,17 @@ internal sealed class WpfHost(GridLayout layout, int? maxFrames) : IViewerHost
             _window.Status.Text = _app.StatusText;
         }
 
-        var inspector = Format(_app.Inspector);
-        if (!string.Equals(_window.Inspector.Text, inspector, StringComparison.Ordinal))
-        {
-            // The string is built every frame; only the assignment is guarded,
-            // because the layout pass is the expensive half and it costs more
-            // here -- the panel is a dozen lines rather than one, and most of
-            // them are the same from frame to frame. One TextBlock rather than
-            // an element per row for the same reason -- laying out twenty
-            // elements sixty times a second to show a cell that changed once is
-            // work nobody asked for.
-            _window.Inspector.Text = inspector;
-        }
+        // The panel decides for itself how little to do. It rebuilds its
+        // elements only when the set of groups and keys changes and otherwise
+        // writes text into the ones it already has, each write guarded the same
+        // way the status line's is -- so the per-frame cost is a comparison per
+        // row and, on most frames, nothing else. See InspectorView.
+        _inspector!.Update(_app.Inspector);
 
         if (maxFrames is { } limit && ++_frames >= limit)
         {
             _window.Close();
         }
-    }
-
-    /// <summary>
-    /// The inspector rows as one monospace block: a heading per group, then
-    /// label and value in two columns.
-    /// </summary>
-    /// <remarks>
-    /// The app hands over rows and this decides what they look like — the same
-    /// split as the status line, one size up. Columns are spaces rather than a
-    /// grid because Consolas already lines them up, and a real grid would be
-    /// twenty elements to lay out for a value that changed once.
-    /// <para>
-    /// Rows arrive in group order, so a heading is emitted when the group
-    /// changes rather than by grouping anything here.
-    /// </para>
-    /// </remarks>
-    private static string Format(IReadOnlyList<DebugRow> rows)
-    {
-        if (rows.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        var width = rows.Max(r => r.Key.Length);
-        var text = new StringBuilder();
-        var group = string.Empty;
-
-        foreach (var row in rows)
-        {
-            if (!string.Equals(group, row.Group, StringComparison.Ordinal))
-            {
-                if (text.Length > 0)
-                {
-                    text.AppendLine();
-                }
-
-                group = row.Group;
-                text.AppendLine(group.ToUpperInvariant());
-            }
-
-            text.Append("  ").Append(row.Key.PadRight(width)).Append("  ").AppendLine(row.Value);
-        }
-
-        return text.ToString().TrimEnd();
     }
 
     private void OnClosed(object? sender, EventArgs e) => Dispose();

@@ -1,6 +1,7 @@
 using System.Numerics;
 
 using Nav.Core;
+using Nav.Core.Interfaces;
 
 namespace Nav.Viewer.Tests;
 
@@ -18,6 +19,12 @@ namespace Nav.Viewer.Tests;
 /// the WIRING: that the panel describes the unit being watched, that the viewer's
 /// own facts sit in their own group beside them, and that a host can still print a
 /// heading by watching the group change.
+/// </para>
+/// <para>
+/// The merge is exercised with <see cref="Source"/>, a source written in this
+/// file out of nothing but the interface. That is deliberate: this project
+/// references Nav.Viewer.Shared alone, so if testing the merge needed a real
+/// tactics world the seam it is built on would not exist.
 /// </para>
 /// </remarks>
 public sealed class InspectorTests
@@ -294,5 +301,267 @@ public sealed class InspectorTests
         Assert.Equal(runs.Count, runs.Distinct().Count());
         Assert.Contains("Formation", runs);
         Assert.Equal("Viewer", runs[^1]);
+    }
+
+    [Fact]
+    public void NoSourcesIsThePanelExactlyAsItWasBeforeThereWereAny()
+    {
+        // Both hosts and every other test in this suite hand over none, so this
+        // is the case that must not have moved an inch.
+        var grid = Fixture();
+        var plain = new ViewerApp(grid, LayoutFor(grid), Squad);
+        var empty = new ViewerApp(grid, LayoutFor(grid), Squad, sources: []);
+
+        Assert.Equal(plain.Inspector, empty.Inspector);
+        Assert.Equal(
+            ["Unit", "Progress", "Plan", "Formation", "Planning", "Viewer"],
+            GroupRuns(plain.Inspector));
+
+        // Nothing renamed, and no source reported broken, because there was
+        // nothing to rename and nothing to break.
+        Assert.DoesNotContain(plain.Inspector, r => r.Group.Contains('('));
+        Assert.Equal(
+            ["waits", "no route"],
+            plain.Inspector.Where(r => string.Equals(r.Group, "Viewer", StringComparison.Ordinal))
+                           .Select(r => r.Key));
+    }
+
+    [Fact]
+    public void ASourceLandsAfterTheMovementLayerAndBeforeTheViewersOwnGroup()
+    {
+        var grid = Fixture();
+        var app = new ViewerApp(grid, LayoutFor(grid), Squad, sources: [new Source("Fight", 0)]);
+
+        // The unit's rows first and the source's own rows after them, as one
+        // block, between what the movement layer said and what the viewer says.
+        Assert.Equal(
+            ["Unit", "Progress", "Plan", "Formation", "Planning", "Fight", "Fight world", "Viewer"],
+            GroupRuns(app.Inspector));
+
+        Assert.Equal("0 by Fight", Value(app.Inspector, "Fight", "watched"));
+        Assert.Equal("Fight", Value(app.Inspector, "Fight world", "source"));
+
+        // And the movement layer's own rows are exactly what they were.
+        Assert.Equal("0", Value(app.Inspector, "Unit", "id"));
+        Assert.Equal("no", Value(app.Inspector, "Progress", "searching"));
+        Assert.Equal("no", Value(app.Inspector, "Viewer", "no route"));
+    }
+
+    [Fact]
+    public void TwoSourcesArriveInTheOrderTheyWereHandedOver()
+    {
+        // Supply order, not name order and not whichever answered first: the
+        // composer decided, and a panel that reshuffled between frames would be
+        // unreadable however it sorted.
+        var grid = Fixture();
+        var forward = new ViewerApp(
+            grid, LayoutFor(grid), Squad, sources: [new Source("Fight", 0), new Source("Supply", 0)]);
+        var backward = new ViewerApp(
+            grid, LayoutFor(grid), Squad, sources: [new Source("Supply", 0), new Source("Fight", 0)]);
+
+        Assert.Equal(
+            ["Unit", "Progress", "Plan", "Formation", "Planning",
+             "Fight", "Fight world", "Supply", "Supply world", "Viewer"],
+            GroupRuns(forward.Inspector));
+
+        Assert.Equal(
+            ["Unit", "Progress", "Plan", "Formation", "Planning",
+             "Supply", "Supply world", "Fight", "Fight world", "Viewer"],
+            GroupRuns(backward.Inspector));
+
+        Assert.Equal("0 by Supply", Value(forward.Inspector, "Supply", "watched"));
+    }
+
+    [Fact]
+    public void AGroupNameThePanelAlreadyUsesIsRenamedRatherThanMergedIntoIt()
+    {
+        // Two sources both calling their group "Unit", which the movement layer
+        // already uses. Interleaved they would read as the movement layer's own
+        // answers about the unit, which is the worst thing this panel could say.
+        var grid = Fixture();
+        var app = new ViewerApp(grid, LayoutFor(grid), Squad, sources:
+        [
+            new Source("Fight", 0) { UnitGroup = "Unit", WorldGroup = "Viewer" },
+            new Source("Supply", 0) { UnitGroup = "Unit", WorldGroup = "Progress" },
+        ]);
+
+        var runs = GroupRuns(app.Inspector);
+        Assert.Equal(runs.Count, runs.Distinct().Count());
+
+        // The movement layer keeps its headings and its rows, and neither source
+        // is inside them.
+        Assert.Equal("0", Value(app.Inspector, "Unit", "id"));
+        Assert.Equal("no", Value(app.Inspector, "Progress", "searching"));
+        Assert.False(HasKey(app.Inspector, "Unit", "watched"), "a source landed in the movement layer's group");
+
+        // Numbered in the order they were handed over, and nothing is lost.
+        Assert.Equal("0 by Fight", Value(app.Inspector, "Unit (2)", "watched"));
+        Assert.Equal("0 by Supply", Value(app.Inspector, "Unit (3)", "watched"));
+        Assert.Equal("Fight", Value(app.Inspector, "Viewer (2)", "source"));
+        Assert.Equal("Supply", Value(app.Inspector, "Progress (2)", "source"));
+
+        // Viewer is reserved before a source is asked anything, so the viewer's
+        // own group is still called Viewer and is still last.
+        Assert.Equal("Viewer", runs[^1]);
+        Assert.Equal("no", Value(app.Inspector, "Viewer", "no route"));
+    }
+
+    [Fact]
+    public void ASourceThatThrowsLosesItsBlockAndSaysSoWithoutTakingThePanelDown()
+    {
+        // All three places a source can throw: handing out the unit's view,
+        // describing the unit, and describing itself.
+        var grid = Fixture();
+        var app = new ViewerApp(grid, LayoutFor(grid), Squad, sources:
+        [
+            new Source("Early", 0) { Fails = Fault.OnDebugFor },
+            new Source("Late", 0) { Fails = Fault.OnUnitRows },
+            new Source("Own", 0) { Fails = Fault.OnWorldRows },
+            new Source("Fine", 0),
+        ]);
+
+        // The unit is still described and the source that works is still merged.
+        Assert.Equal("0", Value(app.Inspector, "Unit", "id"));
+        Assert.Equal("0 by Fine", Value(app.Inspector, "Fine", "watched"));
+
+        // Nothing of a broken source survives -- not even the half of the block
+        // that "Own" managed to build before it threw.
+        Assert.DoesNotContain(app.Inspector, r => r.Group.StartsWith("Early", StringComparison.Ordinal));
+        Assert.DoesNotContain(app.Inspector, r => r.Group.StartsWith("Late", StringComparison.Ordinal));
+        Assert.DoesNotContain(app.Inspector, r => r.Group.StartsWith("Own", StringComparison.Ordinal));
+
+        // Said out loud, counted from one in the order they were handed over, and
+        // AFTER the viewer's own rows -- a source that breaks may not move a row
+        // that works.
+        Assert.Equal(
+            ["waits", "no route", "source 1", "source 2", "source 3"],
+            app.Inspector.Where(r => string.Equals(r.Group, "Viewer", StringComparison.Ordinal))
+                         .Select(r => r.Key));
+
+        Assert.Equal(
+            "threw InvalidOperationException -- Early will not answer for unit 0",
+            Value(app.Inspector, "Viewer", "source 1"));
+        Assert.Equal(
+            "threw InvalidOperationException -- Late cannot read unit 0",
+            Value(app.Inspector, "Viewer", "source 2"));
+        Assert.Equal(
+            "threw InvalidOperationException -- Own cannot read itself",
+            Value(app.Inspector, "Viewer", "source 3"));
+    }
+
+    [Fact]
+    public void ASourceThatNeverHeardOfTheWatchedUnitPrintsNoHeadingForIt()
+    {
+        // The contract says any id is answered, so "never heard of it" comes back
+        // as no rows rather than as a throw -- and no rows must mean no heading,
+        // not an empty one a host would print a title over.
+        var grid = Fixture();
+        var app = new ViewerApp(grid, LayoutFor(grid), Squad, sources: [new Source("Fight", 7)]);
+
+        Assert.DoesNotContain(
+            app.Inspector, r => string.Equals(r.Group, "Fight", StringComparison.Ordinal));
+
+        // What it says about ITSELF is still worth showing: the setup does not
+        // depend on who is being watched.
+        Assert.Equal("Fight", Value(app.Inspector, "Fight world", "source"));
+        Assert.Equal("0", Value(app.Inspector, "Unit", "id"));
+    }
+
+    [Fact]
+    public void ANullSourceIsRefusedWhereTheApplicationIsComposed()
+    {
+        // A hole in the list is an unfinished wiring job, not a running world
+        // behaving badly, and it is caught at the seam rather than survived on
+        // every frame afterwards.
+        var grid = Fixture();
+        var layout = LayoutFor(grid);
+
+        var refused = Assert.Throws<ArgumentException>(
+            () => new ViewerApp(grid, layout, Squad, sources: [new Source("Fight", 0), null!]));
+
+        Assert.Equal("sources", refused.ParamName);
+        Assert.StartsWith("source 2 of 2 is null", refused.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Where a broken source breaks.</summary>
+    private enum Fault
+    {
+        /// <summary>Nowhere: it answers everything asked of it.</summary>
+        Never,
+
+        /// <summary>On being asked for a unit's view at all.</summary>
+        OnDebugFor,
+
+        /// <summary>On the unit's view being read.</summary>
+        OnUnitRows,
+
+        /// <summary>On being asked to describe itself.</summary>
+        OnWorldRows,
+    }
+
+    /// <summary>
+    /// A source with no world behind it: a name, a row per unit it has heard of,
+    /// a row about itself, and a way to throw on demand.
+    /// </summary>
+    /// <remarks>
+    /// THE WHOLE OF WHAT A SOURCE HAS TO BE. Written here rather than borrowed
+    /// from the tactics side, because a merge that could only be exercised by a
+    /// real world would mean the viewer had learned what a world is.
+    /// </remarks>
+    private sealed class Source : IWorldDebugView
+    {
+        private readonly int[] _knows;
+
+        public Source(string name, params int[] knows)
+        {
+            Name = name;
+            _knows = knows;
+            UnitGroup = name;
+            WorldGroup = $"{name} world";
+        }
+
+        public string Name { get; }
+
+        public string UnitGroup { get; init; }
+
+        public string WorldGroup { get; init; }
+
+        public Fault Fails { get; init; }
+
+        public IReadOnlyList<DebugRow> Describe()
+        {
+            if (Fails == Fault.OnWorldRows)
+            {
+                throw new InvalidOperationException($"{Name} cannot read itself");
+            }
+
+            return [new DebugRow(WorldGroup, "source", Name)];
+        }
+
+        public IDebugView DebugFor(int agent)
+        {
+            if (Fails == Fault.OnDebugFor)
+            {
+                throw new InvalidOperationException($"{Name} will not answer for unit {agent}");
+            }
+
+            return new UnitRows(this, agent);
+        }
+
+        private sealed class UnitRows(Source source, int agent) : IDebugView
+        {
+            public IReadOnlyList<DebugRow> Describe()
+            {
+                if (source.Fails == Fault.OnUnitRows)
+                {
+                    throw new InvalidOperationException($"{source.Name} cannot read unit {agent}");
+                }
+
+                return source._knows.Contains(agent)
+                    ? [new DebugRow(source.UnitGroup, "watched", $"{agent} by {source.Name}"),
+                       new DebugRow(source.UnitGroup, "known", "yes")]
+                    : [];
+            }
+        }
     }
 }

@@ -38,6 +38,24 @@ public sealed class ViewerApp : IViewerApp
     private readonly int _fitWidth;
     private readonly int _fitHeight;
 
+    /// <summary>
+    /// The other things describing themselves into the inspector, in the order
+    /// whoever composed the application handed them over.
+    /// </summary>
+    /// <remarks>
+    /// <b>The viewer knows nothing about any of them and must not learn.</b> This
+    /// project references Nav.Core alone, so a source can only ever be rows here
+    /// -- which is the point: an application can hand over a tactics world, a
+    /// second world, or something written next year, and none of it reaches this
+    /// file as a type.
+    /// <para>
+    /// Copied out of whatever was passed in, so a caller that keeps its own list
+    /// and adds to it later cannot change what a frame is describing halfway
+    /// through describing it.
+    /// </para>
+    /// </remarks>
+    private readonly IWorldDebugView[] _sources;
+
     /// <summary>Never zoom past a cell this big; beyond it a screen holds nothing.</summary>
     private const int MaxCellSize = 48;
 
@@ -113,8 +131,19 @@ public sealed class ViewerApp : IViewerApp
     /// takes the largest whole-pixel cell that fits inside them, so the resulting
     /// <see cref="Layout"/> is usually smaller. They are kept, not consumed --
     /// every later load re-fits the new map into the same budget.
+    /// <para>
+    /// <c>sources</c> is everything else that can describe itself -- see
+    /// <see cref="_sources"/> and <see cref="Inspector"/>. Handing over none, which
+    /// is what both hosts do today, is a viewer that shows exactly what it showed
+    /// before there was such a thing.
+    /// </para>
     /// </remarks>
-    public ViewerApp(ViewerSession session, int maxPixelWidth, int maxPixelHeight, Keymap? keys = null)
+    public ViewerApp(
+        ViewerSession session,
+        int maxPixelWidth,
+        int maxPixelHeight,
+        Keymap? keys = null,
+        IReadOnlyList<IWorldDebugView>? sources = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(maxPixelWidth, 0);
@@ -123,6 +152,7 @@ public sealed class ViewerApp : IViewerApp
         _session = session;
         _fitWidth = maxPixelWidth;
         _fitHeight = maxPixelHeight;
+        _sources = Copy(sources);
         Keys = keys ?? Keymap.Default;
         AdoptContent();
         StatusText = BuildStatus();
@@ -140,8 +170,9 @@ public sealed class ViewerApp : IViewerApp
         GridLayout layout,
         int squad = ViewerSession.DefaultSquad,
         RecordedScenario? scenario = null,
-        Keymap? keys = null)
-        : this(BuildSession(grid, scenario, squad), layout.PixelWidth, layout.PixelHeight, keys)
+        Keymap? keys = null,
+        IReadOnlyList<IWorldDebugView>? sources = null)
+        : this(BuildSession(grid, scenario, squad), layout.PixelWidth, layout.PixelHeight, keys, sources)
     {
     }
 
@@ -176,10 +207,10 @@ public sealed class ViewerApp : IViewerApp
     /// read properly beats forty summarised, and the lowest id is the one the
     /// box-select gesture puts first.
     /// <para>
-    /// Mostly the movement layer's own words: these are
-    /// <see cref="IDebugView.Describe"/> rows, with the viewer's few additions in
-    /// a group of their own. Nothing may branch on them or parse a value back
-    /// into a number.
+    /// Mostly other people's words: these are <see cref="IDebugView.Describe"/>
+    /// rows from the movement layer and from every source the application handed
+    /// over, with the viewer's few additions in a group of their own. Nothing may
+    /// branch on them or parse a value back into a number.
     /// </para>
     /// </remarks>
     public IReadOnlyList<DebugRow> Inspector { get; private set; }
@@ -656,6 +687,33 @@ public sealed class ViewerApp : IViewerApp
     /// </remarks>
     public Vector2 CenterOfCell(int cell) => Layout.CenterOf(_grid.ColumnOf(cell), _grid.RowOf(cell));
 
+    /// <summary>
+    /// The sources as this class will hold them: its own array, checked once.
+    /// </summary>
+    /// <remarks>
+    /// A null in the list is refused HERE, at the seam where a human is wiring the
+    /// application up, rather than survived later. The panel forgives a source
+    /// that throws or answers for a unit it has never heard of, because those are
+    /// runtime facts about a running world; a missing source is a composition
+    /// that was never finished.
+    /// </remarks>
+    private static IWorldDebugView[] Copy(IReadOnlyList<IWorldDebugView>? sources)
+    {
+        if (sources is null)
+        {
+            return [];
+        }
+
+        var copy = new IWorldDebugView[sources.Count];
+        for (var i = 0; i < sources.Count; i++)
+        {
+            copy[i] = sources[i] ??
+                throw new ArgumentException($"source {Number(i + 1)} of {Number(sources.Count)} is null", nameof(sources));
+        }
+
+        return copy;
+    }
+
     private static ViewerSession BuildSession(Grid grid, RecordedScenario? scenario, int squad)
     {
         ArgumentNullException.ThrowIfNull(grid);
@@ -969,8 +1027,9 @@ public sealed class ViewerApp : IViewerApp
         $"{Keys.KeycapFor(ViewerKeys.R)} {(_session.IsReplay ? "restart" : "regroup")}";
 
     /// <summary>
-    /// The watched unit spelled out: what the movement layer says about it,
-    /// then the few facts only this class can answer.
+    /// The watched unit spelled out: what the movement layer says about it, what
+    /// every other source says about it, then the few facts only this class can
+    /// answer.
     /// </summary>
     /// <remarks>
     /// <b>Most of this is no longer written here.</b> The bulk of the panel used
@@ -994,6 +1053,16 @@ public sealed class ViewerApp : IViewerApp
     /// strings for ONE unit, built only while somebody is watching it.
     /// </para>
     /// <para>
+    /// <b>The order is movement layer, then each source in the order it was
+    /// supplied, then the viewer's own group.</b> The eye tracks a number by where
+    /// it sits, so the one thing a panel may never do is reshuffle: the movement
+    /// layer stays where it has always been, a source lands after everything
+    /// added before it, and adding a second source cannot move the first one's
+    /// rows. <see cref="IWorldDebugView"/> promises no grouping, so the position
+    /// of a block is the only ordering anyone gets and it is worth being strict
+    /// about.
+    /// </para>
+    /// <para>
     /// Marked as well as <see cref="IViewerApp.Inspector"/>, for the same reason
     /// <see cref="BuildStatus"/> is: the property hands back a field, and this is
     /// where the movement layer is actually asked.
@@ -1014,6 +1083,53 @@ public sealed class ViewerApp : IViewerApp
         // order and a box-select has no other stable first member.
         var watched = selection[0];
         var rows = new List<DebugRow>(_session.DebugFor(watched).Describe());
+
+        // Headings already spoken for. A source is free to call a group anything,
+        // and "Unit" is the likeliest name in the codebase for it to pick -- so
+        // without this a tactics world's unit rows would land under the movement
+        // layer's own heading and read as the movement layer's answers. Viewer is
+        // reserved from the start for the same reason, one block further down.
+        var taken = new HashSet<string>(StringComparer.Ordinal) { Viewer };
+        foreach (var row in rows)
+        {
+            taken.Add(row.Group);
+        }
+
+        // A source that broke, reported after everything that worked. Collected
+        // rather than written in place so a failure cannot push the rows above it
+        // around -- which is the one thing an instrument must not do on the frame
+        // something goes wrong.
+        var broke = new List<DebugRow>();
+        for (var i = 0; i < _sources.Length; i++)
+        {
+            List<DebugRow> supplied;
+            try
+            {
+                supplied = RowsFrom(_sources[i], watched, taken);
+            }
+            catch (Exception e)
+            {
+                // EVERY exception, deliberately. A source is somebody else's code
+                // reached through an interface, so which ones it can raise is not
+                // knowable here, and the panel is an instrument: a source that
+                // throws loses its rows and says so, and the unit is still
+                // described. Losing the whole block rather than the rows after
+                // the throw is also deliberate -- half a source's page, with no
+                // way to tell which half is missing, is worse than none of it.
+                broke.Add(new DebugRow(
+                    Viewer,
+                    $"source {Number(i + 1)}",
+                    $"threw {e.GetType().Name} -- {e.Message.ReplaceLineEndings(" ")}"));
+                continue;
+            }
+
+            foreach (var row in supplied)
+            {
+                taken.Add(row.Group);
+            }
+
+            rows.AddRange(supplied);
+        }
 
         if (selection.Count > 1)
         {
@@ -1041,6 +1157,66 @@ public sealed class ViewerApp : IViewerApp
         rows.Add(new DebugRow(Viewer, "no route", HasNoRoute(agent, route is not null)
             ? "yes -- crossed out on the map"
             : "no"));
+
+        rows.AddRange(broke);
+
+        return rows;
+    }
+
+    /// <summary>
+    /// One source's page: what it says about the watched unit, then what it says
+    /// about itself, with any heading the panel has already used renamed.
+    /// </summary>
+    /// <remarks>
+    /// <b>The unit's rows come first and the source's own rows follow them.</b>
+    /// The panel's subject is one unit, and a source's <c>Describe</c> is the
+    /// setup it is fighting in -- the rates, the board, what the fog is doing.
+    /// That is context worth having on screen beside a unit losing health at some
+    /// rate, and it reads the same whoever is watched, so it belongs under the
+    /// answers that change rather than over them. Dropping it was the alternative,
+    /// and it would have thrown away the half of <see cref="IWorldDebugView"/>
+    /// that says what the numbers mean.
+    /// <para>
+    /// <b>A group name already in the panel is renamed rather than merged or
+    /// dropped.</b> Two blocks called <c>Unit</c>, interleaved, would be a panel
+    /// quietly claiming that a tactics world's rows are the movement layer's --
+    /// the one outcome worth going out of the way to prevent. Dropping the rows
+    /// instead would lose whatever the source had to say for the sake of a name
+    /// collision it cannot see. So the second one becomes <c>Unit (2)</c>, the
+    /// third <c>Unit (3)</c>, every row of that group inside this source gets the
+    /// same new name, and a host printing a heading on each change still prints
+    /// one heading per block.
+    /// </para>
+    /// <para>
+    /// An id the source has never heard of needs nothing here:
+    /// <see cref="IWorldDebugView.DebugFor"/> answers for any int, and a source
+    /// with nothing to say about one contributes no rows and therefore no heading.
+    /// </para>
+    /// </remarks>
+    private static List<DebugRow> RowsFrom(IWorldDebugView source, int watched, IReadOnlySet<string> taken)
+    {
+        var unit = source.DebugFor(watched).Describe();
+        var world = source.Describe();
+
+        var rows = new List<DebugRow>(unit.Count + world.Count);
+        var renamed = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var row in unit.Concat(world))
+        {
+            if (!renamed.TryGetValue(row.Group, out var heading))
+            {
+                heading = row.Group;
+                var attempt = 2;
+                while (taken.Contains(heading) || renamed.ContainsValue(heading))
+                {
+                    heading = $"{row.Group} ({Number(attempt)})";
+                    attempt++;
+                }
+
+                renamed[row.Group] = heading;
+            }
+
+            rows.Add(row with { Group = heading });
+        }
 
         return rows;
     }

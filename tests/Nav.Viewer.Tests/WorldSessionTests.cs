@@ -20,6 +20,28 @@ public sealed class WorldSessionTests
 {
     private static Grid Fixture() => Grid.FromMapText(SampleMaps.CornerCutTrap);
 
+    /// <summary>
+    /// A walled empty room, sized to stand a three-digit roster in.
+    /// </summary>
+    /// <remarks>
+    /// The sample map is 12x7 and holds 39 passable cells, which is short of the
+    /// boundary that matters: the roster has to reach a hundred for the third
+    /// digit to appear.
+    /// </remarks>
+    private static Grid OpenRoom(int width, int height)
+    {
+        var lines = new List<string> { "type octile", $"height {height}", $"width {width}", "map" };
+
+        for (var y = 0; y < height; y++)
+        {
+            lines.Add(y == 0 || y == height - 1
+                ? new string('@', width)
+                : $"@{new string('.', width - 2)}@");
+        }
+
+        return Grid.FromMapText(string.Join('\n', lines));
+    }
+
     /// <summary>How long one tick of a live world lasts, for frame-driven tests.</summary>
     private static float TickSeconds => (float)WorldScale.Default.SecondsPerTick;
 
@@ -154,6 +176,47 @@ public sealed class WorldSessionTests
     }
 
     [Fact]
+    public void TheStatusLineNeverChangesLengthWhileAWorldBringsUnitsOn()
+    {
+        // The half of the invariant a fixed roster cannot see, and the reason
+        // the version in ViewerAppTests stayed green through the defect: the
+        // padding width was the ROSTER's digit count, so a wave landing widened
+        // arrived, stuck, planning and sel together -- and the roster count
+        // itself was interpolated with no padding at all. In a window sized to
+        // content that re-measures, which is the shaking.
+        //
+        // Two boundaries, because one is a coincidence away from passing: 8
+        // units, six more on tick 0 the way the guard world's first wave lands,
+        // then a hundred more.
+        var grid = OpenRoom(24, 24);
+        var app = new ViewerApp(
+            ViewerSession.FromWorld(
+                () => new FakeWorld(grid, agents: 8, waves: [(0, 6), (5, 100)]),
+                "fake"),
+            1000,
+            1000);
+
+        var lengths = new HashSet<int> { app.StatusText.Length };
+        var rosters = new List<int>();
+        var input = new InputAccumulator();
+
+        for (var frame = 0; frame < 30; frame++)
+        {
+            app.Update(input.Drain(), TickSeconds);
+            lengths.Add(app.StatusText.Length);
+            rosters.Add(app.Agents.Count);
+        }
+
+        // Both boundaries were actually crossed. Without this the assertion
+        // below is a claim about a world that never grew -- which is exactly
+        // what the fixed-roster version of this test has always been.
+        Assert.Equal(14, rosters[0]);
+        Assert.Equal(114, rosters[^1]);
+
+        Assert.Single(lengths);
+    }
+
+    [Fact]
     public void RBuildsTheWorldAgainAndTheViewerDrawsTheSmallerRoster()
     {
         var grid = Fixture();
@@ -204,23 +267,25 @@ public sealed class WorldSessionTests
     {
         private readonly int _arrivalTick;
         private readonly int _arrivalCell;
+        private readonly IReadOnlyList<(int Tick, int Count)> _waves;
 
-        public FakeWorld(Grid grid, int agents = 2, int arrivalTick = -1, int arrivalCell = -1)
+        /// <summary>The next empty cell a wave lands on, walked forward as they do.</summary>
+        private int _next;
+
+        public FakeWorld(
+            Grid grid,
+            int agents = 2,
+            int arrivalTick = -1,
+            int arrivalCell = -1,
+            IReadOnlyList<(int Tick, int Count)>? waves = null)
         {
             Grid = grid;
             Board = new MovementSystem(grid);
             _arrivalTick = arrivalTick;
             _arrivalCell = arrivalCell;
+            _waves = waves ?? [];
 
-            var placed = 0;
-            for (var cell = 0; cell < grid.CellCount && placed < agents; cell++)
-            {
-                if (grid.IsPassable(cell))
-                {
-                    Board.AddAgent(cell);
-                    placed++;
-                }
-            }
+            Place(agents);
         }
 
         public Grid Grid { get; }
@@ -239,7 +304,31 @@ public sealed class WorldSessionTests
                 Board.AddAgent(_arrivalCell);
             }
 
+            foreach (var wave in _waves)
+            {
+                if (wave.Tick == tick)
+                {
+                    Place(wave.Count);
+                }
+            }
+
             Board.Tick();
+        }
+
+        /// <summary>Puts <paramref name="count"/> units on the next empty cells.</summary>
+        private void Place(int count)
+        {
+            var placed = 0;
+            for (; _next < Grid.CellCount && placed < count; _next++)
+            {
+                if (Grid.IsPassable(_next) && _next != _arrivalCell)
+                {
+                    Board.AddAgent(_next);
+                    placed++;
+                }
+            }
+
+            Assert.Equal(count, placed);
         }
     }
 }

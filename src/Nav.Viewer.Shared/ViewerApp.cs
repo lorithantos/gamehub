@@ -34,6 +34,25 @@ public sealed class ViewerApp : IViewerApp
     /// <summary>A drag smaller than this in both axes is a click.</summary>
     private const float ClickSlopPixels = 4.0f;
 
+    /// <summary>
+    /// How many digits every counter in the status line is padded to.
+    /// </summary>
+    /// <remarks>
+    /// A CONSTANT, not the roster's digit count. A live world brings units on
+    /// mid-run, so a width read off the roster steps up the moment a wave lands
+    /// and drags every counter in the line up with it — which is the shaking
+    /// this padding exists to prevent, arriving from the one number that was
+    /// trusted to hold still. A high-water mark is the same step, later and
+    /// harder to explain.
+    /// <para>
+    /// Four digits covers a roster of 9999, and the counters derived from it —
+    /// arrived, stuck, planning, selected — can never exceed the roster. Past
+    /// 9999 nothing is truncated: the number prints at its own width and the
+    /// line grows, once, and stays at the new length.
+    /// </para>
+    /// </remarks>
+    private const int CounterDigits = 4;
+
     private readonly ViewerSession _session;
     private readonly int _fitWidth;
     private readonly int _fitHeight;
@@ -190,9 +209,10 @@ public sealed class ViewerApp : IViewerApp
     /// The app owns the <em>string</em> because <see cref="IRenderer"/> has no
     /// text verb by design; each host owns how it is shown.
     /// <para>
-    /// Its counters are padded to a width they cannot outgrow, so the line never
-    /// changes length while the numbers do — a breathing line shakes a window
-    /// sized to content.
+    /// Its counters are padded to <see cref="CounterDigits"/> — a constant, and
+    /// the roster count is one of them — so the line never changes length while
+    /// the numbers do, or while a live world brings more units on. A breathing
+    /// line shakes a window sized to content.
     /// </para>
     /// </remarks>
     public string StatusText { get; private set; }
@@ -1039,16 +1059,17 @@ public sealed class ViewerApp : IViewerApp
         var arrived = agents.Count(a => a.Arrived);
         var stuck = agents.Count(a => a.Stuck);
 
-        // Every counter is padded to a width it cannot outgrow, so the line
-        // never changes length while the numbers change. A breathing status
-        // line jitters in place -- and in a window sized to content it shook
-        // the whole window.
-        var pad = agents.Count.ToString(CultureInfo.InvariantCulture).Length;
-        string Fixed(int value) => value.ToString(CultureInfo.InvariantCulture).PadLeft(pad);
+        // Every counter goes through Fixed, the ROSTER INCLUDED, and Fixed pads
+        // to a constant -- see CounterDigits. So the line holds its length while
+        // the numbers change and while a live world brings units on. A breathing
+        // status line jitters in place -- and in a window sized to content it
+        // shook the whole window.
+        static string Fixed(int value) =>
+            value.ToString(CultureInfo.InvariantCulture).PadLeft(CounterDigits);
 
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"{_grid.Width}x{_grid.Height}  {agents.Count} units  {Fixed(arrived)} arrived  {Fixed(stuck)} stuck  " +
+            $"{_grid.Width}x{_grid.Height}  {Fixed(agents.Count)} units  {Fixed(arrived)} arrived  {Fixed(stuck)} stuck  " +
             $"{Fixed(planning)} planning  fields {_session.LiveFields}/{MovementSystem.FieldCapacity}  " +
             $"{_session.LastTick.NodesSpent,6} nodes/tick  " +
             $"tick {_session.CurrentTick,6}  {(_session.Running ? "[running]" : "[paused]"),-9} " +

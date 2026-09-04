@@ -1019,7 +1019,7 @@ public sealed class ViewerAppTests
         var (app, _, _) = Run(new ScriptedFrame());
 
         Assert.Contains("12x7", app.StatusText, StringComparison.Ordinal);
-        Assert.Contains($"{Squad} units", app.StatusText, StringComparison.Ordinal);
+        Assert.Contains($"{Squad,4} units", app.StatusText, StringComparison.Ordinal);
         Assert.Contains("arrived", app.StatusText, StringComparison.Ordinal);
         Assert.Contains("fields", app.StatusText, StringComparison.Ordinal);
         Assert.Contains("nodes/tick", app.StatusText, StringComparison.Ordinal);
@@ -1280,7 +1280,7 @@ public sealed class ViewerAppTests
             new RecordingRenderer());
         host.Run(app);
 
-        Assert.Contains($"{Squad} units", app.StatusText, StringComparison.Ordinal);
+        Assert.Contains($"{Squad,4} units", app.StatusText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1290,6 +1290,11 @@ public sealed class ViewerAppTests
         // sized to content, and every counter that changed digit count -- nodes
         // spent, planning, the tick -- re-measured it. Counters are padded now,
         // and this samples every tick to hold them to it.
+        //
+        // The roster here is fixed for the session, so this says nothing about
+        // the count that grows. WorldSessionTests.
+        // TheStatusLineNeverChangesLengthWhileAWorldBringsUnitsOn is that half,
+        // and it is the half that was broken while this one stayed green.
         var grid = Fixture();
         var layout = LayoutFor(grid);
         var app = new ViewerApp(grid, layout, Squad);

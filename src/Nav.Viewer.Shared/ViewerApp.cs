@@ -1550,10 +1550,15 @@ public sealed class ViewerApp : IViewerApp
         var rows = new List<DebugRow>(_session.DebugFor(watched).Describe());
 
         // Headings already spoken for. A source is free to call a group anything,
-        // and "Unit" is the likeliest name in the codebase for it to pick -- so
-        // without this a tactics world's unit rows would land under the movement
-        // layer's own heading and read as the movement layer's answers. Viewer is
-        // reserved from the start for the same reason, one block further down.
+        // and without this a source that picked a name the movement layer already
+        // uses would land its rows under that heading and read as the movement
+        // layer's own answers. Viewer is reserved from the start for the same
+        // reason, one block further down.
+        //
+        // The names shipped today were pulled apart so no such collision happens
+        // -- the movement layer says Agent and the tactics view says Condition --
+        // and that changes nothing here: what a source calls its groups is not
+        // this panel's to know in advance.
         var taken = new HashSet<string>(StringComparer.Ordinal) { Viewer, Controls };
         foreach (var row in rows)
         {

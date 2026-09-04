@@ -332,9 +332,9 @@ public sealed class DebugViewTests
         system.Remove(0);
 
         var view = system.DebugFor(0);
-        Assert.Equal("no", Value(view, "Unit", "alive"));
-        Assert.Contains("removed from the world", Note(view, "Unit", "alive"), StringComparison.Ordinal);
-        Assert.Contains($"#{where}", Value(view, "Unit", "cell"), StringComparison.Ordinal);
+        Assert.Equal("no", Value(view, "Agent", "alive"));
+        Assert.Contains("removed from the world", Note(view, "Agent", "alive"), StringComparison.Ordinal);
+        Assert.Contains($"#{where}", Value(view, "Agent", "cell"), StringComparison.Ordinal);
 
         // A corpse holds no plan, no slot and no formation, so it gets no rows
         // claiming otherwise -- zeroes under those headings would read as facts
@@ -539,15 +539,15 @@ public sealed class DebugViewTests
         system.Order([0, 1], grid.Index(8, 4));
         system.Tick();
 
-        var alive = Value(system.DebugFor(0), "Unit", "alive");
+        var alive = Value(system.DebugFor(0), "Agent", "alive");
         Assert.StartsWith("yes", alive, StringComparison.Ordinal);
         Assert.DoesNotContain("removed", alive, StringComparison.Ordinal);
 
         // And it is read from the agent, not printed: the same id after Remove
         // reports the other answer.
         system.Remove(0);
-        Assert.StartsWith("no", Value(system.DebugFor(0), "Unit", "alive"), StringComparison.Ordinal);
-        Assert.StartsWith("yes", Value(system.DebugFor(1), "Unit", "alive"), StringComparison.Ordinal);
+        Assert.StartsWith("no", Value(system.DebugFor(0), "Agent", "alive"), StringComparison.Ordinal);
+        Assert.StartsWith("yes", Value(system.DebugFor(1), "Agent", "alive"), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -711,7 +711,7 @@ public sealed class DebugViewTests
         Assert.NotEqual(grid.Index(0, 2), system.Agents[far].Cell);
 
         var atNow = Value(view, "Plan", "at now");
-        Assert.StartsWith(Value(view, "Unit", "cell"), atNow, StringComparison.Ordinal);
+        Assert.StartsWith(Value(view, "Agent", "cell"), atNow, StringComparison.Ordinal);
         Assert.DoesNotContain("disagree", atNow, StringComparison.Ordinal);
 
         // It is not the "next" row said twice: this tick's cell is behind the

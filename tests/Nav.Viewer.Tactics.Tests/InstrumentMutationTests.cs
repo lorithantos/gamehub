@@ -93,4 +93,38 @@ public sealed class InstrumentMutationTests
         Assert.Contains(caused, m => m.What == "this._asOf =");
         Assert.Contains(caused, m => m.What == "_visible.set_Item()");
     }
+
+    /// <summary>
+    /// Taking a squad's view changes nothing, which is what lets the panel take
+    /// one on every read.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Squad.ViewFor"/> is not itself marked, because a doctrine pass
+    /// builds the same snapshot through the two-argument <c>Squad.Advance</c>,
+    /// and that one is meant to be followed by orders. What has to hold is the
+    /// SNAPSHOT half: the constructor reads a board, a membership
+    /// and a perception, and if any of those three reads resolved something on
+    /// the way past then a panel would be moving the fight it is watching. That
+    /// is the exact fault this seam was fixed for once already, in the
+    /// perception half, so it is worth a root of its own here.
+    /// </remarks>
+    [Fact]
+    public void TakingASquadsViewForAnInstrumentCausesNothing()
+    {
+        var walk = new MutationWalk(
+            typeof(MovementSystem).Assembly,
+            typeof(DemoWorld).Assembly,
+            typeof(DemoWorldDebugView).Assembly);
+        var root = typeof(Squad).GetMethod(nameof(Squad.ViewFor))!;
+
+        var found = walk.From(root);
+        var report = MutationWalk.Report(root, found);
+
+        Assert.True(found.All(m => m.Suppressed is not null), report);
+
+        // And the walk went somewhere: the constructor reads the board and both
+        // halves of the perception, so a green from three methods would mean it
+        // stopped at the assembly wall rather than that nothing happens.
+        Assert.True(walk.Visited > 20, $"only {walk.Visited} methods read\n{report}");
+    }
 }

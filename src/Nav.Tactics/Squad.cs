@@ -117,4 +117,35 @@ public sealed class Squad
         ArgumentNullException.ThrowIfNull(perception);
         Doctrine.Advance(new SquadOps(this, system, perception));
     }
+
+    /// <summary>
+    /// The doctrine's own view of this squad, read-only: what
+    /// <see cref="Advance(MovementSystem, IPerception)"/> would hand a doctrine
+    /// on this tick, with the verbs left off.
+    /// </summary>
+    /// <remarks>
+    /// <b>For an instrument, and for nothing else.</b> Something that wants to
+    /// say why a squad did what it did has to read what the doctrine read;
+    /// assembling the same answers a second way out of the board and the world
+    /// is how a display and a decision drift apart while both look right.
+    /// <para>
+    /// <see cref="ISquadView"/> and not <see cref="ISquadOps"/>, so a holder is
+    /// structurally unable to move anything. That is the split the two facets
+    /// were made for.
+    /// </para>
+    /// <para>
+    /// A snapshot taken here and never refreshed, exactly as a pass gets one:
+    /// what it answers is the tick it was asked on, however long it is held.
+    /// </para>
+    /// </remarks>
+    /// <param name="system">The board its members are standing on.</param>
+    /// <param name="perception">
+    /// What this squad's side can see, as its doctrine would be handed it.
+    /// </param>
+    public ISquadView ViewFor(MovementSystem system, IPerception perception)
+    {
+        ArgumentNullException.ThrowIfNull(system);
+        ArgumentNullException.ThrowIfNull(perception);
+        return new SquadOps(this, system, perception);
+    }
 }

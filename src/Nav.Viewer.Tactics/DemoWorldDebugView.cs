@@ -45,12 +45,30 @@ public sealed class DemoWorldDebugView : IWorldDebugView
     private const string Ranks = "Rank";
 
     private readonly DemoWorld _world;
+    private readonly ISquadView[] _squads;
 
     /// <param name="world">The world to read. Never written to.</param>
-    public DemoWorldDebugView(DemoWorld world)
+    /// <param name="squads">
+    /// The squads on the board, as their doctrines see them: one snapshot each,
+    /// taken by whoever composed this view. Null or empty is a world nobody has
+    /// put a squad on, and the squad rows say so rather than going missing.
+    /// </param>
+    /// <remarks>
+    /// <b>Views, not squads.</b> What a doctrine is handed is
+    /// <see cref="ISquadView"/>, so that is what the panel reads: the rows below
+    /// cannot say anything a doctrine could not have seen, and they cannot move
+    /// anything either, because the movement half of the seam is not on the type.
+    /// <para>
+    /// A snapshot goes stale the moment the world ticks, which is why the host
+    /// builds this view again for every read rather than keeping one. See
+    /// <c>LiveWorldSource</c>.
+    /// </para>
+    /// </remarks>
+    public DemoWorldDebugView(DemoWorld world, IReadOnlyList<ISquadView>? squads = null)
     {
         ArgumentNullException.ThrowIfNull(world);
         _world = world;
+        _squads = squads is null ? [] : [.. squads];
     }
 
     /// <inheritdoc/>
@@ -144,7 +162,7 @@ public sealed class DemoWorldDebugView : IWorldDebugView
 
     /// <inheritdoc/>
     [Observes]
-    public IDebugView DebugFor(int agent) => new UnitDebugView(_world, agent);
+    public IDebugView DebugFor(int agent) => new UnitDebugView(_world, _squads, agent);
 
     private static string Number(long value) => value.ToString(CultureInfo.InvariantCulture);
 
@@ -195,9 +213,10 @@ public sealed class DemoWorldDebugView : IWorldDebugView
     /// it knows.
     /// </para>
     /// </remarks>
-    private sealed class UnitDebugView(DemoWorld world, int id) : IDebugView
+    private sealed class UnitDebugView(DemoWorld world, IReadOnlyList<ISquadView> squads, int id) : IDebugView
     {
-        private const string Unit = "Unit";
+        private const string Squad = "Squad";
+        private const string Condition = "Condition";
         private const string Loadout = "Kit";
         private const string Fight = "Fight";
         private const string Perception = "Perception";
@@ -207,7 +226,7 @@ public sealed class DemoWorldDebugView : IWorldDebugView
         {
             if (id < 0)
             {
-                return [new DebugRow(Unit, "id", Number(id), "no such unit; ids start at 0")];
+                return [new DebugRow(Condition, "id", Number(id), "no such unit; ids start at 0")];
             }
 
             var side = world.SideOf(id);
@@ -217,30 +236,30 @@ public sealed class DemoWorldDebugView : IWorldDebugView
             var (rank, rankNote) = Rank();
             var (points, pointsNote) = Contribution();
 
-            var rows = new List<DebugRow>
+            var rows = new List<DebugRow>(SquadRows())
             {
-                new(Unit, "id", Number(id)),
+                new(Condition, "id", Number(id)),
 
-                new(Unit, "side", Number(side), "whose eyes the perception rows below are read through"),
+                new(Condition, "side", Number(side), "whose eyes the perception rows below are read through"),
 
                 health <= 0.0
-                    ? new(Unit, "health", "0", $"none of its {Amount(hitPoints)} hit points left; it is down")
+                    ? new(Condition, "health", "0", $"none of its {Amount(hitPoints)} hit points left; it is down")
                     : new(
-                        Unit,
+                        Condition,
                         "health",
                         Percent(health),
                         $"of full: {Amount(health * hitPoints)} of {Amount(hitPoints)} hit points"),
 
-                new(Unit, "armour", world.ArmourOf(id), "the class a shot at it is judged against"),
+                new(Condition, "armour", world.ArmourOf(id), "the class a shot at it is judged against"),
 
-                new(Unit, "rank", rank, rankNote),
+                new(Condition, "rank", rank, rankNote),
 
-                new(Unit, "contribution", points, pointsNote),
+                new(Condition, "contribution", points, pointsNote),
 
                 world.ExposureTicksOf(id) == 0
-                    ? new(Unit, "exposed", "0 ticks", "it has never stood within reach of a scripted threat")
+                    ? new(Condition, "exposed", "0 ticks", "it has never stood within reach of a scripted threat")
                     : new(
-                        Unit,
+                        Condition,
                         "exposed",
                         $"{Number(world.ExposureTicksOf(id))} ticks",
                         $"spent within {Amount(world.ExposureRadius)} steps of a scripted threat, " +
@@ -305,6 +324,176 @@ public sealed class DemoWorldDebugView : IWorldDebugView
 
             return rows;
         }
+
+        /// <summary>
+        /// The squad this unit belongs to, as its doctrine sees it. The only
+        /// rows in this view whose subject is a GROUP.
+        /// </summary>
+        /// <remarks>
+        /// <b>Every row here is something a doctrine branched on.</b> A guard
+        /// checks the anchor and marches the squad to its station if there is
+        /// none; a repair policy counts who is on station against its reserve,
+        /// reads who is already away and where to, and pulls whoever has fallen
+        /// under their own rank's threshold. So the anchor, the roster, the
+        /// on-station count, the errands and the worst health in the squad are
+        /// the inputs to what the reader just watched happen -- and a row that
+        /// answered nothing a doctrine asked would be decoration.
+        /// <para>
+        /// <b>What is NOT repeated here is what the squad can see.</b>
+        /// <c>Hostiles</c>, <c>Sightings</c> and <c>RepairPoints</c> on the
+        /// squad seam are the side's perception, and the Perception group is
+        /// already that same side's, read from the same place. Two copies of one
+        /// list under two headings would invite a reader to hunt for the
+        /// difference between them.
+        /// </para>
+        /// <para>
+        /// <b>What cannot be shown is the doctrine's own numbers</b> -- the
+        /// reserve, the retreat thresholds by rank, the return threshold. They
+        /// live on the doctrine, not on the seam it is handed, so a view built
+        /// out of <see cref="ISquadView"/> cannot reach them and does not guess.
+        /// </para>
+        /// </remarks>
+        private IReadOnlyList<DebugRow> SquadRows()
+        {
+            ISquadView? squad = null;
+            foreach (var candidate in squads)
+            {
+                if (candidate.Members.Contains(id))
+                {
+                    squad = candidate;
+                    break;
+                }
+            }
+
+            // ANSWERED, NOT OMITTED. A group that vanished would read as a fault
+            // in the panel; belonging to no squad is a fact about the unit and a
+            // common one -- a unit nobody enlisted, a wave already wiped out.
+            if (squad is null)
+            {
+                return
+                [
+                    new DebugRow(
+                        Squad,
+                        "squad",
+                        "none",
+                        squads.Count == 0
+                            ? "nobody handed this view a squad, so there is no doctrine here to read"
+                            : $"in none of the {Number(squads.Count)} on the board; no doctrine decides for it"),
+                ];
+            }
+
+            var members = squad.Members;
+            var away = squad.Away;
+
+            var rows = new List<DebugRow>
+            {
+                new(Squad, "squad", squad.Name, "the membership a doctrine advances; it outlives every order"),
+
+                squad.Anchor < 0
+                    ? new(
+                        Squad,
+                        "anchor",
+                        "none",
+                        "never moved as a group, so a doctrine holding a station has yet to march to it")
+                    : new(
+                        Squad,
+                        "anchor",
+                        Cell(squad, squad.Anchor),
+                        "where it is stationed: the destination of its last group move"),
+
+                new(Squad, "members", Number(members.Count), "still able to act; a casualty stops being listed"),
+
+                // THE NUMBER THAT EXPLAINS A UNIT LEFT STANDING HURT. A repair
+                // policy stops detaching once this reaches its reserve, and
+                // there is nowhere else on the panel to read it.
+                new(
+                    Squad,
+                    "on station",
+                    Number(members.Count - away.Count),
+                    "with the squad rather than away, and what a repair reserve is measured against"),
+            };
+
+            rows.Add(away.Count == 0
+                ? new DebugRow(Squad, "away", "none", "every member is with the squad")
+                : new DebugRow(Squad, "away", Number(away.Count), Errands(squad, away)));
+
+            rows.Add(Weakest(squad, away));
+            return rows;
+        }
+
+        /// <summary>Where the ones away are headed, so an errand is more than a count.</summary>
+        /// <remarks>
+        /// A repair policy sends a member to a pad, so naming the destination is
+        /// what tells a reader whether one is off being mended or off somewhere
+        /// else entirely. A long list is cut short rather than filling a tooltip
+        /// nobody can read.
+        /// </remarks>
+        private static string Errands(ISquadView squad, IReadOnlyList<int> away)
+        {
+            var text = new StringBuilder("away on errands of their own: ");
+            for (var i = 0; i < away.Count; i++)
+            {
+                if (i > 0)
+                {
+                    text.Append(", ");
+                }
+
+                if (i == 4)
+                {
+                    text.Append("and ").Append(Number(away.Count - i)).Append(" more");
+                    break;
+                }
+
+                text.Append("agent ").Append(Number(away[i]))
+                    .Append(" to ").Append(Cell(squad, squad.ErrandOf(away[i])));
+            }
+
+            return text.ToString();
+        }
+
+        /// <summary>
+        /// The member with the least health left: the pressure a repair doctrine
+        /// is answering, and the one squad-wide fact no per-unit row can carry.
+        /// </summary>
+        /// <remarks>
+        /// Not the same as who goes next -- a policy spending a scarce pad on the
+        /// lowest RANK first will pass over this one -- so the row says what it
+        /// is, and the rank beside it lets a reader work out the rest.
+        /// </remarks>
+        private static DebugRow Weakest(ISquadView squad, IReadOnlyList<int> away)
+        {
+            var weakest = -1;
+            var lowest = double.PositiveInfinity;
+            foreach (var member in squad.Members)
+            {
+                var health = squad.HealthOf(member);
+                if (health < lowest)
+                {
+                    lowest = health;
+                    weakest = member;
+                }
+            }
+
+            return weakest < 0
+                ? new DebugRow(Squad, "weakest", "none", "there is nobody left in the squad to be hurt")
+                : new DebugRow(
+                    Squad,
+                    "weakest",
+                    $"agent {Number(weakest)} at {Percent(lowest)}",
+                    $"rank {Number(squad.RankOf(weakest))}, " +
+                    (away.Contains(weakest) ? "already away" : "on station") +
+                    "; nobody in the squad is worse off");
+        }
+
+        /// <summary>
+        /// A cell written the way the movement layer writes one, built from the
+        /// two geometry questions the squad seam answers.
+        /// </summary>
+        private static string Cell(ISquadView squad, int cell) => cell < 0
+            ? "-"
+            : string.Create(
+                CultureInfo.InvariantCulture,
+                $"{squad.ColumnOf(cell)},{squad.RowOf(cell)} (#{cell})");
 
         private static string Percent(double fraction) =>
             string.Create(CultureInfo.InvariantCulture, $"{fraction * 100.0:0.#}%");

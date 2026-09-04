@@ -134,7 +134,7 @@ internal static class Program
                 // describing or drawing a world nobody is stepping.
                 return (
                     session,
-                    [new LiveWorldSource(() => new DemoWorldDebugView(live!.World))],
+                    [new LiveWorldSource(() => Panel(live!))],
                     new LiveVisibilitySource(() => new DemoWorldVisibility(live!.World)));
             }
 
@@ -146,4 +146,31 @@ internal static class Program
                     $"Known worlds: {string.Join(", ", ViewerOptions.KnownWorlds)}.");
         }
     }
+
+    /// <summary>
+    /// The panel's view of the world as it stands: the tactics world, and every
+    /// squad on the board as its own doctrine is handed it.
+    /// </summary>
+    /// <remarks>
+    /// <b>Wiring, and it belongs here for the same reason the rest of Compose
+    /// does.</b> Which perception a squad reasons through is a fact about the
+    /// composition -- the guards look through side 0 and the waves through side
+    /// 1, exactly as <see cref="GuardRetreatWorld.Step"/> hands them out -- and
+    /// nothing downstream could work it out. Reading the squad rows through the
+    /// wrong side's eyes would be a panel quietly telling the reader the guards
+    /// can see what the attackers can.
+    /// <para>
+    /// The views are snapshots, so this is called again for every read rather
+    /// than once. <see cref="LiveWorldSource"/> is what makes that true, and it
+    /// is also what keeps the waves list current: a wave that arrives at tick
+    /// 160 is in here from the next read onwards without anything being told.
+    /// </para>
+    /// </remarks>
+    private static DemoWorldDebugView Panel(GuardRetreatWorld live) =>
+        new(
+            live.World,
+            [
+                live.Guard.ViewFor(live.Board, live.World.ViewFor(0)),
+                .. live.Waves.Select(wave => wave.ViewFor(live.Board, live.World.ViewFor(1))),
+            ]);
 }

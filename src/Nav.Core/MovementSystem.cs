@@ -2021,7 +2021,7 @@ public sealed class MovementSystem : IDebugView
     {
         public IReadOnlyList<DebugRow> Describe()
         {
-            const string Unit = "Unit";
+            const string Agent = "Agent";
             const string Progress = "Progress";
             const string Route = "Plan";
             const string Formation = "Formation";
@@ -2033,7 +2033,7 @@ public sealed class MovementSystem : IDebugView
                 return
                 [
                     new DebugRow(
-                        Unit,
+                        Agent,
                         "id",
                         Number(id),
                         $"no such agent; this system has {Number(system._agents.Count)}"),
@@ -2050,27 +2050,27 @@ public sealed class MovementSystem : IDebugView
             {
                 return
                 [
-                    new DebugRow(Unit, "id", Number(agent.Id)),
-                    new DebugRow(Unit, "alive", "no", "removed from the world; it holds no ground"),
-                    new DebugRow(Unit, "side", Number(agent.Side)),
-                    new DebugRow(Unit, "cell", system.CellText(agent.Cell), "where it fell"),
+                    new DebugRow(Agent, "id", Number(agent.Id)),
+                    new DebugRow(Agent, "alive", "no", "removed from the world; it holds no ground"),
+                    new DebugRow(Agent, "side", Number(agent.Side)),
+                    new DebugRow(Agent, "cell", system.CellText(agent.Cell), "where it fell"),
                 ];
             }
 
             var rows = new List<DebugRow>
             {
-                new(Unit, "id", Number(agent.Id)),
-                new(Unit, "alive", "yes", "in the world and holding its cell"),
-                new(Unit, "side", Number(agent.Side)),
-                new(Unit, "cell", system.CellText(agent.Cell)),
-                new(Unit, "goal", system.CellText(agent.Goal)),
-                new(Unit, "arrived", YesNo(agent.Cell == agent.Goal)),
+                new(Agent, "id", Number(agent.Id)),
+                new(Agent, "alive", "yes", "in the world and holding its cell"),
+                new(Agent, "side", Number(agent.Side)),
+                new(Agent, "cell", system.CellText(agent.Cell)),
+                new(Agent, "goal", system.CellText(agent.Goal)),
+                new(Agent, "arrived", YesNo(agent.Cell == agent.Goal)),
             };
 
             if (agent.Errand >= 0)
             {
                 rows.Add(new DebugRow(
-                    Unit,
+                    Agent,
                     "errand",
                     system.CellText(agent.Errand),
                     "away, and its formation is keeping its place"));

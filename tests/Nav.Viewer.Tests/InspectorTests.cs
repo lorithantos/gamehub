@@ -80,22 +80,22 @@ public sealed class InspectorTests
         var app = new ViewerApp(grid, LayoutFor(grid), Squad);
         var rows = app.Inspector;
 
-        Assert.Equal("0", Value(rows, "Unit", "id"));
-        Assert.Equal("0", Value(rows, "Unit", "side"));
+        Assert.Equal("0", Value(rows, "Agent", "id"));
+        Assert.Equal("0", Value(rows, "Agent", "side"));
 
         // Cells read col,row, with the flat index after it. Nobody reads a map in
         // flat indices, and nobody debugs one without them.
-        Assert.Equal($"1,1 (#{grid.Index(1, 1)})", Value(rows, "Unit", "cell"));
-        Assert.Equal($"1,1 (#{grid.Index(1, 1)})", Value(rows, "Unit", "goal"));
+        Assert.Equal($"1,1 (#{grid.Index(1, 1)})", Value(rows, "Agent", "cell"));
+        Assert.Equal($"1,1 (#{grid.Index(1, 1)})", Value(rows, "Agent", "goal"));
 
         // Its goal is its own cell, because nobody has ordered it anywhere --
         // and standing on your goal is what arrived means.
-        Assert.Equal("yes", Value(rows, "Unit", "arrived"));
+        Assert.Equal("yes", Value(rows, "Agent", "arrived"));
 
         // No errand row at all rather than a row reading "-": an absent fact is
         // reported by its absence here, the way an absent plan and an absent
         // formation are.
-        Assert.False(HasKey(rows, "Unit", "errand"), "a unit on no errand still reported one");
+        Assert.False(HasKey(rows, "Agent", "errand"), "a unit on no errand still reported one");
 
         Assert.Equal("no", Value(rows, "Progress", "searching"));
         Assert.Equal("no", Value(rows, "Progress", "stalled"));
@@ -125,7 +125,7 @@ public sealed class InspectorTests
         using var host = new ScriptedHost([new ScriptedFrame(Dt: 0f)], new RecordingRenderer());
         host.Run(app);
 
-        Assert.Equal("2", Value(app.Inspector, "Unit", "id"));
+        Assert.Equal("2", Value(app.Inspector, "Agent", "id"));
 
         // Never ordered, so it holds the cell it stands on -- and the row names
         // THAT cell, which is (3,1) for unit 2 and nobody else's. A row wired to
@@ -145,7 +145,7 @@ public sealed class InspectorTests
         using var ordered = new ScriptedHost([new ScriptedFrame(Dt: 0f)], new RecordingRenderer());
         ordered.Run(app);
 
-        Assert.Equal("2", Value(app.Inspector, "Unit", "id"));
+        Assert.Equal("2", Value(app.Inspector, "Agent", "id"));
         Assert.StartsWith("none", Value(app.Inspector, "Progress", "slot"), StringComparison.Ordinal);
     }
 
@@ -383,7 +383,7 @@ public sealed class InspectorTests
         host.Run(app);
 
         Assert.Equal(Squad, app.Selection.Count);
-        Assert.Equal("0", Value(app.Inspector, "Unit", "id"));
+        Assert.Equal("0", Value(app.Inspector, "Agent", "id"));
         Assert.Equal("3 also selected", Value(app.Inspector, "Viewer", "others"));
     }
 
@@ -409,7 +409,7 @@ public sealed class InspectorTests
         // has never been ordered here, so it has no formation and therefore no
         // field rows, and the sequence is exact.
         Assert.Equal(
-            ["Unit", "Progress", "Plan", "Formation", "Planning", "Viewer", "Controls"],
+            ["Agent", "Progress", "Plan", "Formation", "Planning", "Viewer", "Controls"],
             GroupRuns(app.Inspector));
 
         using var host = new ScriptedHost(
@@ -443,7 +443,7 @@ public sealed class InspectorTests
 
         Assert.Equal(plain.Inspector, empty.Inspector);
         Assert.Equal(
-            ["Unit", "Progress", "Plan", "Formation", "Planning", "Viewer", "Controls"],
+            ["Agent", "Progress", "Plan", "Formation", "Planning", "Viewer", "Controls"],
             GroupRuns(plain.Inspector));
 
         // Nothing renamed, and no source reported broken, because there was
@@ -464,14 +464,14 @@ public sealed class InspectorTests
         // The unit's rows first and the source's own rows after them, as one
         // block, between what the movement layer said and what the viewer says.
         Assert.Equal(
-            ["Unit", "Progress", "Plan", "Formation", "Planning", "Fight", "Fight world", "Viewer", "Controls"],
+            ["Agent", "Progress", "Plan", "Formation", "Planning", "Fight", "Fight world", "Viewer", "Controls"],
             GroupRuns(app.Inspector));
 
         Assert.Equal("0 by Fight", Value(app.Inspector, "Fight", "watched"));
         Assert.Equal("Fight", Value(app.Inspector, "Fight world", "source"));
 
         // And the movement layer's own rows are exactly what they were.
-        Assert.Equal("0", Value(app.Inspector, "Unit", "id"));
+        Assert.Equal("0", Value(app.Inspector, "Agent", "id"));
         Assert.Equal("no", Value(app.Inspector, "Progress", "searching"));
         Assert.Equal("no", Value(app.Inspector, "Viewer", "no route"));
     }
@@ -489,12 +489,12 @@ public sealed class InspectorTests
             grid, LayoutFor(grid), Squad, sources: [new Source("Supply", 0), new Source("Fight", 0)]);
 
         Assert.Equal(
-            ["Unit", "Progress", "Plan", "Formation", "Planning",
+            ["Agent", "Progress", "Plan", "Formation", "Planning",
              "Fight", "Fight world", "Supply", "Supply world", "Viewer", "Controls"],
             GroupRuns(forward.Inspector));
 
         Assert.Equal(
-            ["Unit", "Progress", "Plan", "Formation", "Planning",
+            ["Agent", "Progress", "Plan", "Formation", "Planning",
              "Supply", "Supply world", "Fight", "Fight world", "Viewer", "Controls"],
             GroupRuns(backward.Inspector));
 
@@ -504,14 +504,21 @@ public sealed class InspectorTests
     [Fact]
     public void AGroupNameThePanelAlreadyUsesIsRenamedRatherThanMergedIntoIt()
     {
-        // Two sources both calling their group "Unit", which the movement layer
+        // Two sources both calling their group "Agent", which the movement layer
         // already uses. Interleaved they would read as the movement layer's own
         // answers about the unit, which is the worst thing this panel could say.
+        //
+        // NO REAL PAIR OF SOURCES COLLIDES TODAY -- the movement layer says
+        // Agent and the tactics view says Condition, since a panel heading of
+        // "Unit (2)" turned out to mean nothing to anybody reading it. So this
+        // fixture is the whole of the proof that the mechanism still works, and
+        // it is written here out of the interface for exactly that reason: a
+        // source is somebody else's code and may name a group anything.
         var grid = Fixture();
         var app = new ViewerApp(grid, LayoutFor(grid), Squad, sources:
         [
-            new Source("Fight", 0) { UnitGroup = "Unit", WorldGroup = "Viewer" },
-            new Source("Supply", 0) { UnitGroup = "Unit", WorldGroup = "Progress" },
+            new Source("Fight", 0) { UnitGroup = "Agent", WorldGroup = "Viewer" },
+            new Source("Supply", 0) { UnitGroup = "Agent", WorldGroup = "Progress" },
         ]);
 
         var runs = GroupRuns(app.Inspector);
@@ -519,13 +526,13 @@ public sealed class InspectorTests
 
         // The movement layer keeps its headings and its rows, and neither source
         // is inside them.
-        Assert.Equal("0", Value(app.Inspector, "Unit", "id"));
+        Assert.Equal("0", Value(app.Inspector, "Agent", "id"));
         Assert.Equal("no", Value(app.Inspector, "Progress", "searching"));
-        Assert.False(HasKey(app.Inspector, "Unit", "watched"), "a source landed in the movement layer's group");
+        Assert.False(HasKey(app.Inspector, "Agent", "watched"), "a source landed in the movement layer's group");
 
         // Numbered in the order they were handed over, and nothing is lost.
-        Assert.Equal("0 by Fight", Value(app.Inspector, "Unit (2)", "watched"));
-        Assert.Equal("0 by Supply", Value(app.Inspector, "Unit (3)", "watched"));
+        Assert.Equal("0 by Fight", Value(app.Inspector, "Agent (2)", "watched"));
+        Assert.Equal("0 by Supply", Value(app.Inspector, "Agent (3)", "watched"));
         Assert.Equal("Fight", Value(app.Inspector, "Viewer (2)", "source"));
         Assert.Equal("Supply", Value(app.Inspector, "Progress (2)", "source"));
 
@@ -568,7 +575,7 @@ public sealed class InspectorTests
         ]);
 
         // The unit is still described and the source that works is still merged.
-        Assert.Equal("0", Value(app.Inspector, "Unit", "id"));
+        Assert.Equal("0", Value(app.Inspector, "Agent", "id"));
         Assert.Equal("0 by Fine", Value(app.Inspector, "Fine", "watched"));
 
         // Nothing of a broken source survives -- not even the half of the block
@@ -611,7 +618,7 @@ public sealed class InspectorTests
         // What it says about ITSELF is still worth showing: the setup does not
         // depend on who is being watched.
         Assert.Equal("Fight", Value(app.Inspector, "Fight world", "source"));
-        Assert.Equal("0", Value(app.Inspector, "Unit", "id"));
+        Assert.Equal("0", Value(app.Inspector, "Agent", "id"));
     }
 
     [Fact]
@@ -642,8 +649,8 @@ public sealed class InspectorTests
         var layout = LayoutFor(grid);
         var app = new ViewerApp(grid, layout, Squad);
 
-        Assert.Equal("yes", Value(app.Inspector, "Unit", "alive"));
-        Assert.Equal("in the world and holding its cell", Note(app.Inspector, "Unit", "alive"));
+        Assert.Equal("yes", Value(app.Inspector, "Agent", "alive"));
+        Assert.Equal("in the world and holding its cell", Note(app.Inspector, "Agent", "alive"));
 
         Assert.Equal("no", Value(app.Inspector, "Progress", "follows"));
         Assert.Equal("it plans its own route", Note(app.Inspector, "Progress", "follows"));
@@ -659,9 +666,9 @@ public sealed class InspectorTests
 
         // A FACT THAT SPEAKS FOR ITSELF CARRIES NO NOTE. Repeating the value into
         // the note would give every row a tooltip, most of them saying nothing.
-        Assert.Null(Row(app.Inspector, "Unit", "id").Note);
-        Assert.Null(Row(app.Inspector, "Unit", "cell").Note);
-        Assert.Null(Row(app.Inspector, "Unit", "arrived").Note);
+        Assert.Null(Row(app.Inspector, "Agent", "id").Note);
+        Assert.Null(Row(app.Inspector, "Agent", "cell").Note);
+        Assert.Null(Row(app.Inspector, "Agent", "arrived").Note);
         Assert.Null(Row(app.Inspector, "Progress", "stalled").Note);
 
         // The route is the longest string the panel carries and the count is one

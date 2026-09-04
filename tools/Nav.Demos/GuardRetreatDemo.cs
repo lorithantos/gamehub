@@ -9,6 +9,11 @@ namespace Nav.Demos;
 /// <remarks>
 /// The C&amp;C behaviour this project was started over.
 /// <para>
+/// The world is <see cref="GuardRetreatScenario"/> and lives in the library,
+/// so the same fight can be watched live in a viewer. What is left here is the
+/// watching: the clock, the narration, and what the run amounted to.
+/// </para>
+/// <para>
 /// <b>Both sides are doctrine.</b> The attackers are a <see cref="GuardDoctrine"/>
 /// too: each wave is ordered to a station in the north corridor within reach
 /// of the line and holds it, every unit shooting whatever in range can hurt it
@@ -31,78 +36,6 @@ namespace Nav.Demos;
 /// </remarks>
 internal sealed class GuardRetreatDemo : Demo
 {
-    /// <summary>
-    /// Big enough that sight is a constraint. A guard on the station cannot see
-    /// either pad — twenty-two cells against a tank's seven — so the retreat is
-    /// planned to ground the pad itself reveals, and four blockhouses give the
-    /// approaches something to bend around.
-    /// </summary>
-    private const string Map =
-        """
-        type octile
-        height 33
-        width 49
-        map
-        .................................................
-        .................................................
-        .................................................
-        .................................................
-        ........@@@@@@@@@@@...........@@@@@@@@@@@........
-        ........@.........@...........@.........@........
-        ........@.........@...........@.........@........
-        ........@.........@...........@.........@........
-        ........@@@@@@@@@@@...........@@@@@@@@@@@........
-        .................................................
-        .................................................
-        .................................................
-        .................................................
-        .................................................
-        ....@@@@@@@@@.......................@@@@@@@@@....
-        ....@.......@.......................@.......@....
-        ....@.......@.......................@.......@....
-        ....@.......@.......................@.......@....
-        ....@.......@.......................@.......@....
-        ....@@@@@@@@@.......................@@@@@@@@@....
-        .................................................
-        .................................................
-        .................................................
-        .................................................
-        ........@@@@@@@@@@@...........@@@@@@@@@@@........
-        ........@.........@...........@.........@........
-        ........@.........@...........@.........@........
-        ........@.........@...........@.........@........
-        ........@@@@@@@@@@@...........@@@@@@@@@@@........
-        .................................................
-        .................................................
-        .................................................
-        .................................................
-        """;
-
-    private const int Guards = 8;
-    private const int Reserve = 5;
-
-    /// <summary>Retreat thresholds by rank: rookie, regular, veteran.</summary>
-    /// <remarks>
-    /// Ascending, so a veteran is pulled at a scratch and a rookie holds to half
-    /// health. See <see cref="RepairPolicy"/> for why that is the right way up.
-    /// </remarks>
-    private static readonly double[] RetreatByRank = [0.4, 0.55, 0.7];
-
-    /// <summary>What each guard carries, by id. Tanks hold the plate; buggies carry the answer to infantry.</summary>
-    /// <remarks>
-    /// Two buggies rather than one now that the map is wide. A buggy sees nine
-    /// against a tank's seven, so the line's own picture of the approach is
-    /// mostly what the buggies are looking at.
-    /// </remarks>
-    private static readonly string[] GuardKits =
-        ["tank", "buggy", "tank", "tank", "buggy", "tank", "tank", "buggy"];
-
-    /// <summary>One wave: two fast anti-armour units, three infantry, and a buggy.</summary>
-    private static readonly string[] Wave =
-        ["rocketbike", "rocketbike", "rifleman", "rifleman", "rifleman", "buggy"];
-
-    private static readonly int[] WaveTicks = [0, 160, 320];
-
     public override string Name => "guard-retreat";
 
     public override string Description =>
@@ -113,63 +46,13 @@ internal sealed class GuardRetreatDemo : Demo
 
     public override Run Play(TextWriter trace)
     {
-        var grid = Grid.FromMapText(Map);
-        var system = new MovementSystem(grid);
-        var combat = Combat.From(Ini.FromFile(ConfigPath("combat.ini")));
-        var scale = WorldScale.From(Ini.FromFile(ConfigPath("scale.ini")));
-
-        var station = grid.Index(24, 16);
-
-        // Opposite corners, and twenty-two cells from the station -- three times
-        // what a tank can see. Under fog the guards know these are here only
-        // because a pad watches its own ground; nothing on the line can see
-        // either of them.
-        var padNorth = grid.Index(2, 2);
-        var padSouth = grid.Index(46, 30);
-
-        // Where a wave goes to stand: the mouth of the north corridor, in reach
-        // of the ring's front arc. A wave that holds there is a wave that is
-        // shot at from the line and shoots back, which is the whole fight.
-        var attackStation = grid.Index(24, 11);
-
-        // Rank at a kill's worth and three kills' worth, given the credit rates
-        // in the config. Self-healing so a full-rank guard mends on the walk;
-        // no exposure damage, because the enemy has weapons now.
-        var world = new DemoWorld(
-            grid,
-            repairPerTick: 0.03,
-            exposureRadius: 6.0,
-            rankAt: [50, 150],
-            selfHealPerTick: 0.002,
-            combat: combat,
-            scale: scale,
-            fog: true)
-        {
-            RankPerDamage = combat.RankPerDamage,
-            RankPerKill = combat.RankPerKill,
-        };
-        world.RepairCells.Add(padNorth);
-        world.RepairCells.Add(padSouth);
-
-        // Eight guards, starting scattered down the west edge so the march to
-        // station is itself worth watching -- and long enough now that they
-        // arrive having seen almost nothing of the map they crossed.
-        int[] starts =
-        [
-            grid.Index(1, 10), grid.Index(2, 12), grid.Index(1, 14), grid.Index(2, 16),
-            grid.Index(1, 18), grid.Index(2, 20), grid.Index(1, 22), grid.Index(2, 24),
-        ];
-        for (var i = 0; i < starts.Length; i++)
-        {
-            var id = system.AddAgent(starts[i], side: 0);
-            world.Enlist(id, GuardKits[i]);
-        }
-
-        var guard = new Squad(
-            "guard",
-            Enumerable.Range(0, Guards),
-            new GuardDoctrine(station, new RepairPolicy(RetreatByRank, returnAbove: 0.8, reserve: Reserve)));
-        var waves = new List<Squad>();
+        var scenario = new GuardRetreatScenario();
+        var grid = scenario.Grid;
+        var system = scenario.Board;
+        var world = scenario.World;
+        var guard = scenario.Guard;
+        const int guards = GuardRetreatScenario.Guards;
+        var retreatByRank = GuardRetreatScenario.RetreatByRank;
 
         // RepairCells, not RepairPoints: the header describes the MAP, and the
         // replay draws what is there rather than what a side has noticed. Under
@@ -185,10 +68,10 @@ internal sealed class GuardRetreatDemo : Demo
         DemoTrace.WriteHeader(
             trace, Name, Description, grid, world.RepairCells, Ticks);
 
-        var wasAway = new bool[Guards];
-        var wasArrived = new bool[Guards];
-        var ticksAway = new int[Guards];
-        var wasRank = new int[Guards];
+        var wasAway = new bool[guards];
+        var wasArrived = new bool[guards];
+        var ticksAway = new int[guards];
+        var wasRank = new int[guards];
         var mostAwayAtOnce = 0;
         var worstOverrun = 0.0;
         var attackersSent = 0;
@@ -199,39 +82,23 @@ internal sealed class GuardRetreatDemo : Demo
         // slot loses whichever happened first.
         var events = new List<string>();
 
-        world.Listen(system);
-
         for (var tick = 0; tick < Ticks; tick++)
         {
             events.Clear();
 
-            var waveIndex = Array.IndexOf(WaveTicks, tick);
-            if (waveIndex >= 0)
+            if (scenario.SendWave(tick) is { } wave)
             {
-                var ids = new List<int>();
-                for (var k = 0; k < Wave.Length; k++)
-                {
-                    var id = system.AddAgent(grid.Index(21 + k, 0), side: 1);
-                    world.Enlist(id, Wave[k]);
-                    ids.Add(id);
-                }
-
-                attackersSent += ids.Count;
-                waves.Add(new Squad(
-                    $"wave {waveIndex + 1}", ids,
-                    new GuardDoctrine(attackStation, retreatBelow: 0.0, returnAbove: 0.5)));
-                world.Listen(system);
-                events.Add($"wave {waveIndex + 1} enters from the north: two rocket bikes, three riflemen, a buggy");
+                attackersSent += wave.Members.Count;
+                events.Add($"{wave.Name} enters from the north: two rocket bikes, three riflemen, a buggy");
             }
 
             guard.Advance(system, world.ViewFor(0));
-            foreach (var wave in waves)
+            foreach (var squad in scenario.Waves)
             {
-                wave.Advance(system, world.ViewFor(1));
+                squad.Advance(system, world.ViewFor(1));
             }
 
             system.Tick();
-            world.Listen(system);
             world.Settle();
 
             foreach (var (victim, killer) in world.Fallen)
@@ -253,7 +120,7 @@ internal sealed class GuardRetreatDemo : Demo
             var agents = system.Agents;
             foreach (var agent in agents)
             {
-                if (agent.Id >= Guards || !agent.Alive)
+                if (agent.Id >= guards || !agent.Alive)
                 {
                     continue;
                 }
@@ -274,7 +141,7 @@ internal sealed class GuardRetreatDemo : Demo
                     // and the OVERRUN, the reserve's price stated as a number:
                     // health spent standing past a threshold waiting for a place.
                     var health = world.HealthOf(agent.Id);
-                    var overrun = RetreatByRank[Math.Min(rank, RetreatByRank.Length - 1)] - health;
+                    var overrun = retreatByRank[Math.Min(rank, retreatByRank.Count - 1)] - health;
                     worstOverrun = Math.Max(worstOverrun, overrun);
                     events.Add(overrun > 0.02
                         ? $"guard {agent.Id} falls back at {health:F2}, rank {rank} -- {overrun:F2} past its threshold, waiting for a place"
@@ -298,7 +165,7 @@ internal sealed class GuardRetreatDemo : Demo
                 wasArrived[agent.Id] = agent.Arrived;
             }
 
-            mostAwayAtOnce = Math.Max(mostAwayAtOnce, agents.Count(a => a.Id < Guards && a.Alive && a.Away));
+            mostAwayAtOnce = Math.Max(mostAwayAtOnce, agents.Count(a => a.Id < guards && a.Alive && a.Away));
 
             if (events.Count == 0 && tick == 0)
             {
@@ -314,14 +181,14 @@ internal sealed class GuardRetreatDemo : Demo
         // and what did the line earn. Time off the line and the overrun are the
         // reserve's price; the ranks are what standing there bought.
         var final = system.Agents;
-        var standing = final.Count(a => a.Id < Guards && a.Alive);
-        var veterans = final.Count(a => a.Id < Guards && a.Alive && world.RankOf(a.Id) >= 2);
+        var standing = final.Count(a => a.Id < guards && a.Alive);
+        var veterans = final.Count(a => a.Id < guards && a.Alive && world.RankOf(a.Id) >= 2);
         var everLeft = ticksAway.Count(t => t > 0);
 
         return new Run(
             Ticks, final, world,
-            $"{standing}/{Guards} guards standing, {guardsLost} lost; {attackersDestroyed}/{attackersSent} attackers destroyed; "
+            $"{standing}/{guards} guards standing, {guardsLost} lost; {attackersDestroyed}/{attackersSent} attackers destroyed; "
                 + $"{veterans} veterans; {everLeft} rotated through repair, never more than {mostAwayAtOnce} away "
-                + $"against a reserve of {Reserve}; worst overrun {worstOverrun:F2}");
+                + $"against a reserve of {GuardRetreatScenario.Reserve}; worst overrun {worstOverrun:F2}");
     }
 }

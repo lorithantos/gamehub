@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    A scenario is what world this is; a demo is what is done with it. They were
+    one file, and that made the world reachable only by referencing tools\, so
+    a host would have depended on a tool to get at a map: the arrow the wrong
+    way up. The world lives here, where a demo writing a trace and a viewer
+    running it live are both consumers and neither is the other's dependency.
+    Nothing in this project writes output or advances a clock: a caller that
+    wants those brings its own loop.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Nav.Tactics\Nav.Tactics.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Nav.Core" />
+    <Using Include="Nav.Core.Models" />
+    <Using Include="Nav.Tactics" />
+    <Using Include="Nav.Tactics.Models" />
+  </ItemGroup>
+
+</Project>

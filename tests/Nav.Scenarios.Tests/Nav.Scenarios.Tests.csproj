@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Nav.Scenarios.Tests</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="Nav.Core" />
+    <Using Include="Nav.Core.Models" />
+    <Using Include="Nav.Scenarios" />
+    <Using Include="Nav.Tactics" />
+    <Using Include="Nav.Tactics.Models" />
+  </ItemGroup>
+
+  <!--
+    Its own project, the way every other layer here has one. The alternative was
+    more files in Nav.Tactics.Tests, which would have made that project depend
+    on something built on top of the layer it tests, and the arrow this whole
+    split exists to straighten would have bent again in the test tree.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Nav.Scenarios\Nav.Scenarios.csproj" />
+  </ItemGroup>
+
+</Project>

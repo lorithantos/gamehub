@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Nav.Viewer.Tactics.Tests</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="Nav.Core" />
+    <Using Include="Nav.Core.Interfaces" />
+    <Using Include="Nav.Core.Models" />
+    <Using Include="Nav.Tactics" />
+    <Using Include="Nav.Tactics.Models" />
+    <Using Include="Nav.Viewer.Interfaces" />
+  </ItemGroup>
+
+  <!--
+    Its own project rather than more files in Nav.Viewer.Tests, and that is the
+    result being measured. Nav.Viewer.Tests references Nav.Viewer.Shared and
+    nothing else, so it cannot see the tactics layer, transitively or
+    otherwise, and drives the whole viewer without one. Putting these tests
+    there would hand it that sight and the seam would stop being a fact about
+    the build.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Nav.Viewer.Tactics\Nav.Viewer.Tactics.csproj" />
+  </ItemGroup>
+
+  <!-- The same walk Nav.Core.Tests runs, pointed at this layer instead. -->
+  <ItemGroup>
+    <Compile Include="..\Shared\InstrumentAudit\*.cs" Link="InstrumentAudit\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>

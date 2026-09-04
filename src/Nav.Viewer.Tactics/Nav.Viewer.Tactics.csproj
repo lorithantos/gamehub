@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Nav.Viewer.Tactics</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    Both halves of the seam, and this is the only project that holds both.
+    Nav.Viewer.Shared references Nav.Core alone, so a panel written against it
+    cannot name a kit or a sighting; the join happens here, where the tactics
+    types are read and spent on rows before anything upstream sees them. A host
+    wires this in. Nothing else should reference it, and nothing in
+    Nav.Viewer.Shared can.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Nav.Tactics\Nav.Tactics.csproj" />
+    <ProjectReference Include="..\Nav.Viewer.Shared\Nav.Viewer.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Nav.Core.Interfaces" />
+    <Using Include="Nav.Core.Models" />
+    <Using Include="Nav.Tactics" />
+    <Using Include="Nav.Tactics.Interfaces" />
+    <Using Include="Nav.Tactics.Models" />
+    <Using Include="Nav.Viewer.Interfaces" />
+  </ItemGroup>
+
+</Project>

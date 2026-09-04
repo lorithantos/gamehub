@@ -4,6 +4,7 @@
     <Project Path="src/Nav.Tactics/Nav.Tactics.csproj" />
     <Project Path="src/Nav.Viewer.Raylib/Nav.Viewer.Raylib.csproj" />
     <Project Path="src/Nav.Viewer.Shared/Nav.Viewer.Shared.csproj" />
+    <Project Path="src/Nav.Viewer.Tactics/Nav.Viewer.Tactics.csproj" />
     <Project Path="src/Nav.Viewer.Wpf/Nav.Viewer.Wpf.csproj" />
   </Folder>
   <Folder Name="/tools/">
@@ -13,6 +14,7 @@
     <Project Path="tests/Nav.Benchmark/Nav.Benchmark.csproj" />
     <Project Path="tests/Nav.Core.Tests/Nav.Core.Tests.csproj" />
     <Project Path="tests/Nav.Tactics.Tests/Nav.Tactics.Tests.csproj" />
+    <Project Path="tests/Nav.Viewer.Tactics.Tests/Nav.Viewer.Tactics.Tests.csproj" />
     <Project Path="tests/Nav.Viewer.Tests/Nav.Viewer.Tests.csproj" />
   </Folder>
 </Solution>

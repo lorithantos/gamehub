@@ -77,7 +77,7 @@ internal sealed class RaylibHost(GridLayout layout, int statusHeight, int? maxFr
             // Raw frame time, unclamped: FixedTimestep.MaxStepsPerFrame is
             // already the circuit breaker, and a second one here would make the
             // two hosts disagree about how much time passed.
-            app.Update(_input.Snapshot(), global::Raylib_cs.Raylib.GetFrameTime());
+            app.Update(_input.Drain(), global::Raylib_cs.Raylib.GetFrameTime());
 
             global::Raylib_cs.Raylib.BeginDrawing();
             app.Render(_renderer);

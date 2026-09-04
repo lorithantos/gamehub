@@ -1300,17 +1300,17 @@ public sealed class ViewerAppTests
 
         input.SetMousePosition(layout.CenterOf(10, 5));
         input.SetMouseButtonState(MouseButtons.Right, down: true);
-        app.Update(input.Snapshot(), Frame);
+        app.Update(input.Drain(), Frame);
         input.SetMouseButtonState(MouseButtons.Right, down: false);
 
         for (var frame = 0; frame < 120; frame++)
         {
-            app.Update(input.Snapshot(), Frame);
+            app.Update(input.Drain(), Frame);
             lengths.Add(app.StatusText.Length);
         }
 
         input.SetKeyState(ViewerKeys.Space, down: true);
-        app.Update(input.Snapshot(), 0f);
+        app.Update(input.Drain(), 0f);
         lengths.Add(app.StatusText.Length);
 
         Assert.Single(lengths);

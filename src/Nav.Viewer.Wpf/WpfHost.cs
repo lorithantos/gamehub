@@ -208,7 +208,7 @@ internal sealed class WpfHost(GridLayout layout, int? maxFrames) : IViewerHost
             return;
         }
 
-        _app.Update(_input.Snapshot(), deltaSeconds);
+        _app.Update(_input.Drain(), deltaSeconds);
 
         if (_app.Layout != _layout)
         {

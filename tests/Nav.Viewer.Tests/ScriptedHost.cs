@@ -28,7 +28,7 @@ public sealed record ScriptedFrame(
 /// no graphics assembly at all.
 /// <para>
 /// It honours the same contract the real hosts do, in the same order: feed held
-/// state to an <see cref="InputAccumulator"/>, snapshot it, Update with a raw
+/// state to an <see cref="InputAccumulator"/>, drain it, Update with a raw
 /// delta, then Render between the renderer's begin and end frame. The
 /// accumulator is the real one, so edge derivation — including the auto-repeat
 /// rule — is exercised here rather than simulated.
@@ -65,7 +65,7 @@ public sealed class ScriptedHost(IReadOnlyList<ScriptedFrame> frames, RecordingR
                 _input.SetMouseButtonState(button, (frame.ButtonsDown & button) != 0);
             }
 
-            app.Update(_input.Snapshot(), frame.Dt);
+            app.Update(_input.Drain(), frame.Dt);
             app.Render(renderer);
             FramesRun++;
         }

@@ -417,7 +417,15 @@ public sealed class ViewerApp : IViewerApp
     /// the host's contract -- see <see cref="IViewerHost"/>. Nothing here needs a
     /// verb <see cref="IRenderer"/> does not have: the band is four lines and the
     /// leader mark is circles.
+    /// <para>
+    /// Marked as an instrument, which is the widest read of the simulation the
+    /// viewer makes: it touches the plans, the leaders, every agent and the
+    /// debug view once a frame, and only on the runs somebody is watching. A
+    /// drawing routine that began perturbing what it draws is the exact fault the
+    /// walk exists to catch, and the drawing is not exempt from it.
+    /// </para>
     /// </remarks>
+    [Observes]
     public void Render(IRenderer renderer)
     {
         ArgumentNullException.ThrowIfNull(renderer);

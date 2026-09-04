@@ -15,12 +15,18 @@ namespace Nav.Viewer.Tests;
 /// reads the movement system once a frame and only while somebody is watching, so
 /// anything it moves moves on exactly the runs nobody is measuring.
 /// <para>
-/// <b>The app is not the subject; the questions it asks are.</b>
+/// <b>The app is not the subject; the parts of it that only look are.</b>
 /// <see cref="ViewerApp"/> legitimately rewrites camera, selection, pause and the
-/// rows themselves every frame -- that is the viewer doing its job. What is
-/// marked here is only the members that answer a question about the SIMULATION:
-/// the session's five passthroughs, and the two builders that turn them into
-/// text.
+/// rows themselves in <see cref="ViewerApp.Update"/> -- that is the viewer doing
+/// its job. What is marked is what claims to change nothing: the session's five
+/// passthroughs, the two builders that turn them into text,
+/// <see cref="ViewerApp.Render"/>, and <see cref="InputAccumulator.Snapshot"/>.
+/// </para>
+/// <para>
+/// The last two are here because the rule widened. Render is the frame's widest
+/// read and draws what it read; Snapshot is what the accumulator holds, and used
+/// to empty the frame's presses on its way out -- which changed nothing in the
+/// simulation and was exactly the fault anyway.
 /// </para>
 /// <para>
 /// Nav.Core is walked with it rather than treated as a wall. Every marked member

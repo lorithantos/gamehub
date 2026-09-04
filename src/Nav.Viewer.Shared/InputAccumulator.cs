@@ -1,5 +1,7 @@
 using System.Numerics;
 
+using Nav.Core;
+
 namespace Nav.Viewer;
 
 /// <summary>
@@ -41,7 +43,7 @@ public sealed class InputAccumulator
 
     /// <summary>
     /// Records where the pointer is, in the physical pixels the map is drawn in.
-    /// Last call before <see cref="Snapshot"/> wins, and the position is never
+    /// Last call before <see cref="Drain"/> wins, and the position is never
     /// drained -- it persists across frames until a host reports a new one.
     /// </summary>
     public void SetMousePosition(Vector2 position) => _mousePosition = position;
@@ -94,12 +96,35 @@ public sealed class InputAccumulator
     }
 
     /// <summary>
-    /// Takes the frame's snapshot and drains the edges. Held state and the mouse
-    /// position survive; the pressed bits do not.
+    /// What the accumulator is holding right now: the pointer, the edges derived
+    /// since the last <see cref="Drain"/>, and whatever is still down. Answers
+    /// the same thing twice in a row, because it moves nothing.
     /// </summary>
-    public InputState Snapshot()
+    [Observes]
+    public InputState Snapshot() =>
+        new(_mousePosition, _keysPressed, _buttonsPressed, _buttonsDown);
+
+    /// <summary>
+    /// Takes the frame's input and empties the edges. Held state and the mouse
+    /// position survive; the pressed bits do not, which is what makes "pressed
+    /// this frame" true for exactly one <see cref="IViewerApp.Update"/>.
+    /// </summary>
+    /// <remarks>
+    /// <b>The verb is named as a verb because it is one.</b> This was
+    /// <c>Snapshot</c>, and the drain was a side effect of being read: a second
+    /// caller got an empty frame and the name promised them it could not happen.
+    /// The innocent name belongs to the innocent member, so <c>Snapshot</c> kept
+    /// it and stopped causing, while what is left here says on the tin that it
+    /// takes something away.
+    /// <para>
+    /// A host calls this once per frame and passes the result straight to the
+    /// app. Anything else -- a panel, a test looking at the state -- wants
+    /// <see cref="Snapshot"/>.
+    /// </para>
+    /// </remarks>
+    public InputState Drain()
     {
-        var state = new InputState(_mousePosition, _keysPressed, _buttonsPressed, _buttonsDown);
+        var state = Snapshot();
         _keysPressed = ViewerKeys.None;
         _buttonsPressed = MouseButtons.None;
         return state;

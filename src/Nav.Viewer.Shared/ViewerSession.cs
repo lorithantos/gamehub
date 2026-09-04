@@ -46,17 +46,51 @@ public sealed class ViewerSession
 
     private readonly List<int> _selection = [];
 
-    // Not readonly: loading and replay-restart rebuild them.
+    /// <summary>
+    /// How a live world is built, or null for a map or a recording. Kept rather
+    /// than spent, because <see cref="Restart"/> is the second call to it.
+    /// </summary>
+    /// <remarks>
+    /// <b>A factory and not a world, and that is the whole of why this path
+    /// exists in this shape.</b> A world composes its map, its sides, their kits
+    /// and their doctrine in its constructor and then only ever moves forward;
+    /// there is no rewind on it and there should not be one. So the way back to
+    /// tick zero is to build another, which means the session has to be able to
+    /// ask -- a session handed an instance could load, tick and draw, but R
+    /// would be a key that did nothing.
+    /// </remarks>
+    private Func<IWorld>? _worldFactory;
+
+    // Not readonly: loading, replay-restart and world-restart rebuild them.
     private MovementSystem _system;
     private Queue<ScenarioOrder> _orders;
+    private IWorld? _world;
 
     private ViewerSession(Grid grid, string mapName, RecordedScenario? scenario, int squad)
     {
         Grid = grid;
         MapName = mapName;
         Scenario = scenario;
-        (_system, _orders) = BuildWorld(grid, scenario, squad);
+        (_system, _orders) = BuildBoard(grid, scenario, squad);
         Running = scenario is null;
+        ResetSelection();
+    }
+
+    private ViewerSession(Func<IWorld> world, string name)
+    {
+        _worldFactory = world;
+        _world = Build(world);
+        _orders = new Queue<ScenarioOrder>();
+        _system = _world.Board;
+        Grid = _world.Grid;
+        MapName = name;
+        Scenario = null;
+
+        // Running, where a recording loads paused. A recording has an opening
+        // worth reading before it bursts to the end; a world's opening IS its
+        // first tick -- the guards are scattered and nothing has decided
+        // anything yet, and there is nothing to study in that.
+        Running = true;
         ResetSelection();
     }
 
@@ -88,6 +122,26 @@ public sealed class ViewerSession
     /// started stopped, and it is the condition <see cref="Restart"/> requires.
     /// </summary>
     public bool IsReplay => Scenario is not null;
+
+    /// <summary>
+    /// True when this session is driving a live world rather than a map or a
+    /// recording: <see cref="Tick"/> is that world's own step, and there are no
+    /// recorded orders to issue.
+    /// </summary>
+    public bool IsLiveWorld => _world is not null;
+
+    /// <summary>
+    /// Whether <see cref="Restart"/> would work: there is a recording to reload
+    /// or a world to build again. False on a free map, where the nearest thing
+    /// to a reset is ordering everybody home.
+    /// </summary>
+    /// <remarks>
+    /// A separate question from <see cref="IsReplay"/> on purpose. The two
+    /// answered the same until a world could be restarted as well, and a caller
+    /// asking "can I restart" through "is this a recording" would have been
+    /// right by coincidence.
+    /// </remarks>
+    public bool CanRestart => Scenario is not null || _worldFactory is not null;
 
     /// <summary>
     /// Simulated seconds one tick represents: the scenario's recorded rate, or
@@ -197,9 +251,43 @@ public sealed class ViewerSession
     }
 
     /// <summary>
+    /// A session driving a live world: <paramref name="world"/> is called once
+    /// now for the world to play, and again by every <see cref="Restart"/>.
+    /// Starts running, because a world's setup is its first tick.
+    /// </summary>
+    /// <remarks>
+    /// <b>The session drives it and cannot look inside it.</b> Everything on
+    /// <see cref="IWorld"/> is a Nav.Core type, which is the only reason this
+    /// path can be here at all -- a host that also wants the world's own numbers
+    /// on screen keeps its own handle on what the factory built and hands the
+    /// viewer a debug source for it. See <c>IWorldDebugView</c>.
+    /// <para>
+    /// <paramref name="name"/> is what the title bar calls it; the world has no
+    /// map file to be named after.
+    /// </para>
+    /// </remarks>
+    /// <param name="world">
+    /// Builds a world standing at tick zero. Called immediately, and once more
+    /// per restart; a factory that hands back the same instance twice would make
+    /// R a key that did nothing.
+    /// </param>
+    /// <param name="name">What the title bar calls it, e.g. the world's name.</param>
+    public static ViewerSession FromWorld(Func<IWorld> world, string name)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        return new ViewerSession(world, name);
+    }
+
+    /// <summary>
     /// Parsed options to a ready session, or the reason there is none. The one
     /// implementation of the load-refusal path, shared by both hosts.
     /// </summary>
+    /// <remarks>
+    /// Content read from disk, only. <c>--world</c> is resolved by whoever
+    /// composed the application, because a world cannot be named from here --
+    /// see <see cref="FromWorld"/>.
+    /// </remarks>
     public static bool TryLoad(
         ViewerOptions options, [NotNullWhen(true)] out ViewerSession? session, [NotNullWhen(false)] out string? error)
     {
@@ -260,7 +348,7 @@ public sealed class ViewerSession
         Queue<ScenarioOrder> orders;
         try
         {
-            (system, orders) = BuildWorld(grid, scenario, DefaultSquad);
+            (system, orders) = BuildBoard(grid, scenario, DefaultSquad);
         }
         catch (Exception ex) when (ex is ArgumentOutOfRangeException or MapFormatException)
         {
@@ -273,6 +361,13 @@ public sealed class ViewerSession
         Scenario = scenario;
         _system = system;
         _orders = orders;
+
+        // A dropped file replaces the content WHOLE, and on a session that was
+        // driving a live world that has to include the world and the way back to
+        // it. Keeping the factory would leave R rebuilding the guard fight over
+        // the map somebody had just opened.
+        _world = null;
+        _worldFactory = null;
         Running = scenario is null;
         ResetSelection();
         Version++;
@@ -350,8 +445,29 @@ public sealed class ViewerSession
     /// asked even while <see cref="Running"/> is false — single-stepping a
     /// paused world is a legitimate thing for a caller to do.
     /// </summary>
+    /// <remarks>
+    /// <b>A live world plays its OWN tick, and nothing of the above happens to
+    /// it.</b> What runs inside one and in what order is the world's design --
+    /// see <see cref="IWorld.Step"/> -- so this hands over the tick number and
+    /// stays out of it. There are no recorded orders on that path either: a
+    /// world is not a recording of anything.
+    /// <para>
+    /// The number handed over is the board's tick BEFORE the step, so the first
+    /// call is tick zero and each one after is one more -- the same count a
+    /// headless run gets from its loop counter, which is what makes the fight
+    /// watched here and the fight narrated into a trace the same fight. Anything
+    /// a world schedules against the clock, a wave arriving among them, is due
+    /// on the number it is given.
+    /// </para>
+    /// </remarks>
     public void Tick()
     {
+        if (_world is { } world)
+        {
+            world.Step(_system.CurrentTick);
+            return;
+        }
+
         while (_orders.TryPeek(out var order) && order.Tick <= _system.CurrentTick)
         {
             _orders.Dequeue();
@@ -362,20 +478,59 @@ public sealed class ViewerSession
     }
 
     /// <summary>
-    /// Reloads the recording: tick zero, clock stopped, orders re-queued,
-    /// selection back to unit 0. Refused on a session with no scenario.
+    /// Back to tick zero: the recording reloaded with its orders re-queued and
+    /// the clock stopped, or a live world built again from the factory and left
+    /// running. Selection back to unit 0 either way. Refused on a free map,
+    /// which has nothing to go back to -- see <see cref="CanRestart"/>.
     /// </summary>
+    /// <remarks>
+    /// <b>It is the construction run again, not a rewind.</b> Each path leaves
+    /// the session in the state a freshly built one of its kind is in, down to
+    /// whether the clock is running, because "restart" meaning something other
+    /// than "as it was at the start" is a trap for whoever presses R.
+    /// <para>
+    /// A world restart bumps <see cref="Version"/> where a replay restart does
+    /// not: a new world is a new map, a new board and a new roster, and
+    /// everything derived from those upstream -- terrain, layout, the cells
+    /// units are drawn moving from -- is stale in a way a re-queued recording on
+    /// the same grid never is.
+    /// </para>
+    /// </remarks>
     public void Restart()
     {
+        if (_worldFactory is { } factory)
+        {
+            var replacement = Build(factory);
+            _world = replacement;
+            _system = replacement.Board;
+            _orders = new Queue<ScenarioOrder>();
+            Grid = replacement.Grid;
+            Running = true;
+            ResetSelection();
+            Version++;
+            return;
+        }
+
         if (Scenario is null)
         {
             throw new InvalidOperationException("nothing to restart: this session has no scenario.");
         }
 
-        (_system, _orders) = BuildWorld(Grid, Scenario, squad: 0);
+        (_system, _orders) = BuildBoard(Grid, Scenario, squad: 0);
         Running = false;
         ResetSelection();
     }
+
+    /// <summary>
+    /// The factory's answer, or the refusal that it handed back nothing.
+    /// </summary>
+    /// <remarks>
+    /// A null world would otherwise be a <c>NullReferenceException</c> from
+    /// inside <see cref="Tick"/> a hundred frames later, naming nothing. Both
+    /// the first build and every restart come through here.
+    /// </remarks>
+    private static IWorld Build(Func<IWorld> factory) =>
+        factory() ?? throw new InvalidOperationException("the world factory handed back null.");
 
     /// <summary>
     /// Everything that can refuse about reading content from disk, in one place:
@@ -439,7 +594,7 @@ public sealed class ViewerSession
     /// at before Space runs it — or a default squad on the first passable cells
     /// of a free map.
     /// </summary>
-    private static (MovementSystem System, Queue<ScenarioOrder> Orders) BuildWorld(
+    private static (MovementSystem System, Queue<ScenarioOrder> Orders) BuildBoard(
         Grid grid, RecordedScenario? scenario, int squad)
     {
         var system = new MovementSystem(grid);

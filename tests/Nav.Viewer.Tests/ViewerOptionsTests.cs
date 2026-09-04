@@ -145,6 +145,60 @@ public sealed class ViewerOptionsTests
         Assert.NotNull(error);
     }
 
+    [Theory]
+    [InlineData("--world", "guard-retreat")]
+    [InlineData("--world=guard-retreat", null)]
+    public void AKnownWorldIsCarriedThroughEitherSpelling(string first, string? second)
+    {
+        string[] args = second is null ? [first] : [first, second];
+
+        Assert.True(ViewerOptions.TryParse(args, out var options, out _));
+
+        Assert.Equal("guard-retreat", options.World);
+        Assert.Null(options.MapPath);
+        Assert.Null(options.ScenarioPath);
+    }
+
+    [Fact]
+    public void AnUnknownWorldIsRefusedNamingWhatWasAskedForAndWhatExists()
+    {
+        // The refusal an unknown world MUST get: silently falling back to the
+        // default map opens a window on twenty-four dots and leaves somebody
+        // waiting for a fight that was never started.
+        Assert.False(ViewerOptions.TryParse(["--world", "guard-retret"], out _, out var error));
+
+        Assert.NotNull(error);
+        Assert.Contains("guard-retret", error, StringComparison.Ordinal);
+        Assert.Contains("guard-retreat", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AWorldWithNoNameIsRefused()
+    {
+        Assert.False(ViewerOptions.TryParse(["--world"], out _, out var error));
+
+        // Named for what is missing, not swept into "unknown option '--world'",
+        // which is what a flag with no arm of its own falls through to.
+        Assert.NotNull(error);
+        Assert.Contains("--world", error, StringComparison.Ordinal);
+        Assert.Contains("name", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("maps/arena.map")]
+    [InlineData("--scenario")]
+    public void AWorldCannotBeCombinedWithContentOfItsOwn(string other)
+    {
+        string[] args = other == "--scenario"
+            ? ["--world", "guard-retreat", "--scenario", "runs/headon.scenario"]
+            : ["--world", "guard-retreat", other];
+
+        Assert.False(ViewerOptions.TryParse(args, out _, out var error));
+
+        Assert.NotNull(error);
+        Assert.Contains("--world guard-retreat", error, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void UsageTextNamesEveryOption()
     {
@@ -153,5 +207,10 @@ public sealed class ViewerOptionsTests
         Assert.Contains("--frames", usage, StringComparison.Ordinal);
         Assert.Contains("--help", usage, StringComparison.Ordinal);
         Assert.Contains("map-path", usage, StringComparison.Ordinal);
+        Assert.Contains("--world", usage, StringComparison.Ordinal);
+
+        // Every world the parser will accept is named in the text somebody reads
+        // after being refused for naming one it will not.
+        Assert.All(ViewerOptions.KnownWorlds, world => Assert.Contains(world, usage, StringComparison.Ordinal));
     }
 }

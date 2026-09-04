@@ -15,8 +15,27 @@ namespace Nav.Viewer.Models;
 /// contract — <c>Nav.Viewer maps/arena.map</c> — keeps working unchanged.
 /// </para>
 /// </remarks>
-public sealed record ViewerOptions(string? MapPath, int? MaxFrames, bool ShowHelp, string? ScenarioPath = null)
+public sealed record ViewerOptions(
+    string? MapPath, int? MaxFrames, bool ShowHelp, string? ScenarioPath = null, string? World = null)
 {
+    /// <summary>
+    /// The worlds <c>--world</c> answers to, in the order the usage text lists
+    /// them.
+    /// </summary>
+    /// <remarks>
+    /// <b>Names, not worlds.</b> This project references Nav.Core alone, so a
+    /// world cannot be built here, or even named as a type; what a parsed line
+    /// carries is the string a host resolves. The list lives here anyway because
+    /// an unknown name is a parse-time refusal like every other one -- a host
+    /// that refused later would have opened a window first -- and because the
+    /// usage text has to say what the choices are.
+    /// <para>
+    /// A host that grows a world adds its name here too, and nothing but a test
+    /// keeps the two in step. That is the cost of the seam being real.
+    /// </para>
+    /// </remarks>
+    public static IReadOnlyList<string> KnownWorlds { get; } = ["guard-retreat"];
+
     /// <summary>
     /// What <c>--help</c> prints, on stdout, with exit code 0. Both hosts also
     /// print it to <b>stderr</b> beneath the message when <see cref="TryParse"/>
@@ -25,13 +44,17 @@ public sealed record ViewerOptions(string? MapPath, int? MaxFrames, bool ShowHel
     /// </summary>
     public static string UsageText =>
         """
-        usage: <viewer> [map-path] [--scenario FILE] [--frames N] [--help]
+        usage: <viewer> [map-path] [--scenario FILE] [--world NAME] [--frames N] [--help]
 
           map-path        a Moving AI .map file. Defaults to the embedded fixture,
                           or with --scenario to the map the scenario names.
           --scenario FILE replay a recorded scenario: its placements, its orders,
                           at their recorded ticks. Loads paused at tick zero;
                           SPACE runs it, R reloads it. Your own clicks still work.
+          --world NAME    run a live world instead of a map: it brings its own
+                          ground, its own sides and its own tick. Starts running;
+                          R builds it again from the start. Takes no map path.
+                          Known worlds: guard-retreat.
           --frames N      exit after N frames. For smoke runs that need no human.
           --help          this text.
         """;
@@ -106,6 +129,7 @@ public sealed record ViewerOptions(string? MapPath, int? MaxFrames, bool ShowHel
         string? mapPath = null;
         int? maxFrames = null;
         string? scenarioPath = null;
+        string? world = null;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -132,6 +156,24 @@ public sealed record ViewerOptions(string? MapPath, int? MaxFrames, bool ShowHel
                 }
 
                 scenarioPath = args[++i];
+                continue;
+            }
+
+            if (arg.StartsWith("--world=", StringComparison.Ordinal))
+            {
+                world = arg["--world=".Length..];
+                continue;
+            }
+
+            if (arg == "--world")
+            {
+                if (i + 1 >= args.Length)
+                {
+                    error = "--world needs a name.";
+                    return false;
+                }
+
+                world = args[++i];
                 continue;
             }
 
@@ -182,7 +224,30 @@ public sealed record ViewerOptions(string? MapPath, int? MaxFrames, bool ShowHel
             return false;
         }
 
-        options = new ViewerOptions(mapPath, maxFrames, ShowHelp: false, scenarioPath);
+        if (world is not null)
+        {
+            if (!KnownWorlds.Contains(world, StringComparer.Ordinal))
+            {
+                // Named both ways round: the likely mistake is a near-miss
+                // spelling, and the only useful answer to one is the list. The
+                // alternative is what makes this worth refusing over -- a window
+                // onto the default map, and somebody watching twenty-four dots
+                // wondering where the fight is.
+                error = $"unknown world '{world}'. Known worlds: {string.Join(", ", KnownWorlds)}.";
+                return false;
+            }
+
+            if (mapPath is not null || scenarioPath is not null)
+            {
+                // A world brings its own ground and its own units, so there is no
+                // reading of this line where both halves were meant.
+                error = $"--world {world} brings its own map; it cannot be combined with " +
+                    (mapPath is not null ? $"a map path ('{mapPath}')." : $"--scenario ('{scenarioPath}').");
+                return false;
+            }
+        }
+
+        options = new ViewerOptions(mapPath, maxFrames, ShowHelp: false, scenarioPath, world);
         return true;
     }
 

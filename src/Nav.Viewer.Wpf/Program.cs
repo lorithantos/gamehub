@@ -1,6 +1,8 @@
 using System.IO;
 
 using Nav.Core;
+using Nav.Viewer.Tactics;
+using Nav.Worlds;
 
 namespace Nav.Viewer.Wpf;
 
@@ -38,20 +40,81 @@ internal static class Program
             return 0;
         }
 
-        // The session owns loading and every refusal in it; both hosts print
-        // the same message for the same problem because there is one loader.
-        if (!ViewerSession.TryLoad(options, out var session, out var loadError))
+        ViewerSession session;
+        IReadOnlyList<IWorldDebugView> sources;
+        if (options.World is { } world)
         {
-            Console.Error.WriteLine(loadError);
-            return 1;
+            (session, sources) = Compose(world);
+        }
+        else
+        {
+            // The session owns loading and every refusal in it; both hosts print
+            // the same message for the same problem because there is one loader.
+            if (!ViewerSession.TryLoad(options, out var loaded, out var loadError))
+            {
+                Console.Error.WriteLine(loadError);
+                return 1;
+            }
+
+            session = loaded;
+            sources = [];
         }
 
         // The same budget the raylib host uses, so the two windows are the
         // same size for the same map by construction rather than by agreement.
-        var app = new ViewerApp(session, MaxMapPixels, MaxMapPixels - StatusHeight);
+        var app = new ViewerApp(session, MaxMapPixels, MaxMapPixels - StatusHeight, keys: null, sources);
         using var host = new WpfHost(app.Layout, options.MaxFrames);
         host.Run(app);
 
         return 0;
+    }
+
+    /// <summary>
+    /// A live world wired up: the session that plays it, and the source that
+    /// describes it into the inspector.
+    /// </summary>
+    /// <remarks>
+    /// <b>Both come out of ONE assignment, and that is the point of the shape.</b>
+    /// The session takes a factory because a world cannot be rewound -- R builds
+    /// another one -- and the panel needs the tactics world INSIDE whichever one
+    /// the session is currently stepping. Wired as two independent lines (a world
+    /// built here, handed to the session, and wrapped for the panel) the two
+    /// would agree until the first restart and silently stop: the map would draw
+    /// the new fight while the panel went on reporting the health, the rank and
+    /// the sightings of a world nobody was stepping any more.
+    /// <para>
+    /// So the factory's body is the only place a world is built, it assigns the
+    /// handle as it hands one over, and the source reads that handle at describe
+    /// time rather than closing over a world. There is no sequence of calls that
+    /// leaves the two looking at different worlds, because there is no second
+    /// construction site for one of them to be behind.
+    /// </para>
+    /// <para>
+    /// The name has already been checked by <see cref="ViewerOptions.TryParse"/>
+    /// against <see cref="ViewerOptions.KnownWorlds"/>, so the default arm here is
+    /// the two lists having drifted apart rather than anything a user typed.
+    /// </para>
+    /// </remarks>
+    private static (ViewerSession Session, IReadOnlyList<IWorldDebugView> Sources) Compose(string world)
+    {
+        switch (world)
+        {
+            case "guard-retreat":
+            {
+                GuardRetreatWorld? live = null;
+                var session = ViewerSession.FromWorld(() => live = new GuardRetreatWorld(), world);
+
+                // Non-null from here on: the session built one on the way in, and
+                // every rebuild goes through the same assignment.
+                return (session, [new LiveWorldSource(() => new DemoWorldDebugView(live!.World))]);
+            }
+
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(world),
+                    world,
+                    $"parsed as a known world, but this host builds none of that name. " +
+                    $"Known worlds: {string.Join(", ", ViewerOptions.KnownWorlds)}.");
+        }
     }
 }

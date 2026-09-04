@@ -356,19 +356,13 @@ public sealed class ViewerApp : IViewerApp
             // running pauses first, so a burst can be caught mid-flight and
             // walked forward from there.
             _session.SetRunning(false);
-            for (var id = 0; id < _previousCells.Length; id++)
-            {
-                _previousCells[id] = _session.Agents[id].Cell;
-            }
+            RememberCells();
 
             _session.Tick();
 
             // Draw the completed tick, not a blend into it: a step should land
             // exactly on the state it produced.
-            for (var id = 0; id < _previousCells.Length; id++)
-            {
-                _previousCells[id] = _session.Agents[id].Cell;
-            }
+            RememberCells();
 
             _blend = 0f;
             _clock.Reset();
@@ -386,15 +380,13 @@ public sealed class ViewerApp : IViewerApp
 
         if (input.IsPressed(ViewerKeys.R))
         {
-            if (_session.IsReplay)
+            if (_session.CanRestart)
             {
-                // Reload the recording: tick zero, clock stopped, ready to
-                // watch again.
+                // Back to tick zero: a recording reloaded and stopped, or a live
+                // world built again and running. Which of the two it is, and
+                // what state it comes back in, is the session's business.
                 _session.Restart();
-                for (var id = 0; id < _previousCells.Length; id++)
-                {
-                    _previousCells[id] = _session.Agents[id].Cell;
-                }
+                RememberCells();
 
                 _clock.Reset();
                 _blend = 0f;
@@ -413,13 +405,9 @@ public sealed class ViewerApp : IViewerApp
             var steps = _clock.Accumulate(deltaSeconds);
             for (var i = 0; i < steps; i++)
             {
-                var before = _session.Agents;
-                for (var id = 0; id < _previousCells.Length; id++)
-                {
-                    _previousCells[id] = before[id].Cell;
-                }
-
+                RememberCells();
                 _session.Tick();
+                AdmitArrivals();
             }
 
             // Whatever is left over is how far through the next tick we are, and
@@ -686,6 +674,67 @@ public sealed class ViewerApp : IViewerApp
     /// used after one is wrong by however much the cell size changed.
     /// </remarks>
     public Vector2 CenterOfCell(int cell) => Layout.CenterOf(_grid.ColumnOf(cell), _grid.RowOf(cell));
+
+    /// <summary>
+    /// Where every unit stands now, kept as where it stood a tick ago once the
+    /// next tick has been played. It is what a unit is drawn moving FROM.
+    /// </summary>
+    /// <remarks>
+    /// <b>Resized rather than indexed into, because a roster is not fixed.</b> A
+    /// map and a recording place everybody up front and never add another, and
+    /// this was an array sized once for exactly that. A live world does not work
+    /// that way: a wave arrives mid-run with ids above anything that existed
+    /// when the world was adopted, and a restart takes the roster back down to
+    /// the handful it started with. Both were an index off the end of this array
+    /// on the frame after -- one on the first wave, the other on the first R.
+    /// <para>
+    /// A unit that has just appeared is remembered where it stands, so its first
+    /// drawn frame is a unit standing still rather than one sliding in from
+    /// wherever the id before it happened to be.
+    /// </para>
+    /// </remarks>
+    private void RememberCells()
+    {
+        var agents = _session.Agents;
+        if (_previousCells.Length != agents.Count)
+        {
+            _previousCells = new int[agents.Count];
+        }
+
+        for (var id = 0; id < agents.Count; id++)
+        {
+            _previousCells[id] = agents[id].Cell;
+        }
+    }
+
+    /// <summary>
+    /// Units that came onto the board during the tick just played, remembered
+    /// where they now stand. Everybody else keeps the cell they were remembered
+    /// in, because that is what they are being drawn moving out of.
+    /// </summary>
+    /// <remarks>
+    /// This runs between a tick and the frame that draws it, which is the only
+    /// window in which an id can exist on the board and not in the array beside
+    /// it. Costs a comparison on every tick that brought nobody new, which is
+    /// almost all of them.
+    /// </remarks>
+    private void AdmitArrivals()
+    {
+        var agents = _session.Agents;
+        if (agents.Count <= _previousCells.Length)
+        {
+            return;
+        }
+
+        var grown = new int[agents.Count];
+        Array.Copy(_previousCells, grown, _previousCells.Length);
+        for (var id = _previousCells.Length; id < agents.Count; id++)
+        {
+            grown[id] = agents[id].Cell;
+        }
+
+        _previousCells = grown;
+    }
 
     /// <summary>
     /// The sources as this class will hold them: its own array, checked once.
@@ -1024,7 +1073,7 @@ public sealed class ViewerApp : IViewerApp
         $"{Keys.KeycapFor(ViewerKeys.Space)} pause  " +
         $"{Keys.KeycapFor(ViewerKeys.Step)} step  " +
         $"{Keys.KeycapFor(ViewerKeys.Pace)} pace  " +
-        $"{Keys.KeycapFor(ViewerKeys.R)} {(_session.IsReplay ? "restart" : "regroup")}";
+        $"{Keys.KeycapFor(ViewerKeys.R)} {(_session.CanRestart ? "restart" : "regroup")}";
 
     /// <summary>
     /// The watched unit spelled out: what the movement layer says about it, what

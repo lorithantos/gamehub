@@ -14,8 +14,18 @@
     <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
   </PropertyGroup>
 
+  <!--
+    The composition root, and the only place in the viewer that holds both
+    halves of the seam. Nav.Worlds is where a live world is built and
+    Nav.Viewer.Tactics is where one is read into rows; Nav.Viewer.Shared can see
+    neither, and the app it hands them to receives rows and a clock rather than
+    a kit or a squad. Wiring is the host's job, so these belong here and nowhere
+    upstream.
+  -->
   <ItemGroup>
     <ProjectReference Include="..\Nav.Viewer.Shared\Nav.Viewer.Shared.csproj" />
+    <ProjectReference Include="..\Nav.Viewer.Tactics\Nav.Viewer.Tactics.csproj" />
+    <ProjectReference Include="..\Nav.Worlds\Nav.Worlds.csproj" />
   </ItemGroup>
 
   <ItemGroup>

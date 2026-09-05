@@ -145,8 +145,10 @@ public sealed class ViewerSession
 
     /// <summary>
     /// Simulated seconds one tick represents: the scenario's recorded rate, or
-    /// 1/60 for a free map. It sets how fast a running clock feeds ticks, not
-    /// what a tick does -- the simulation is the same either way.
+    /// <see cref="WorldScale.Default"/>'s quarter second for a free map — which
+    /// the status line reads as four ticks a second. It sets how fast a running
+    /// clock feeds ticks, not what a tick does -- the simulation is the same
+    /// either way.
     /// </summary>
     public double TickSeconds => Scenario?.TickSeconds ?? DefaultTickSeconds;
 

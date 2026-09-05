@@ -280,8 +280,11 @@ public sealed class ViewerAppTests
     }
 
     [Fact]
-    public void ThePaceKeyCyclesFullThenTwoThenOnePerSecond()
+    public void ThePaceKeyCyclesFourThenTwoThenOnePerSecond()
     {
+        // Four a second is the map's own rate -- WorldScale.Default, a quarter
+        // of a second a tick -- said as a number, so pressing the key shows the
+        // rate halving rather than a word becoming a number.
         // One press per pair of frames: the key must be released between
         // presses or the accumulator reports one edge, which is the same
         // auto-repeat rule Space is held to.
@@ -300,13 +303,13 @@ public sealed class ViewerAppTests
             host.Run(app);
         }
 
-        Assert.Equal(["full", "2/s", "1/s", "full"], labels);
+        Assert.Equal(["   4/s", "   2/s", "   1/s", "   4/s"], labels);
     }
 
     [Fact]
     public void ASlowPaceAdvancesFewerTicksForTheSameWallClock()
     {
-        // Two seconds of wall clock. At the map's own rate that is 120 ticks;
+        // Two seconds of wall clock. At the map's own rate that is eight ticks;
         // at two ticks a second it is 4, which is the whole point -- the same
         // run, slow enough to read. The simulation is driven by tick count, so
         // nothing about what happens changes.
@@ -323,7 +326,7 @@ public sealed class ViewerAppTests
         using var host = new ScriptedHost(frames, new RecordingRenderer());
         host.Run(app);
 
-        Assert.Equal("2/s", app.PaceLabel);
+        Assert.Equal("   2/s", app.PaceLabel);
         Assert.InRange(app.CurrentTick, 3, 5);
     }
 
@@ -1319,6 +1322,56 @@ public sealed class ViewerAppTests
         lengths.Add(app.StatusText.Length);
 
         Assert.Single(lengths);
+    }
+
+    [Fact]
+    public void TheStatusLineHoldsItsLengthWhateverTickLengthTheContentDeclares()
+    {
+        // The pace field is not a choice from three strings: a scenario declares
+        // its own tick length and the format accepts any positive number, so the
+        // rate the label reports is whatever the content asked for. The status
+        // line pads the label into a fixed field and never truncates it, so a
+        // rate written at its natural width holds the length until it outgrows
+        // that field -- and then the line grows, and a window sized to the line
+        // it wraps shakes. A microsecond tick is what reaches past the field,
+        // which is why an absurd tick length is in this list: absurd is exactly
+        // what a hand-written or generated scenario is free to declare.
+        //
+        // Four scenarios identical but for the tick line, each walked through
+        // every pace, so the only thing varying is the rate.
+        var grid = Fixture();
+        var lengths = new HashSet<int>();
+        var labels = new List<string>();
+
+        foreach (var tick in new[] { "0.25", "0.033", "0.000001", "45" })
+        {
+            var scenario = RecordedScenario.FromText(
+                $"version 1\nmap any.map\nsize 12 7\ntick {tick}\nagent 0 1 1\nagent 1 4 5\nend 30\n");
+            var app = new ViewerApp(grid, LayoutFor(grid), scenario: scenario);
+            var renderer = new RecordingRenderer();
+
+            foreach (var _ in Enumerable.Range(0, 3))
+            {
+                lengths.Add(app.StatusText.Length);
+                labels.Add(app.PaceLabel);
+                using var host = new ScriptedHost(
+                    [new ScriptedFrame(Dt: 0f, KeysDown: ViewerKeys.Pace), new ScriptedFrame(Dt: 0f)], renderer);
+                host.Run(app);
+            }
+        }
+
+        Assert.Single(lengths);
+
+        // The content's own rate first in each group of three, then the two slow
+        // paces, which do not care what the content declared.
+        Assert.Equal(
+            [
+                "   4/s", "   2/s", "   1/s",
+                "  30/s", "   2/s", "   1/s",
+                "999+/s", "   2/s", "   1/s",
+                "<0.1/s", "   2/s", "   1/s",
+            ],
+            labels);
     }
 
     [Fact]

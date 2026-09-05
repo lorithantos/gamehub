@@ -63,6 +63,38 @@ public sealed class ViewerApp : IViewerApp
     private const int CounterDigits = 4;
 
     /// <summary>
+    /// Width of the number in <see cref="PaceLabel"/>, in characters.
+    /// </summary>
+    /// <remarks>
+    /// Four holds every rate the label will print, because the label clamps to
+    /// what four holds: <c>&lt;0.1</c> below <see cref="SlowestRateShown"/>,
+    /// <c>999+</c> above <see cref="FastestRateShown"/>, and one decimal only
+    /// under ten, where <c>9.9</c> is the widest. A rate at its natural width
+    /// would step the line from <c>4/s</c> to <c>30.3/s</c> the moment a
+    /// scenario declared a shorter tick.
+    /// </remarks>
+    private const int RateDigits = 4;
+
+    /// <summary>
+    /// Rates below this print as <c>&lt;0.1</c>: a tick every twenty seconds or
+    /// slower, where the exact number stops meaning anything to a watcher.
+    /// </summary>
+    private const double SlowestRateShown = 0.05;
+
+    /// <summary>
+    /// Rates from this up print as <c>999+</c>. Past a thousand ticks a second
+    /// nothing is being watched, and the digits would not fit the field.
+    /// </summary>
+    private const double FastestRateShown = 999.5;
+
+    /// <summary>
+    /// Rates from this up print whole. Below it a tenth is worth a character,
+    /// because that is where a pace is slow enough to count ticks by eye; above
+    /// it the decimal is noise and would cost the field a digit.
+    /// </summary>
+    private const double WholeRatesFrom = 9.95;
+
+    /// <summary>
     /// The heading the controls folder sits under, taken from the one table that
     /// says where it is laid out.
     /// </summary>
@@ -384,12 +416,41 @@ public sealed class ViewerApp : IViewerApp
     public IReadOnlyList<int> Selection => _session.Selection;
 
     /// <summary>
-    /// How fast the clock is feeding ticks, as the status line says it: the
-    /// content's own rate, or one of the slow paces for watching.
+    /// How fast the clock is feeding ticks, in ticks a second: the content's own
+    /// rate, or one of the slow paces for watching.
     /// </summary>
-    public string PaceLabel => Paces[_pace] is { } seconds
-        ? string.Create(CultureInfo.InvariantCulture, $"{1.0 / seconds:0.#}/s")
-        : "full";
+    /// <remarks>
+    /// Read off <see cref="StepSeconds"/>, so the content's own rate is a number
+    /// like every other pace — the guard world's quarter-second tick reads 4/s,
+    /// and a watcher pressing the key sees it halve to 2/s rather than watching
+    /// a word turn into a number.
+    /// <para>
+    /// The number is right-aligned in <see cref="RateDigits"/> and clamped at
+    /// both ends, so the label is that width plus <c>/s</c> whatever the rate.
+    /// A scenario declares its own tick length, so the rate is not a choice from
+    /// three: 0.033 seconds a tick is 30/s and 0.001 is past the field. The
+    /// status line pads this and never truncates it, and the WPF window is sized
+    /// to the line it wraps — a label written at its natural width would change
+    /// the wrapped line count and shake the window, which is the same shaking
+    /// <see cref="CounterDigits"/> exists to prevent.
+    /// </para>
+    /// </remarks>
+    public string PaceLabel
+    {
+        get
+        {
+            var rate = 1.0 / StepSeconds;
+            var number = rate switch
+            {
+                < SlowestRateShown => "<0.1",
+                < WholeRatesFrom => rate.ToString("0.#", CultureInfo.InvariantCulture),
+                < FastestRateShown => rate.ToString("0", CultureInfo.InvariantCulture),
+                _ => "999+",
+            };
+
+            return number.PadLeft(RateDigits) + "/s";
+        }
+    }
 
     /// <summary>
     /// <see cref="ViewerSession.Running"/>, forwarded. The app decides

@@ -83,6 +83,15 @@
             makes that safe on a small map: it takes the overflow instead of the
             window taking it.
 
+            ROW 0 ONLY, the map's row, with no row span. The status line below
+            spans both columns and runs the full width of the window, so nothing
+            else may claim row 1: a panel reaching into it is drawn over the
+            right-hand end of the line and, declared after the bar, wins. Row 0
+            alone is also what puts the panel's top at the map's top - an
+            explicit height is centred in the space its rows give it, so across
+            two rows it hung short of the top by half the bar's height and left
+            a strip of black above itself.
+
             EMPTY IN THE XAML. What goes in this StackPanel is one heading per
             group and one row per fact, and InspectorView builds them - from
             rows nobody here has seen, whose groups and keys a source picks.
@@ -97,7 +106,6 @@
         -->
         <Border x:Name="InspectorPanel"
                 Grid.Row="0"
-                Grid.RowSpan="2"
                 Grid.Column="1"
                 Width="260"
                 Background="Black"

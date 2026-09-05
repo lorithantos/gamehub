@@ -73,6 +73,67 @@ public sealed class StatusBarTests
         return width;
     }
 
+    /// <summary>Where an element ended up in its parent, once the grid has been arranged.</summary>
+    private static Rect Box(FrameworkElement element)
+    {
+        // TranslatePoint wants a UIElement, and Parent is typed as a
+        // DependencyObject; the grid these two sit in is one.
+        var origin = element.TranslatePoint(new Point(0, 0), (UIElement)element.Parent);
+        return new Rect(origin, new Size(element.ActualWidth, element.ActualHeight));
+    }
+
+    /// <summary>The window laid out at the size it asks for, so positions are real.</summary>
+    private static MainWindow Arranged(ViewerApp app)
+    {
+        var window = new MainWindow();
+        window.SizeTo(app.Layout, dpiScale: 1.0);
+        window.Status.Text = app.StatusText;
+
+        window.Chrome.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        window.Chrome.Arrange(new Rect(new Point(0, 0), window.Chrome.DesiredSize));
+        window.Chrome.UpdateLayout();
+
+        return window;
+    }
+
+    [Fact]
+    public void TheInspectorDoesNotCoverTheEndOfTheStatusLine()
+    {
+        // The bar spans both columns, so it runs UNDER the panel's column. A
+        // panel that reached into the bar's row was painted over the right-hand
+        // end of the first wrapped line -- and being declared after the bar it
+        // won, so thirty-nine characters of key hints were simply not there. The
+        // panel's top is asserted too: an explicit height stretched across two
+        // rows is centred in them, which held the panel half the bar's height
+        // below the map and put a strip of black above it.
+        Sta.Run(() =>
+        {
+            var window = Arranged(GuardWorld());
+
+            var bar = Box(window.StatusBar);
+            var panel = Box(window.InspectorPanel);
+
+            // The AREA they share, not Rect.IntersectsWith, which counts a
+            // shared edge as an intersection and so calls these two overlapping
+            // however well they are stacked -- the bar's top IS the panel's
+            // bottom when this is right, and that is the arrangement, not the
+            // fault.
+            var overlap = Rect.Intersect(bar, panel);
+
+            Assert.False(
+                overlap.Width > 0 && overlap.Height > 0,
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"the status bar at {bar} and the inspector at {panel} overlap in {overlap}"));
+
+            Assert.True(
+                panel.Top == 0,
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"the inspector starts {panel.Top} points below the top of the grid, not level with the map"));
+        });
+    }
+
     [Fact]
     public void TheStatusLineIsAsWideAsTheMapAndThePanelTogether()
     {

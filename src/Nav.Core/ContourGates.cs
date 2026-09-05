@@ -232,7 +232,7 @@ public sealed class ContourGates(double minimumCut = 0.01, int maximumWidth = 2)
         return (gates, reached);
     }
 
-    private static int NearestOpen(Grid grid, int x, int y)
+    internal static int NearestOpen(Grid grid, int x, int y)
     {
         if (grid.IsPassable(x, y))
         {

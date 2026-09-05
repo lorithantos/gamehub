@@ -72,15 +72,7 @@ public sealed class ContourGates(double minimumCut = 0.01, int maximumWidth = 2)
     {
         ArgumentNullException.ThrowIfNull(grid);
 
-        var origins = new List<int>();
-        foreach (var (fx, fy) in Origins)
-        {
-            var cell = NearestOpen(grid, (int)(grid.Width * fx), (int)(grid.Height * fy));
-            if (cell >= 0 && !origins.Contains(cell))
-            {
-                origins.Add(cell);
-            }
-        }
+        List<int> origins = FindOrigins(grid);
 
         if (origins.Count == 0)
         {
@@ -130,6 +122,21 @@ public sealed class ContourGates(double minimumCut = 0.01, int maximumWidth = 2)
         }
 
         return [.. kept.OrderBy(k => k.Cell)];
+    }
+
+    private static List<int> FindOrigins(Grid grid)
+    {
+        var origins = new List<int>();
+        foreach (var (fx, fy) in Origins)
+        {
+            var cell = NearestOpen(grid, (int)(grid.Width * fx), (int)(grid.Height * fy));
+            if (cell >= 0 && !origins.Contains(cell))
+            {
+                origins.Add(cell);
+            }
+        }
+
+        return origins;
     }
 
     /// <summary>Cells within this of a stronger gate are the same passage as it.</summary>
@@ -232,21 +239,42 @@ public sealed class ContourGates(double minimumCut = 0.01, int maximumWidth = 2)
             return grid.Index(x, y);
         }
 
+        // The ring at radius r is 8r cells, and walking it costs 8r. Filtering the
+        // whole (2r+1)-square down to it costs (2r+1)^2 -- cubic in the radius
+        // rather than quadratic, which on a 512-cell map is 1.8e8 steps to perform
+        // 1e6 tests. The order below is the square filter's order exactly: top row
+        // left to right, then each interior row's left cell before its right one,
+        // then the bottom row. It has to be, because these cells become the flood
+        // origins and a different tie-break at equal distance is a different
+        // region graph.
         for (var r = 1; r < Math.Max(grid.Width, grid.Height); r++)
         {
-            for (var dy = -r; dy <= r; dy++)
+            for (var dx = -r; dx <= r; dx++)
             {
-                for (var dx = -r; dx <= r; dx++)
+                if (grid.IsPassable(x + dx, y - r))
                 {
-                    if (Math.Abs(dx) != r && Math.Abs(dy) != r)
-                    {
-                        continue;
-                    }
+                    return grid.Index(x + dx, y - r);
+                }
+            }
 
-                    if (grid.IsPassable(x + dx, y + dy))
-                    {
-                        return grid.Index(x + dx, y + dy);
-                    }
+            for (var dy = -r + 1; dy <= r - 1; dy++)
+            {
+                if (grid.IsPassable(x - r, y + dy))
+                {
+                    return grid.Index(x - r, y + dy);
+                }
+
+                if (grid.IsPassable(x + r, y + dy))
+                {
+                    return grid.Index(x + r, y + dy);
+                }
+            }
+
+            for (var dx = -r; dx <= r; dx++)
+            {
+                if (grid.IsPassable(x + dx, y + r))
+                {
+                    return grid.Index(x + dx, y + r);
                 }
             }
         }

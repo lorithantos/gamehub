@@ -795,42 +795,6 @@ public sealed class FogTests
     }
 
     /// <summary>
-    /// A scripted <see cref="IVisibilityView"/>: whatever the test says each side
-    /// can see, remembers and has found.
-    /// </summary>
-    /// <remarks>
-    /// <b>It hands back a FRESH list every call</b>, which is deliberate. The app
-    /// is supposed to decide whether the fog it drew is still right by comparing
-    /// what it was told, and a fake that returned the same object would let an
-    /// app comparing references pass.
-    /// </remarks>
-    private sealed class FakeEyes(IReadOnlyList<int> sides) : IVisibilityView
-    {
-        public Dictionary<int, List<int>> Seen { get; } = [];
-
-        public Dictionary<int, List<int>> Pads { get; } = [];
-
-        public Dictionary<int, List<RememberedUnit>> Memory { get; } = [];
-
-        /// <summary>How many times the app asked what a side can see.</summary>
-        public int Asked { get; private set; }
-
-        public IReadOnlyList<int> Sides => sides;
-
-        public IReadOnlyList<int> VisibleCells(int side)
-        {
-            Asked++;
-            return Seen.TryGetValue(side, out var cells) ? [.. cells] : [];
-        }
-
-        public IReadOnlyList<int> RepairPoints(int side) =>
-            Pads.TryGetValue(side, out var cells) ? [.. cells] : [];
-
-        public IReadOnlyList<RememberedUnit> Remembered(int side) =>
-            Memory.TryGetValue(side, out var known) ? [.. known] : [];
-    }
-
-    /// <summary>
     /// A source with one fact about the watched unit and one about the fight,
     /// and a note of who it was asked to describe.
     /// </summary>
@@ -870,33 +834,5 @@ public sealed class FogTests
             public IReadOnlyList<DebugRow> Describe() =>
                 [new DebugRow(Unit, "health", $"unit {agent} at 40%")];
         }
-    }
-
-    /// <summary>
-    /// A world whose units stand still: placed once, on the sides the test asked
-    /// for, and never ordered anywhere.
-    /// </summary>
-    /// <remarks>
-    /// Standing still is the point. What is being measured is which units reach
-    /// the renderer and where their marks land, and a unit that walks moves the
-    /// answer to both between two frames of the same test.
-    /// </remarks>
-    private sealed class StillWorld : IWorld
-    {
-        public StillWorld(Grid grid, IReadOnlyList<(int Cell, int Side)> units)
-        {
-            Grid = grid;
-            Board = new MovementSystem(grid);
-            foreach (var (cell, side) in units)
-            {
-                Board.AddAgent(cell, side);
-            }
-        }
-
-        public Grid Grid { get; }
-
-        public MovementSystem Board { get; }
-
-        public void Step(int tick) => Board.Tick();
     }
 }

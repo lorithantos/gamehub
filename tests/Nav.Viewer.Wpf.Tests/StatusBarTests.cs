@@ -48,7 +48,7 @@ public sealed class StatusBarTests
     /// <summary>The viewer the fault was reported against, composed as the exe composes it.</summary>
     private static ViewerApp GuardWorld()
     {
-        var (session, sources, eyes) = Program.Compose("guard-retreat");
+        var (session, sources, eyes, _) = Program.Compose("guard-retreat");
         return new ViewerApp(
             session,
             Program.MaxMapPixels,

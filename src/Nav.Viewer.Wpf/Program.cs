@@ -145,9 +145,10 @@ internal static class Program
         ViewerSession session;
         IReadOnlyList<IWorldDebugView> sources;
         IVisibilityView? eyes;
+        IHealthView? health;
         if (options.World is { } world)
         {
-            (session, sources, eyes) = Compose(world);
+            (session, sources, eyes, health) = Compose(world);
         }
         else
         {
@@ -163,8 +164,12 @@ internal static class Program
             sources = [];
 
             // A recording has no sides with knowledge of their own, so there is
-            // nobody's eyes to borrow and the viewpoint key stays quiet.
+            // nobody's eyes to borrow and the viewpoint key stays quiet. It has
+            // no damage either -- a recording is movement and nothing else -- so
+            // there is no health to draw and the frame is the one this viewer
+            // drew before bars existed.
             eyes = null;
+            health = null;
         }
 
         // The same budget the raylib host uses, so the two windows are the
@@ -179,7 +184,9 @@ internal static class Program
             keys: null,
             sources,
             eyes,
-            ArrangementFor(session, sources));
+            ArrangementFor(session, sources),
+            fog: null,
+            health);
         using var host = new WpfHost(app.Layout, options.MaxFrames);
         host.Run(app);
 
@@ -188,11 +195,11 @@ internal static class Program
 
     /// <summary>
     /// A live world wired up: the session that plays it, the source that
-    /// describes it into the inspector, and the eyes the board can be drawn
-    /// through.
+    /// describes it into the inspector, the eyes the board can be drawn through,
+    /// and how hurt each unit on it is.
     /// </summary>
     /// <remarks>
-    /// <b>Both come out of ONE assignment, and that is the point of the shape.</b>
+    /// <b>They all come out of ONE assignment, and that is the point of the shape.</b>
     /// The session takes a factory because a world cannot be rewound -- R builds
     /// another one -- and the panel needs the tactics world INSIDE whichever one
     /// the session is currently stepping. Wired as two independent lines (a world
@@ -219,7 +226,11 @@ internal static class Program
     /// </para>
     /// </remarks>
     /// <param name="world">A name from <see cref="ViewerOptions.KnownWorlds"/>.</param>
-    internal static (ViewerSession Session, IReadOnlyList<IWorldDebugView> Sources, IVisibilityView Eyes)
+    internal static (
+        ViewerSession Session,
+        IReadOnlyList<IWorldDebugView> Sources,
+        IVisibilityView Eyes,
+        IHealthView Health)
         Compose(string world)
     {
         switch (world)
@@ -230,13 +241,14 @@ internal static class Program
                 var session = ViewerSession.FromWorld(() => live = new GuardRetreatWorld(), world);
 
                 // Non-null from here on: the session built one on the way in, and
-                // every rebuild goes through the same assignment. Both
-                // instruments read the same handle, so neither can be left
+                // every rebuild goes through the same assignment. All three
+                // instruments read the same handle, so none can be left
                 // describing or drawing a world nobody is stepping.
                 return (
                     session,
                     [new LiveWorldSource(() => Panel(live!))],
-                    new LiveVisibilitySource(() => new DemoWorldVisibility(live!.World)));
+                    new LiveVisibilitySource(() => new DemoWorldVisibility(live!.World)),
+                    new LiveHealthSource(() => new DemoWorldHealth(live!.World)));
             }
 
             default:

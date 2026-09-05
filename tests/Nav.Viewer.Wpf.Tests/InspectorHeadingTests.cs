@@ -34,7 +34,7 @@ public sealed class InspectorHeadingTests
     private static (ViewerApp App, ViewerSession Session, IReadOnlyList<IWorldDebugView> Sources) GuardWorld(
         IReadOnlyList<(string Section, IReadOnlyList<string> First)>? preferences)
     {
-        var (session, sources, eyes) = Program.Compose("guard-retreat");
+        var (session, sources, eyes, _) = Program.Compose("guard-retreat");
         var app = new ViewerApp(
             session,
             Program.MaxMapPixels,

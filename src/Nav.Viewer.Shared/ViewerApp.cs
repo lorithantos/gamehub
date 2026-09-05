@@ -231,6 +231,34 @@ public sealed class ViewerApp : IViewerApp
     /// </remarks>
     private readonly FogStyle _fogStyle;
 
+    /// <summary>
+    /// How hurt each unit is, or null for a viewer nobody wired one to -- which
+    /// is a viewer that draws no bars at all.
+    /// </summary>
+    /// <remarks>
+    /// Held apart from <see cref="_eyes"/> and <see cref="_sources"/> because it
+    /// answers a third question. The eyes decide what is on screen; a source
+    /// describes what is watched; this one is a number about every unit that
+    /// survived the first decision.
+    /// <para>
+    /// <b>Null draws exactly the frame this viewer drew before bars existed</b>,
+    /// down to the draw count -- which is what lets every test written against
+    /// that frame go on measuring what it was written to measure.
+    /// </para>
+    /// </remarks>
+    private readonly IHealthView? _health;
+
+    /// <summary>
+    /// How a unit's health is depicted, or <see cref="HealthStyle.Default"/>
+    /// where nobody said. Read only when <see cref="_health"/> is present.
+    /// </summary>
+    /// <remarks>
+    /// A real field rather than an auto-property, for the reason
+    /// <see cref="_fogStyle"/> is one: <see cref="Render"/> is walked for writes
+    /// and the walk cannot see through a compiler-generated backing field.
+    /// </remarks>
+    private readonly HealthStyle _healthStyle;
+
     /// <summary>Whose eyes the board is drawn through, or <see cref="Observer"/>.</summary>
     private int _viewpoint = Observer;
 
@@ -283,6 +311,13 @@ public sealed class ViewerApp : IViewerApp
     /// <c>fog</c> is how a side's belief is DEPICTED and never what it is -- see
     /// <see cref="FogStyle"/>. Handing over none is today's picture exactly.
     /// </para>
+    /// <para>
+    /// <c>health</c> is how hurt each unit is, and handing over none is a viewer
+    /// with no bars -- byte for byte the frame drawn before there were any. A
+    /// recording has no health to report, so that is what a recording gets.
+    /// <c>bars</c> is how the number is depicted, and is read only when there is
+    /// a <c>health</c> to depict.
+    /// </para>
     /// </remarks>
     public ViewerApp(
         ViewerSession session,
@@ -292,7 +327,9 @@ public sealed class ViewerApp : IViewerApp
         IReadOnlyList<IWorldDebugView>? sources = null,
         IVisibilityView? eyes = null,
         InspectorArrangement? arrangement = null,
-        FogStyle? fog = null)
+        FogStyle? fog = null,
+        IHealthView? health = null,
+        HealthStyle? bars = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(maxPixelWidth, 0);
@@ -305,6 +342,8 @@ public sealed class ViewerApp : IViewerApp
         _eyes = eyes;
         _arrangement = arrangement ?? InspectorArrangement.ArrivalOrder;
         _fogStyle = fog ?? FogStyle.Default;
+        _health = health;
+        _healthStyle = bars ?? HealthStyle.Default;
         Keys = keys ?? Keymap.Default;
         AdoptContent();
         StatusText = BuildStatus();
@@ -326,7 +365,9 @@ public sealed class ViewerApp : IViewerApp
         IReadOnlyList<IWorldDebugView>? sources = null,
         IVisibilityView? eyes = null,
         InspectorArrangement? arrangement = null,
-        FogStyle? fog = null)
+        FogStyle? fog = null,
+        IHealthView? health = null,
+        HealthStyle? bars = null)
         : this(
             BuildSession(grid, scenario, squad),
             layout.PixelWidth,
@@ -335,7 +376,9 @@ public sealed class ViewerApp : IViewerApp
             sources,
             eyes,
             arrangement,
-            fog)
+            fog,
+            health,
+            bars)
     {
     }
 
@@ -797,10 +840,72 @@ public sealed class ViewerApp : IViewerApp
     }
 
     /// <summary>
+    /// Which of <see cref="HealthStyle"/>'s three colours a fraction falls in.
+    /// </summary>
+    /// <remarks>
+    /// Both thresholds belong to the middle band -- see
+    /// <see cref="HealthStyle.HealthyAbove"/> -- so the comparisons are strict
+    /// at both ends and a unit sitting exactly on one has a single answer.
+    /// </remarks>
+    private RgbaColor HealthColour(float fraction) => fraction switch
+    {
+        _ when fraction > _healthStyle.HealthyAbove => _healthStyle.Healthy,
+        _ when fraction < _healthStyle.CriticalBelow => _healthStyle.Critical,
+        _ => _healthStyle.Hurt,
+    };
+
+    /// <summary>
+    /// A unit's health as a bar above it: a dark track the full width, and the
+    /// coloured fill over its left portion.
+    /// </summary>
+    /// <remarks>
+    /// TWO LINES, NOT ONE. The fill alone only says how much is left, and a
+    /// half-length bar reads as a smaller bar rather than as a hurt unit. Drawn
+    /// against the full track, the missing part is as visible as the remaining
+    /// one -- which is the whole question a watcher is asking of it.
+    /// <para>
+    /// Lines rather than a sixth verb on <see cref="IRenderer"/>:
+    /// <see cref="IRenderer.DrawLine"/> already takes a thickness, so a bar is a
+    /// short thick segment and the seam does not grow. The same trick the
+    /// selection ring, the leader mark and the drag band are all drawn with.
+    /// </para>
+    /// <para>
+    /// The floors are pixels and the rest is cells. Everything about the bar
+    /// scales with the cell size so it holds at any zoom, but a bar under a
+    /// pixel thick or two pixels long is not a bar at all, so the two minima are
+    /// absolute -- the same pairing the unit's own radius and the route's
+    /// thickness use.
+    /// </para>
+    /// </remarks>
+    private void DrawHealth(IRenderer renderer, Vector2 at, float fraction)
+    {
+        var width = Math.Max(2.0f, Layout.CellSize * _healthStyle.Width);
+        var thickness = Math.Max(1.0f, Layout.CellSize * _healthStyle.Thickness);
+        var left = at.X - (width / 2.0f);
+        var y = at.Y - (Layout.CellSize * _healthStyle.Above);
+
+        renderer.DrawLine(
+            new Vector2(left, y), new Vector2(left + width, y), thickness, _healthStyle.Track);
+
+        // Clamped because a length is being drawn: an implementation that
+        // answered 1.4 would otherwise put a fill out past the end of its own
+        // track, which is a picture that means nothing.
+        var remaining = Math.Clamp(fraction, 0.0f, 1.0f);
+        if (remaining > 0.0f)
+        {
+            renderer.DrawLine(
+                new Vector2(left, y),
+                new Vector2(left + (width * remaining), y),
+                thickness,
+                HealthColour(remaining));
+        }
+    }
+
+    /// <summary>
     /// Draws the frame <see cref="Update"/> decided on: terrain, the sole
-    /// selection's route, every unit lerped by the leftover blend, and the drag
-    /// band. Reads state and moves nothing -- calling it twice draws the same
-    /// picture.
+    /// selection's route, every unit lerped by the leftover blend with its health
+    /// bar, and the drag band. Reads state and moves nothing -- calling it twice
+    /// draws the same picture.
     /// </summary>
     /// <remarks>
     /// Opens and closes the frame itself, so <paramref name="renderer"/> arrives
@@ -1051,6 +1156,22 @@ public sealed class ViewerApp : IViewerApp
                     at - new Vector2(arm, arm), at + new Vector2(arm, arm), stroke, RgbaColor.Orange);
                 renderer.DrawLine(
                     at - new Vector2(arm, -arm), at + new Vector2(arm, -arm), stroke, RgbaColor.Orange);
+            }
+
+            // THE BAR, AND IT IS INSIDE THIS LOOP ON PURPOSE. A unit the current
+            // viewpoint cannot see left by the `continue` at the top of the body
+            // before anything here could run, so a hidden unit's bar cannot
+            // exist -- there is no second visibility test to disagree with
+            // Hidden, which is exactly the leak the inspector panel was just
+            // made to close by sharing this one predicate rather than restating
+            // it. Both sides get bars; the fog decides which, and it already
+            // has.
+            //
+            // Null draws nothing at all, so a viewer nobody handed health to
+            // emits the same commands it always did.
+            if (_health is not null)
+            {
+                DrawHealth(renderer, at, _health.HealthOf(agent.Id));
             }
         }
 

@@ -1622,6 +1622,15 @@ public sealed class ViewerApp : IViewerApp
     /// <see cref="BuildStatus"/> is: the property hands back a field, and this is
     /// where the movement layer is actually asked.
     /// </para>
+    /// <para>
+    /// <b>It reports only what the viewpoint can see.</b> The question that makes
+    /// a viewpoint worth cycling is whether a doctrine is acting on knowledge it
+    /// should not have, and a panel that spelled out a unit the map had refused
+    /// to draw would answer that with the truth instead of with what the side
+    /// knows. <see cref="Hidden"/> is the same predicate the units are drawn by,
+    /// so the two halves cannot disagree, and it is false for the observer --
+    /// which is what leaves the true board's panel exactly as it was.
+    /// </para>
     /// </remarks>
     [Observes]
     private IReadOnlyList<DebugRow> BuildInspector()
@@ -1643,8 +1652,24 @@ public sealed class ViewerApp : IViewerApp
         // The lowest id, because ViewerSession keeps the selection in ascending
         // order and a box-select has no other stable first member.
         var watched = selection[0];
+
+        // THE PANEL IS UNDER FOG, THE SAME AS THE MAP. Through a side's eyes, a
+        // unit that side has not found is not drawn -- and a panel that spelled
+        // out its health, its target and its squad anyway would hand over
+        // exactly the knowledge whose absence is being watched for, which loses
+        // the one question the viewpoint exists to ask.
+        //
+        // Decided once here and carried down, so the movement layer, every
+        // source and the viewer's own per-unit rows all fall silent on the same
+        // frame rather than each deciding for itself. False for the observer,
+        // where the panel is the true board's and stays exactly as it was.
+        var unseen = Hidden(_session.Agents[watched]);
+
         var rows = new List<DebugRow>();
-        rows.AddRange(InSection(_session.DebugFor(watched).Describe(), InspectorLayout.MovementSection));
+        if (!unseen)
+        {
+            rows.AddRange(InSection(_session.DebugFor(watched).Describe(), InspectorLayout.MovementSection));
+        }
 
         // Headings already spoken for WITHIN THE TACTICS SECTION, which is the
         // whole domain a collision can now happen in. A source is free to call a
@@ -1673,7 +1698,7 @@ public sealed class ViewerApp : IViewerApp
             List<DebugRow> supplied;
             try
             {
-                supplied = RowsFrom(_sources[i], watched, taken);
+                supplied = RowsFrom(_sources[i], watched, taken, unseen);
             }
             catch (Exception e)
             {
@@ -1715,25 +1740,39 @@ public sealed class ViewerApp : IViewerApp
             mine.Add(new DebugRow(Sources, "others", $"{Number(selection.Count - 1)} also selected"));
         }
 
-        PlanResult? route = null;
-        foreach (var (id, plan) in _session.CurrentPlans())
+        if (unseen)
         {
-            if (id == watched)
-            {
-                route = plan;
-                break;
-            }
+            // A ROW RATHER THAN AN EMPTY PANEL. An instrument with nothing in it
+            // reads as one that broke, and the frame somebody is watching for a
+            // leak on is the worst frame to look broken on. It says whose eyes
+            // are the reason, because the fix is one keypress away.
+            mine.Add(new DebugRow(
+                Sources, "unit", "not visible from here", $"side {Number(_viewpoint)} has not found it"));
         }
+        else
+        {
+            PlanResult? route = null;
+            foreach (var (id, plan) in _session.CurrentPlans())
+            {
+                if (id == watched)
+                {
+                    route = plan;
+                    break;
+                }
+            }
 
-        mine.Add(new DebugRow(Sources, "waits", route is null ? "-" : Number(WaitCount(route))));
+            mine.Add(new DebugRow(Sources, "waits", route is null ? "-" : Number(WaitCount(route))));
 
-        // The orange cross, as a row. Render decides it from four conditions and
-        // the panel is the only place a watcher can read WHY the unit is crossed
-        // out, so both go through the one predicate rather than agreeing by hand.
-        var agent = _session.Agents[watched];
-        mine.Add(HasNoRoute(agent, route is not null)
-            ? new DebugRow(Sources, "no route", "yes", "crossed out on the map")
-            : new DebugRow(Sources, "no route", "no"));
+            // The orange cross, as a row. Render decides it from four conditions
+            // and the panel is the only place a watcher can read WHY the unit is
+            // crossed out, so both go through the one predicate rather than
+            // agreeing by hand -- which is also why it goes quiet under fog: the
+            // map draws no cross on a unit it is not drawing.
+            var agent = _session.Agents[watched];
+            mine.Add(HasNoRoute(agent, route is not null)
+                ? new DebugRow(Sources, "no route", "yes", "crossed out on the map")
+                : new DebugRow(Sources, "no route", "no"));
+        }
 
         mine.AddRange(broke);
 
@@ -1799,10 +1838,26 @@ public sealed class ViewerApp : IViewerApp
     /// <see cref="IWorldDebugView.DebugFor"/> answers for any int, and a source
     /// with nothing to say about one contributes no rows and therefore no heading.
     /// </para>
+    /// <para>
+    /// <b><paramref name="unseen"/> takes the unit's half away and leaves the
+    /// source's own.</b> A viewpoint that has not found the unit is entitled to
+    /// the rates and the rankings and to nothing about the unit, so the source is
+    /// asked one of its two questions instead of both -- and a heading that only
+    /// the unit's rows would have carried is then simply not in the panel, the
+    /// same as for a source with nothing to say.
+    /// </para>
     /// </remarks>
-    private static List<DebugRow> RowsFrom(IWorldDebugView source, int watched, IReadOnlySet<string> taken)
+    private static List<DebugRow> RowsFrom(
+        IWorldDebugView source, int watched, IReadOnlySet<string> taken, bool unseen)
     {
-        var unit = source.DebugFor(watched).Describe();
+        // ASKED, or not asked at all. A source that cannot see the unit is not
+        // invited to describe it, so there is no answer here to filter and no
+        // way for one to arrive by a route this method did not think of.
+        //
+        // The WORLD rows are asked for either way: rates and rankings are facts
+        // about the fight rather than about the unit somebody is watching, and
+        // fog is about a unit.
+        IReadOnlyList<DebugRow> unit = unseen ? [] : source.DebugFor(watched).Describe();
         var world = source.Describe();
 
         var rows = new List<DebugRow>(unit.Count + world.Count);

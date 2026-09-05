@@ -52,10 +52,11 @@ public sealed class FogTests
     private static (ViewerApp App, RecordingRenderer Renderer, Grid Grid) Viewer(
         Grid grid,
         IReadOnlyList<(int Cell, int Side)> units,
-        FakeEyes? eyes)
+        FakeEyes? eyes,
+        IReadOnlyList<IWorldDebugView>? sources = null)
     {
         var session = ViewerSession.FromWorld(() => new StillWorld(grid, units), "fog");
-        var app = new ViewerApp(session, 1000, 1000 - StatusHeight, keys: null, sources: null, eyes: eyes);
+        var app = new ViewerApp(session, 1000, 1000 - StatusHeight, keys: null, sources: sources, eyes: eyes);
         return (app, new RecordingRenderer(), grid);
     }
 
@@ -413,6 +414,190 @@ public sealed class FogTests
         Assert.Equal("cycle viewpoint (nothing to cycle here)", Row(blind, "V"));
     }
 
+    [Fact]
+    public void AUnitTheSideCannotSeeIsNotDescribedEither()
+    {
+        var grid = Room();
+        var mine = grid.Index(2, 2);
+        var theirs = grid.Index(11, 6);
+
+        var eyes = new FakeEyes([0, 1]);
+        eyes.Seen[0] = [mine];
+
+        var source = new Tattler();
+        var (app, renderer, _) = Viewer(grid, [(mine, 0), (theirs, 1)], eyes, [source]);
+        app.Session.Select([1]);
+
+        // The observer first, so what the panel loses is measured against what
+        // there was to lose rather than against an assumption.
+        Ticks(app, renderer, 1);
+        Assert.Equal("1", Value(app, "Agent", "id"));
+        Assert.Equal("unit 1 at 40%", Value(app, "Fight", "health"));
+
+        source.AskedAbout.Clear();
+        Play(app, renderer, ViewerKeys.Viewpoint);
+
+        Assert.Equal(0, app.Viewpoint);
+
+        // Nothing about the unit, from any layer that had something to say.
+        Assert.DoesNotContain(
+            app.Inspector,
+            r => string.Equals(r.Section, InspectorLayout.MovementSection, StringComparison.Ordinal));
+        Assert.False(Says(app, "Fight", "health"), "the panel read an unseen unit's health");
+        Assert.False(Says(app, "Sources", "waits"), "the panel counted an unseen unit's waits");
+        Assert.False(Says(app, "Sources", "no route"), "the panel reported an unseen unit's route");
+
+        // NOT ASKED, not filtered. A source is somebody else's code and the only
+        // way to be sure it cannot leak is to leave it uncalled.
+        Assert.Empty(source.AskedAbout);
+
+        // And it says which it is. An empty panel reads as a broken one.
+        Assert.True(Says(app, "Sources", "unit"), "the panel went quiet without saying why");
+        Assert.Equal("not visible from here", Value(app, "Sources", "unit"));
+        Assert.Equal("side 0 has not found it", Note(app, "Sources", "unit"));
+
+        // The fight's own rows are not about the unit, so fog has no business
+        // with them and they are still here.
+        Assert.Equal("3 rounds a tick", Value(app, "Fight world", "rates"));
+    }
+
+    [Fact]
+    public void AUnitTheSideCanSeeIsDescribedExactlyAsItWasBefore()
+    {
+        var grid = Room();
+        var mine = grid.Index(2, 2);
+        var theirs = grid.Index(11, 6);
+        IReadOnlyList<(int Cell, int Side)> units = [(mine, 0), (theirs, 1)];
+
+        // Side 0 is standing over both cells, so the enemy is FOUND -- and a fix
+        // that hid every enemy rather than every unfound one fails here.
+        var eyes = new FakeEyes([0, 1]);
+        eyes.Seen[0] = [mine, theirs];
+
+        var (fogged, foggedFrames, _) = Viewer(grid, units, eyes, [new Tattler()]);
+        var (plain, plainFrames, _) = Viewer(grid, units, eyes: null, sources: [new Tattler()]);
+
+        // THE SAME SCRIPT ON BOTH, which is what makes the two panels comparable:
+        // the viewpoint key does nothing at all to a viewer nobody lent eyes to,
+        // so one lands on side 0 and the other stays on the truth having spent
+        // the identical number of frames getting there.
+        foreach (var (app, renderer) in new[] { (fogged, foggedFrames), (plain, plainFrames) })
+        {
+            app.Session.Select([1]);
+            Play(app, renderer, ViewerKeys.Viewpoint);
+        }
+
+        Assert.Equal(0, fogged.Viewpoint);
+        Assert.Equal(-1, plain.Viewpoint);
+        Assert.True(Says(fogged, "Fight", "health"), "side 0 was refused a unit it is standing over");
+        Assert.Equal("unit 1 at 40%", Value(fogged, "Fight", "health"));
+        Assert.Equal(AboutTheUnit(plain), AboutTheUnit(fogged));
+    }
+
+    [Fact]
+    public void TheObserverPanelIsWhatAViewerWithNoFogSays()
+    {
+        var grid = Room();
+        var mine = grid.Index(2, 2);
+        var theirs = grid.Index(11, 6);
+        IReadOnlyList<(int Cell, int Side)> units = [(mine, 0), (theirs, 1)];
+
+        // Eyes that can see almost nothing, and a remembered sighting on top: the
+        // most fogged board this fixture can build, watched from the observer.
+        var eyes = new FakeEyes([0, 1]);
+        eyes.Seen[0] = [mine];
+        eyes.Memory[0] = [new RememberedUnit(1, grid.Index(6, 4), 0)];
+
+        var (withFog, fogged, _) = Viewer(grid, units, eyes, [new Tattler()]);
+        var (withoutFog, plain, _) = Viewer(grid, units, eyes: null, sources: [new Tattler()]);
+
+        foreach (var (app, renderer) in new[] { (withFog, fogged), (withoutFog, plain) })
+        {
+            app.Session.Select([1]);
+            Ticks(app, renderer, 20);
+        }
+
+        // THE OBSERVER IS THE CONTROL, for the panel as much as for the picture.
+        // Every other inspector test in this project is written against it, so a
+        // fog that reached the observer's rows would have quietly rewritten what
+        // all of them measure -- and it is the enemy unit being watched, which is
+        // the one a hiding rule with the wrong condition takes away first.
+        Assert.Equal(-1, withFog.Viewpoint);
+        Assert.False(Says(withFog, "Sources", "unit"), "the observer was told something was hidden");
+        Assert.True(Says(withFog, "Fight", "health"), "the observer was refused a unit it can see");
+        Assert.Equal("unit 1 at 40%", Value(withFog, "Fight", "health"));
+        Assert.Equal(AboutTheUnit(withoutFog), AboutTheUnit(withFog));
+    }
+
+    [Fact]
+    public void CyclingTheViewpointChangesThePanelWithoutChangingWhatIsWatched()
+    {
+        var grid = Room();
+        var mine = grid.Index(2, 2);
+        var theirs = grid.Index(11, 6);
+
+        // Side 0 has found nothing but its own unit; side 1 has found nothing at
+        // all -- and still sees the unit it owns, because a side is never fogged
+        // out of its own roster.
+        var eyes = new FakeEyes([0, 1]);
+        eyes.Seen[0] = [mine];
+
+        var (app, renderer, _) = Viewer(grid, [(mine, 0), (theirs, 1)], eyes, [new Tattler()]);
+        app.Session.Select([1]);
+        Ticks(app, renderer, 1);
+
+        var told = new List<bool>();
+        var hidden = new List<bool>();
+        for (var press = 0; press < 4; press++)
+        {
+            told.Add(Says(app, "Fight", "health"));
+            hidden.Add(Says(app, "Sources", "unit"));
+
+            // THE SELECTION IS UNTOUCHED. What changes is who is looking, and a
+            // fix that dropped the watched unit instead of the answers about it
+            // would move the panel onto some other unit entirely.
+            Assert.Equal([1], app.Session.Selection);
+            Play(app, renderer, ViewerKeys.Viewpoint);
+        }
+
+        Assert.Equal([1], app.Session.Selection);
+
+        // Observer, side 0, side 1, observer. Only side 0 is looking at a unit it
+        // has not found, and only side 0's panel goes quiet.
+        Assert.Equal([true, false, true, true], told);
+        Assert.Equal([false, true, false, false], hidden);
+    }
+
+    /// <summary>
+    /// The panel without the controls folder, which is the part of it that is
+    /// about the watched unit.
+    /// </summary>
+    /// <remarks>
+    /// The folder is dropped because the viewpoint key HAS to read differently
+    /// between a viewer with eyes and one without -- hinting a key that does
+    /// nothing is the lie the folder is generated from the keymap to avoid, and
+    /// that difference is pinned by its own test rather than smuggled in here.
+    /// </remarks>
+    private static List<DebugRow> AboutTheUnit(ViewerApp app) =>
+        [.. app.Inspector.Where(r =>
+            !string.Equals(r.Group, InspectorLayout.ControlsGroup, StringComparison.Ordinal))];
+
+    /// <summary>The one row under a group and key.</summary>
+    private static DebugRow Panel(ViewerApp app, string group, string key) =>
+        app.Inspector.Single(r =>
+            string.Equals(r.Group, group, StringComparison.Ordinal) &&
+            string.Equals(r.Key, key, StringComparison.Ordinal));
+
+    /// <summary>Whether the panel carries a row under a group and key at all.</summary>
+    private static bool Says(ViewerApp app, string group, string key) =>
+        app.Inspector.Any(r =>
+            string.Equals(r.Group, group, StringComparison.Ordinal) &&
+            string.Equals(r.Key, key, StringComparison.Ordinal));
+
+    private static string Value(ViewerApp app, string group, string key) => Panel(app, group, key).Value;
+
+    private static string? Note(ViewerApp app, string group, string key) => Panel(app, group, key).Note;
+
     /// <summary>What the controls folder says one keycap does.</summary>
     private static string Row(ViewerApp app, string keycap) =>
         app.Inspector.Single(r =>
@@ -482,6 +667,48 @@ public sealed class FogTests
 
         public IReadOnlyList<RememberedUnit> Remembered(int side) =>
             Memory.TryGetValue(side, out var known) ? [.. known] : [];
+    }
+
+    /// <summary>
+    /// A source with one fact about the watched unit and one about the fight,
+    /// and a note of who it was asked to describe.
+    /// </summary>
+    /// <remarks>
+    /// Written out of nothing but the interface, exactly as <see cref="FakeEyes"/>
+    /// is, and for the same reason: this project references Nav.Viewer.Shared
+    /// alone, so a test that reached for a real tactics source to find out what
+    /// the panel leaks would be the seam leaking through the test.
+    /// <para>
+    /// The two halves are the point. A unit's health is a fact fog is about; the
+    /// rate the fight is running at is not, and a rule that took both away would
+    /// have hidden the map's own legend along with the unit.
+    /// </para>
+    /// </remarks>
+    private sealed class Tattler : IWorldDebugView
+    {
+        private const string Unit = "Fight";
+        private const string World = "Fight world";
+
+        /// <summary>Every unit the panel asked this source to describe.</summary>
+        public List<int> AskedAbout { get; } = [];
+
+        public IReadOnlyList<string> Groups => [Unit, World];
+
+        public IReadOnlyList<DebugRow> Describe() => [new DebugRow(World, "rates", "3 rounds a tick")];
+
+        public IDebugView DebugFor(int agent)
+        {
+            AskedAbout.Add(agent);
+            return new UnitRows(agent);
+        }
+
+        private sealed class UnitRows(int agent) : IDebugView
+        {
+            public IReadOnlyList<string> Groups => [Unit];
+
+            public IReadOnlyList<DebugRow> Describe() =>
+                [new DebugRow(Unit, "health", $"unit {agent} at 40%")];
+        }
     }
 
     /// <summary>

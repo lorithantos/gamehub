@@ -186,39 +186,6 @@ public sealed class ViewerApp : IViewerApp
     private const int Observer = -1;
 
     /// <summary>
-    /// How dark ground a side cannot see is drawn, as a multiplier on every
-    /// colour channel.
-    /// </summary>
-    /// <remarks>
-    /// Dark enough that the seen ring reads as the shape it is at a glance, and
-    /// light enough that the walls are still walls -- a watcher has to be able to
-    /// see the map a side is moving over, or the fog view is only useful for
-    /// counting units.
-    /// </remarks>
-    private const float FogDim = 0.28f;
-
-    /// <summary>
-    /// How many ticks it takes a sighting to fade all the way into the fog.
-    /// </summary>
-    /// <remarks>
-    /// A DISPLAY constant and emphatically not a doctrine's forgetting time.
-    /// Nothing here decides when a side stops believing a ghost -- that is the
-    /// doctrine's call, and a patrol and a guard have every reason to answer
-    /// differently. This only says how long a ghost stays legible on screen, so
-    /// that "seen a moment ago" and "seen a minute ago" do not look alike.
-    /// </remarks>
-    private const int GhostFade = 120;
-
-    /// <summary>A pad a side can see, painted into the fog image.</summary>
-    private static readonly RgbaColor PadColour = RgbaColor.Rgb(60, 150, 90);
-
-    /// <summary>A sighting taken this tick.</summary>
-    private static readonly RgbaColor GhostFresh = RgbaColor.Rgb(190, 120, 200);
-
-    /// <summary>A sighting <see cref="GhostFade"/> ticks old or older: all but gone.</summary>
-    private static readonly RgbaColor GhostStale = RgbaColor.Rgb(60, 45, 65);
-
-    /// <summary>
     /// Whose knowledge the board is drawn from, or null for a viewer nobody
     /// wired one to -- which is every viewer that is not playing a fight.
     /// </summary>
@@ -245,6 +212,24 @@ public sealed class ViewerApp : IViewerApp
     /// </para>
     /// </remarks>
     private readonly InspectorArrangement _arrangement;
+
+    /// <summary>
+    /// How this viewer depicts what a side believes, or
+    /// <see cref="FogStyle.Default"/> where nobody said.
+    /// </summary>
+    /// <remarks>
+    /// <b>PRESENTATION, AND ONLY PRESENTATION.</b> Nothing read out of it reaches
+    /// a world or a doctrine, so a host may hand over a different one without
+    /// moving a single measured number -- which is what separates it from the
+    /// fog a side actually fights under. <see cref="FogStyle"/> says what that
+    /// buys.
+    /// <para>
+    /// A real field rather than an auto-property, because <see cref="Render"/> is
+    /// walked for writes and the walk cannot see through a compiler-generated
+    /// backing field.
+    /// </para>
+    /// </remarks>
+    private readonly FogStyle _fogStyle;
 
     /// <summary>Whose eyes the board is drawn through, or <see cref="Observer"/>.</summary>
     private int _viewpoint = Observer;
@@ -294,6 +279,10 @@ public sealed class ViewerApp : IViewerApp
     /// is what both hosts do today, is a viewer that shows exactly what it showed
     /// before there was such a thing.
     /// </para>
+    /// <para>
+    /// <c>fog</c> is how a side's belief is DEPICTED and never what it is -- see
+    /// <see cref="FogStyle"/>. Handing over none is today's picture exactly.
+    /// </para>
     /// </remarks>
     public ViewerApp(
         ViewerSession session,
@@ -302,7 +291,8 @@ public sealed class ViewerApp : IViewerApp
         Keymap? keys = null,
         IReadOnlyList<IWorldDebugView>? sources = null,
         IVisibilityView? eyes = null,
-        InspectorArrangement? arrangement = null)
+        InspectorArrangement? arrangement = null,
+        FogStyle? fog = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(maxPixelWidth, 0);
@@ -314,6 +304,7 @@ public sealed class ViewerApp : IViewerApp
         _sources = Copy(sources);
         _eyes = eyes;
         _arrangement = arrangement ?? InspectorArrangement.ArrivalOrder;
+        _fogStyle = fog ?? FogStyle.Default;
         Keys = keys ?? Keymap.Default;
         AdoptContent();
         StatusText = BuildStatus();
@@ -334,7 +325,8 @@ public sealed class ViewerApp : IViewerApp
         Keymap? keys = null,
         IReadOnlyList<IWorldDebugView>? sources = null,
         IVisibilityView? eyes = null,
-        InspectorArrangement? arrangement = null)
+        InspectorArrangement? arrangement = null,
+        FogStyle? fog = null)
         : this(
             BuildSession(grid, scenario, squad),
             layout.PixelWidth,
@@ -342,7 +334,8 @@ public sealed class ViewerApp : IViewerApp
             keys,
             sources,
             eyes,
-            arrangement)
+            arrangement,
+            fog)
     {
     }
 
@@ -742,7 +735,7 @@ public sealed class ViewerApp : IViewerApp
         _fogVersion = _sessionVersion;
         _visible = [.. visible];
         _fog = TerrainImage.Fogged(
-            _grid, visible, pads, RgbaColor.RayWhite, RgbaColor.DarkGray, PadColour, FogDim);
+            _grid, visible, pads, RgbaColor.RayWhite, RgbaColor.DarkGray, _fogStyle.Pad, _fogStyle.Dim);
     }
 
     /// <summary>Whether two cell answers hold the same cells in the same order.</summary>
@@ -783,8 +776,8 @@ public sealed class ViewerApp : IViewerApp
         _fog is not null && agent.Side != _viewpoint && !_visible.Contains(agent.Cell);
 
     /// <summary>
-    /// A sighting's colour, faded from <see cref="GhostFresh"/> toward
-    /// <see cref="GhostStale"/> by how many ticks old it is.
+    /// A sighting's colour, faded from <see cref="FogStyle.GhostFresh"/> toward
+    /// <see cref="FogStyle.GhostStale"/> by how many ticks old it is.
     /// </summary>
     /// <remarks>
     /// Fading rather than hiding, because a stale sighting is the interesting
@@ -792,15 +785,15 @@ public sealed class ViewerApp : IViewerApp
     /// thing this view exists to catch, and it cannot be caught if the belief
     /// disappears the moment it stops being true.
     /// </remarks>
-    private static RgbaColor Ghost(int age)
+    private RgbaColor Ghost(int age)
     {
-        var faded = Math.Clamp(age / (float)GhostFade, 0f, 1f);
+        var faded = Math.Clamp(age / (float)_fogStyle.GhostFade, 0f, 1f);
         static byte Mix(byte from, byte to, float t) => (byte)(from + ((to - from) * t));
 
         return RgbaColor.Rgb(
-            Mix(GhostFresh.R, GhostStale.R, faded),
-            Mix(GhostFresh.G, GhostStale.G, faded),
-            Mix(GhostFresh.B, GhostStale.B, faded));
+            Mix(_fogStyle.GhostFresh.R, _fogStyle.GhostStale.R, faded),
+            Mix(_fogStyle.GhostFresh.G, _fogStyle.GhostStale.G, faded),
+            Mix(_fogStyle.GhostFresh.B, _fogStyle.GhostStale.B, faded));
     }
 
     /// <summary>

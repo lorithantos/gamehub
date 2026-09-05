@@ -266,6 +266,121 @@ public sealed class FogTests
         return renderer.LastFrameOfKind<DrawCommand.Terrain>().Last().Image;
     }
 
+    /// <summary>
+    /// The fog-bearing script, played through side 0's eyes: one unit of its
+    /// own, one enemy it cannot see, a pad it has found, and two sightings of
+    /// different ages.
+    /// </summary>
+    /// <remarks>
+    /// Shared by the two tests below so that "the default draws what it always
+    /// drew" and "a different style draws something else" are the SAME frame
+    /// asked twice, and any difference between them is the style and nothing
+    /// about the script.
+    /// </remarks>
+    private static IReadOnlyList<DrawCommand> FogFrame(FogStyle? style)
+    {
+        var grid = Room();
+        var mine = grid.Index(2, 2);
+        var pad = grid.Index(3, 2);
+
+        var eyes = new FakeEyes([0, 1]);
+        eyes.Seen[0] = [mine, pad];
+        eyes.Pads[0] = [pad];
+
+        var session = ViewerSession.FromWorld(() => new StillWorld(grid, [(mine, 0), (grid.Index(11, 6), 1)]), "fog");
+        var app = new ViewerApp(session, 1000, 1000 - StatusHeight, eyes: eyes, fog: style);
+        var renderer = new RecordingRenderer();
+
+        Ticks(app, renderer, 40);
+        eyes.Memory[0] =
+        [
+            new RememberedUnit(1, grid.Index(6, 4), app.CurrentTick),
+            new RememberedUnit(2, grid.Index(8, 3), app.CurrentTick - 40),
+        ];
+
+        Play(app, renderer, ViewerKeys.Viewpoint);
+        return renderer.LastFrame;
+    }
+
+    [Fact]
+    public void TheDefaultStyleDrawsTheFrameTheViewerAlwaysDrew()
+    {
+        // EVERY CALL, SPELLED OUT: the fog image as a census of the colours it
+        // was painted with, and each circle with the exact ink that came off the
+        // ghost ramp. The five numbers that used to be constants are all in
+        // here, so a table consulted with anything but today's row cannot
+        // produce this list.
+        string[] expected =
+        [
+            "begin 0,0,0,255",
+
+            // The true map underneath, which no member of the table touches.
+            "terrain 0,0,994,639 14x9 245,245,245,255x84 80,80,80,255x42",
+
+            // The fog over it: a wall the side cannot see is 80 dimmed to 22 and
+            // open ground it cannot see is 245 dimmed to 68 -- both at 0.28 --
+            // beside the one cell it stands on and the one pad it has found.
+            "terrain 0,0,994,639 14x9 22,22,22,255x42 245,245,245,255x1 60,150,90,255x1 68,68,68,255x82",
+
+            // The fresh sighting is the near end of the ramp exactly; the
+            // forty-tick-old one is a third of the way to the far end, which is
+            // where a fade of 120 puts it and nowhere else.
+            "circle <461.5, 319.5> 24.14 190,120,200,255",
+            "circle <603.5, 248.5> 24.14 146,95,155,255",
+
+            // The side's own unit and its leader mark, unchanged by any of this.
+            "circle <177.5, 177.5> 24.14 130,130,130,255",
+            "circle <177.5, 177.5> 8.448999 0,0,0,255",
+            "end",
+        ];
+
+        Assert.Equal(expected, FogFrame(style: null).Select(Depict).ToList());
+    }
+
+    [Fact]
+    public void ANonDefaultStyleDrawsTheSameBeliefDifferently()
+    {
+        // Half the dimming, a red pad and a ramp that runs green to blue over
+        // ten ticks instead of a hundred and twenty. Nothing about the script
+        // moved, so every difference below came out of the table.
+        var loud = FogStyle.Default with
+        {
+            Dim = 0.5f,
+            Pad = RgbaColor.Rgb(200, 40, 40),
+            GhostFresh = RgbaColor.Rgb(0, 240, 0),
+            GhostStale = RgbaColor.Rgb(0, 0, 240),
+            GhostFade = 10,
+        };
+
+        string[] expected =
+        [
+            "begin 0,0,0,255",
+
+            // The map underneath is the same map: a style depicts belief and
+            // owns nothing else on the frame.
+            "terrain 0,0,994,639 14x9 245,245,245,255x84 80,80,80,255x42",
+
+            // Half of 245 and half of 80, where the default row dims them to 68
+            // and 22, and a red cell where the pad was green.
+            "terrain 0,0,994,639 14x9 122,122,122,255x82 200,40,40,255x1 " +
+                "245,245,245,255x1 40,40,40,255x42",
+
+            // Forty ticks against a fade of ten is past the far end, so the
+            // older sighting is the stale colour exactly rather than the mix the
+            // default row put there.
+            "circle <461.5, 319.5> 24.14 0,240,0,255",
+            "circle <603.5, 248.5> 24.14 0,0,240,255",
+
+            // Unchanged, because nothing in the table reaches a unit the side
+            // can see.
+            "circle <177.5, 177.5> 24.14 130,130,130,255",
+            "circle <177.5, 177.5> 8.448999 0,0,0,255",
+            "end",
+        ];
+
+        Assert.Equal(expected, FogFrame(loud).Select(Depict).ToList());
+    }
+
     [Fact]
     public void TheViewpointKeyCyclesEverySideAndComesBackToTheObserver()
     {
@@ -632,6 +747,52 @@ public sealed class FogTests
         DrawCommand.BeginFrame b => $"begin {b.Clear}",
         _ => "end",
     };
+
+    /// <summary>
+    /// A draw call as comparable text, with the colours in it.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Describe"/> compares the DECISION and deliberately says nothing
+    /// about what an image holds, because the two viewers it compares hold equal
+    /// pictures in different objects. This one is for the opposite question --
+    /// did the picture change -- so it carries the ink: every circle's colour,
+    /// and for a terrain image a census of the colours it was painted with,
+    /// which pins a dim and a pad without writing a hundred and twenty-six
+    /// texels out.
+    /// </remarks>
+    private static string Depict(DrawCommand command) => command switch
+    {
+        DrawCommand.Terrain t => string.Create(
+            CultureInfo.InvariantCulture,
+            $"terrain {t.Destination.X},{t.Destination.Y},{t.Destination.Width},{t.Destination.Height} " +
+            $"{t.Image.Width}x{t.Image.Height} {Census(t.Image)}"),
+        DrawCommand.Circle c => string.Create(
+            CultureInfo.InvariantCulture, $"circle {c.Center} {c.Radius} {Ink(c.Color)}"),
+        DrawCommand.Line l => string.Create(
+            CultureInfo.InvariantCulture, $"line {l.From} {l.To} {l.Thickness} {Ink(l.Color)}"),
+        DrawCommand.BeginFrame b => $"begin {Ink(b.Clear)}",
+        _ => "end",
+    };
+
+    /// <summary>A colour as four numbers, short enough to read in a failure.</summary>
+    private static string Ink(RgbaColor colour) =>
+        string.Create(CultureInfo.InvariantCulture, $"{colour.R},{colour.G},{colour.B},{colour.A}");
+
+    /// <summary>Every colour an image was painted with, and how many cells got it.</summary>
+    private static string Census(TerrainImage image)
+    {
+        // Sorted, so the census reads the same way twice. A plain dictionary's
+        // order is an implementation detail and this string is an assertion.
+        var counts = new SortedDictionary<string, int>(StringComparer.Ordinal);
+        for (var cell = 0; cell < image.Width * image.Height; cell++)
+        {
+            var ink = Ink(Texel(image, cell));
+            counts[ink] = counts.TryGetValue(ink, out var seen) ? seen + 1 : 1;
+        }
+
+        return string.Join(' ', counts.Select(c => string.Create(
+            CultureInfo.InvariantCulture, $"{c.Key}x{c.Value}")));
+    }
 
     /// <summary>
     /// A scripted <see cref="IVisibilityView"/>: whatever the test says each side
